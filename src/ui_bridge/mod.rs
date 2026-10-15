@@ -6,6 +6,7 @@ mod models;
 
 use crate::app::state::AppStateView;
 use crate::app::{Command, CoreHandle};
+use crate::domain::redact::SecretString;
 use crate::storage::layout::Layout;
 use slint::ComponentHandle;
 use std::sync::Arc;
@@ -79,6 +80,20 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     window.on_disconnect(move || send(&c, Command::Disconnect));
     let c = commands.clone();
     window.on_import_file(move || send(&c, Command::PickAndImport));
+    let c = commands.clone();
+    window.on_add_remote(move |name, url| {
+        send(
+            &c,
+            Command::AddRemoteProfile {
+                name: name.into(),
+                url: SecretString::new(url.as_str()),
+            },
+        )
+    });
+    let c = commands.clone();
+    window.on_update_profile(move |id| send(&c, Command::UpdateProfile(id.into())));
+    let c = commands.clone();
+    window.on_update_all(move || send(&c, Command::UpdateAll));
     let c = commands.clone();
     window.on_select_profile(move |id| send(&c, Command::SelectProfile(id.into())));
     let c = commands.clone();

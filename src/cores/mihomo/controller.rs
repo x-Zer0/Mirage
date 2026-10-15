@@ -10,6 +10,7 @@ use std::time::Duration;
 
 const STAGE: &str = "mihomo.controller";
 const TIMEOUT: Duration = Duration::from_secs(5);
+const RELOAD_TIMEOUT: Duration = Duration::from_secs(30);
 pub const DELAY_TEST_URL: &str = "https://cp.cloudflare.com/generate_204";
 const DELAY_TIMEOUT_MS: u32 = 5000;
 
@@ -159,6 +160,36 @@ impl Controller {
     pub async fn close_all_connections(&self) -> AppResult<()> {
         self.send(Method::DELETE, &["connections"], None, None)
             .await
+    }
+
+    /// Hot reload from the run config on disk (§10.5, §10.6). `force` makes
+    /// Mihomo apply even when it thinks nothing changed. Provider downloads may
+    /// happen during the reload, hence the longer timeout.
+    pub async fn reload(&self, config: &std::path::Path) -> AppResult<()> {
+        let mut url = self.url(&["configs"])?;
+        url.query_pairs_mut().append_pair("force", "true");
+        let body = serde_json::json!({ "path": config.to_string_lossy(), "payload": "" });
+        let resp = self
+            .http
+            .put(url)
+            .json(&body)
+            .timeout(RELOAD_TIMEOUT)
+            .send()
+            .await
+            .map_err(map_reqwest)?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        let code = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_default();
+        Err(AppError::new(
+            AppErrorKind::Http(code),
+            STAGE,
+            format!(
+                "热重载被拒绝：{}",
+                text.chars().take(200).collect::<String>()
+            ),
+        ))
     }
 
     async fn json<T: for<'de> Deserialize<'de>>(

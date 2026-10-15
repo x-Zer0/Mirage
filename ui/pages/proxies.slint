@@ -98,6 +98,8 @@ export component ProxiesPage inherits VerticalLayout {
                 background: n.current ? Theme.nav-selected : row.has-hover && group.selectable ? Theme.nav-hover : transparent;
                 accessible-role: list-item;
                 accessible-label: n.name;
+                accessible-item-selected: n.current;
+                accessible-action-default => { if (group.selectable) { root.select-node(group.name, n.name); } }
                 row := TouchArea {
                     enabled: group.selectable;
                     mouse-cursor: group.selectable ? pointer : default;

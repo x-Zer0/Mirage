@@ -1,4 +1,4 @@
-import { Button, ListView } from "std-widgets.slint";
+import { Button, ListView, LineEdit } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 
 export struct ProfileRow {
@@ -8,17 +8,60 @@ export struct ProfileRow {
     detail: string,
     updated: string,
     selected: bool,
+    remote: bool,
+    updating: bool,
+    usage: string,
+    fetch-error: string,
 }
 
 export component ProfilesPage inherits VerticalLayout {
     in property <[ProfileRow]> profiles;
     in property <bool> busy;
     in property <[string]> policy-notes;
+    in-out property <string> new-name;
+    in-out property <string> new-url;
     callback import-file();
+    callback add-remote(string, string);
+    callback update(string);
+    callback update-all();
     callback select(string);
     callback remove(string);
 
     spacing: 12px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        LineEdit {
+            placeholder-text: "订阅链接（https://…）";
+            text <=> root.new-url;
+            horizontal-stretch: 3;
+            accepted => {
+                if (root.new-url != "" && !root.busy) {
+                    root.add-remote(root.new-name, root.new-url);
+                    root.new-url = "";
+                    root.new-name = "";
+                }
+            }
+        }
+        LineEdit {
+            placeholder-text: "名称（可选）";
+            text <=> root.new-name;
+            horizontal-stretch: 1;
+        }
+        Button {
+            text: "添加订阅";
+            icon: @image-url("../../assets/icons/lucide/link.svg");
+            colorize-icon: true;
+            primary: true;
+            enabled: !root.busy && root.new-url != "";
+            clicked => {
+                root.add-remote(root.new-name, root.new-url);
+                // The URL is only kept by the core (SecretStore), not in the UI.
+                root.new-url = "";
+                root.new-name = "";
+            }
+        }
+    }
 
     HorizontalLayout {
         spacing: 8px;
@@ -30,38 +73,56 @@ export component ProfilesPage inherits VerticalLayout {
             enabled: !root.busy;
             clicked => { root.import-file(); }
         }
+        Button {
+            text: "全部更新";
+            icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+            colorize-icon: true;
+            clicked => { root.update-all(); }
+        }
     }
 
     if root.profiles.length == 0: Text {
-        text: "还没有配置。导入一个完整的 Mihomo YAML 配置开始使用。";
+        text: "还没有配置。添加一个订阅链接，或导入完整的 Mihomo YAML 配置。";
         color: Theme.text-muted;
     }
 
     ListView {
         vertical-stretch: 1;
         for p in root.profiles: Rectangle {
-            height: 64px;
+            height: col.preferred-height + 20px;
             background: p.selected ? Theme.nav-selected : touch.has-hover ? Theme.nav-hover : transparent;
             border-radius: 6px;
             accessible-role: list-item;
             accessible-label: p.name;
+            accessible-item-selected: p.selected;
+            accessible-action-default => { if (!root.busy) { root.select(p.id); } }
             // No switching while a start/stop or import is in flight.
             touch := TouchArea { enabled: !root.busy; clicked => { root.select(p.id); } }
             HorizontalLayout {
                 padding: 10px;
                 spacing: 12px;
-                VerticalLayout {
+                col := VerticalLayout {
                     alignment: center;
                     spacing: 2px;
-                    Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; }
-                    Text { text: p.source + " · " + p.detail + " · " + p.updated; color: Theme.text-muted; font-size: 12px; }
+                    horizontal-stretch: 1;
+                    Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; overflow: elide; }
+                    Text { text: p.source + " · " + p.detail + " · 更新于 " + p.updated; color: Theme.text-muted; font-size: 12px; overflow: elide; }
+                    if p.usage != "": Text { text: p.usage; color: Theme.text-muted; font-size: 12px; }
+                    if p.updating: Text { text: "正在更新…"; color: Theme.accent; font-size: 12px; }
+                    if !p.updating && p.fetch-error != "": Text { text: p.fetch-error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
                 }
-                Rectangle { horizontal-stretch: 1; }
                 if p.selected: Image {
                     source: @image-url("../../assets/icons/lucide/check.svg");
                     width: 18px; height: 18px;
                     y: (parent.height - self.height) / 2;
                     colorize: Theme.accent;
+                }
+                if p.remote: Button {
+                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                    colorize-icon: true;
+                    accessible-label: "更新 " + p.name;
+                    enabled: !p.updating;
+                    clicked => { root.update(p.id); }
                 }
                 Button {
                     icon: @image-url("../../assets/icons/lucide/trash-2.svg");
@@ -76,7 +137,7 @@ export component ProfilesPage inherits VerticalLayout {
 
     if root.policy-notes.length > 0: VerticalLayout {
         spacing: 2px;
-        Text { text: "最近一次导入的安全调整："; color: Theme.text-muted; font-size: 12px; }
+        Text { text: "最近一次导入或更新的安全调整："; color: Theme.text-muted; font-size: 12px; }
         for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; }
     }
 }

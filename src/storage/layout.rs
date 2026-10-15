@@ -57,6 +57,11 @@ impl Layout {
         self.root.join("settings.json")
     }
 
+    /// DPAPI files for secrets above the Credential Manager blob limit (§14.1).
+    pub fn secrets_dir(&self) -> PathBuf {
+        self.root.join("secrets")
+    }
+
     pub fn profiles_file(&self) -> PathBuf {
         self.root.join("profiles.json")
     }

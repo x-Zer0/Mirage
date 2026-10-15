@@ -36,6 +36,10 @@ impl Profiles {
         self.file.profiles.iter().find(|p| p.id == id)
     }
 
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut Profile> {
+        self.file.profiles.iter_mut().find(|p| p.id == id)
+    }
+
     pub fn selected_id(&self) -> Option<&ProfileId> {
         self.file.selected.as_ref()
     }

@@ -4,6 +4,7 @@ mod app;
 mod cores;
 mod domain;
 mod logging;
+mod net;
 mod platform;
 mod storage;
 mod subscriptions;
@@ -28,6 +29,13 @@ fn main() -> anyhow::Result<()> {
     layout.prepare().context("prepare data directory")?;
     let _log_guard = logging::init(&layout.logs).context("init logging")?;
     tracing::info!(version = VERSION, autostart, "Mirage starting");
+    // ring keeps the build free of the aws-lc C/NASM toolchain (§12.1).
+    if rustls::crypto::ring::default_provider()
+        .install_default()
+        .is_err()
+    {
+        tracing::debug!("rustls crypto provider already installed");
+    }
 
     // §11.5: undo what an abnormal exit left behind before anything else runs.
     let recovery_notice = app::recovery::run(&layout);

@@ -1,7 +1,7 @@
 //! Command and completion handlers for [`AppCore`].
 
 use super::state::{Connectivity, ProfileView, RuntimeStatus};
-use super::{AppCore, Command, Internal, error_notice, info_notice, pipeline, runtime};
+use super::{AppCore, Command, Internal, error_notice, info_notice, pipeline, runtime, updates};
 use crate::domain::error::{AppError, AppErrorKind};
 use crate::domain::model::{Profile, SubscriptionSource, Validity, now};
 use crate::storage::meta;
@@ -20,6 +20,9 @@ impl AppCore {
             Command::ImportLocalFile(path) => self.import(path),
             Command::SelectProfile(id) => self.select_profile(&id),
             Command::RemoveProfile(id) => self.remove_profile(&id),
+            Command::AddRemoteProfile { name, url } => self.add_remote(name, url),
+            Command::UpdateProfile(id) => self.update_profile(&id, true),
+            Command::UpdateAll => self.update_all(),
             Command::Connect => self.connect(),
             Command::Disconnect => self.disconnect(),
             Command::SelectNode { group, node } => self.select_node(group, node),
@@ -59,6 +62,14 @@ impl AppCore {
             }
             Internal::RestartDue(generation) => self.on_restart_due(generation),
             Internal::Connectivity(generation, result) => self.on_connectivity(generation, result),
+            Internal::RemoteAdded(added) => self.on_remote_added(*added),
+            Internal::Updated(outcome, manual) => self.on_updated(*outcome, manual),
+            Internal::Reloaded {
+                generation,
+                profile_id,
+                revision,
+                outcome,
+            } => self.on_reloaded(generation, profile_id, revision, outcome),
         }
     }
 
@@ -93,7 +104,7 @@ impl AppCore {
         }
     }
 
-    fn require_binary(&mut self) -> Option<crate::cores::mihomo::binary::CoreBinary> {
+    pub(super) fn require_binary(&mut self) -> Option<crate::cores::mihomo::binary::CoreBinary> {
         if self.binary.is_none() {
             self.view.notice = Some(error_notice(&AppError::new(
                 AppErrorKind::CoreBinaryInvalid,
@@ -159,6 +170,10 @@ impl AppCore {
             active_revision: Some(outcome.revision.id.clone()),
             last_good_revision: Some(outcome.revision.id.clone()),
             updated_at: now(),
+            // Local files are never fetched; the interval only matters for URLs.
+            update_policy: Default::default(),
+            usage: None,
+            last_fetch: None,
         };
         let stored =
             revisions::store_raw(&self.layout, &profile, &outcome.revision.id, &outcome.raw)
@@ -206,9 +221,15 @@ impl AppCore {
         if self.running.as_ref().is_some_and(|r| r.profile_id == id) {
             self.disconnect();
         }
-        if self.profiles.remove(id).is_some() {
-            if let Err(e) = self.profiles.save(&self.layout) {
-                self.view.notice = Some(error_notice(&e));
+        if let Some(removed) = self.profiles.remove(id) {
+            self.save_profiles();
+            self.forget_secrets(&removed);
+            if self
+                .queued_reload
+                .as_ref()
+                .is_some_and(|(queued, _)| queued == id)
+            {
+                self.queued_reload = None;
             }
             let dir = self.layout.profile_dir(&id.to_owned());
             if let Err(e) = std::fs::remove_dir_all(&dir) {
@@ -221,7 +242,10 @@ impl AppCore {
     fn connect(&mut self) {
         if matches!(
             self.view.runtime,
-            RuntimeStatus::Starting | RuntimeStatus::Running | RuntimeStatus::Stopping
+            RuntimeStatus::Starting
+                | RuntimeStatus::Running
+                | RuntimeStatus::Reloading
+                | RuntimeStatus::Stopping
         ) {
             return;
         }
@@ -316,7 +340,7 @@ impl AppCore {
         });
     }
 
-    fn refresh_groups(&self) {
+    pub(super) fn refresh_groups(&self) {
         let Some(running) = &self.running else { return };
         let controller = running.controller.clone();
         let generation = self.generation;
@@ -375,7 +399,7 @@ impl AppCore {
             .profiles
             .all()
             .iter()
-            .map(|p| profile_view(&self.layout, p, &selected))
+            .map(|p| profile_view(&self.layout, p, &selected, self.updating.contains(&p.id)))
             .collect();
     }
 }
@@ -390,6 +414,7 @@ fn profile_view(
     layout: &crate::storage::layout::Layout,
     p: &Profile,
     selected: &str,
+    updating: bool,
 ) -> ProfileView {
     let detail = p
         .active_revision
@@ -404,18 +429,48 @@ fn profile_view(
             Validity::Unchecked => "未校验".into(),
         })
         .unwrap_or_else(|| "没有可用版本".into());
+    let source = match &p.source {
+        SubscriptionSource::RemoteUrl { host, .. } => format!("订阅 {host}"),
+        other => other.label().into(),
+    };
     ProfileView {
         id: p.id.clone(),
         name: p.name.clone(),
-        source: p.source.label().into(),
+        source,
         detail,
-        updated: chrono::DateTime::from_timestamp(p.updated_at, 0)
-            .map(|t| {
-                t.with_timezone(&chrono::Local)
-                    .format("%Y-%m-%d %H:%M")
-                    .to_string()
-            })
-            .unwrap_or_default(),
+        updated: updates::profile_time(p.updated_at),
         selected: p.id == selected,
+        remote: p.is_remote(),
+        updating,
+        usage: p.usage.map(usage_text).unwrap_or_default(),
+        fetch_error: p
+            .last_fetch
+            .as_ref()
+            .and_then(|f| f.error.clone())
+            .unwrap_or_default(),
     }
+}
+
+/// "已用 1.2 GiB / 100.0 GiB · 到期 2026-12-01"; expiry 0/missing = 未提供 (§15).
+fn usage_text(u: crate::domain::model::UsageInfo) -> String {
+    let used = gib(u.upload.saturating_add(u.download));
+    let total = if u.total > 0 {
+        gib(u.total)
+    } else {
+        "不限".into()
+    };
+    let expire = u
+        .expire
+        .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+        .map(|t| {
+            t.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_else(|| "未提供".into());
+    format!("已用 {used} / {total} · 到期 {expire}")
+}
+
+fn gib(bytes: u64) -> String {
+    format!("{:.1} GiB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }

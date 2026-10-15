@@ -2,16 +2,16 @@
 
 use super::pipeline;
 use crate::cores::mihomo::binary::CoreBinary;
-use crate::cores::mihomo::compose::ManagedOverlay;
+use crate::cores::mihomo::compose::{self, ManagedOverlay};
 use crate::cores::mihomo::controller::Controller;
 use crate::cores::mihomo::process::{self, CoreCommand, CoreProcess};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{Profile, ProfileId};
+use crate::domain::model::{Profile, ProfileId, RevisionId};
 use crate::platform::windows::process as win_process;
 use crate::storage::journal::{self, CoreJournal};
 use crate::storage::layout::Layout;
 use crate::storage::{atomic, meta};
-use crate::subscriptions::revisions;
+use crate::subscriptions::{detect, revisions};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -30,6 +30,9 @@ pub struct Running {
     pub profile_id: ProfileId,
     pub process: CoreProcess,
     pub controller: Controller,
+    pub controller_addr: SocketAddr,
+    /// Controller secret; memory only (the run config holds it under a private ACL).
+    pub secret: String,
     pub mixed_port: u16,
     pub log_file: PathBuf,
     pub check_lines: Vec<String>,
@@ -95,11 +98,84 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         profile_id: req.profile.id,
         process,
         controller,
+        controller_addr,
+        secret,
         mixed_port: req.mixed_port,
         log_file,
         check_lines: prepared.report.lines,
         started_at: Instant::now(),
     })
+}
+
+pub struct ReloadRequest {
+    pub layout: Layout,
+    pub profile: Profile,
+    pub controller: Controller,
+    pub controller_addr: SocketAddr,
+    pub secret: String,
+    pub mixed_port: u16,
+    pub candidate: RevisionId,
+    /// last_good, written back when the candidate fails (§8 step 9).
+    pub fallback: Option<RevisionId>,
+}
+
+#[derive(Debug)]
+pub enum ReloadOutcome {
+    Applied,
+    /// Candidate rejected; the core runs last_good again.
+    RolledBack(String),
+    /// Neither candidate nor last_good could be hot-applied; restart the core.
+    NeedsRestart(String),
+}
+
+/// Hot-applies a checked revision to the running core, rolling back to
+/// last_good on failure (§8 steps 7–9, §16.4).
+pub async fn reload(req: ReloadRequest) -> ReloadOutcome {
+    let reason = match apply_revision(&req, &req.candidate).await {
+        Ok(()) => return ReloadOutcome::Applied,
+        Err(e) => {
+            tracing::warn!(error = %e, "hot reload failed, rolling back");
+            e.user_message()
+        }
+    };
+    let Some(fallback) = req.fallback.as_ref().filter(|f| **f != req.candidate) else {
+        return ReloadOutcome::NeedsRestart(reason);
+    };
+    match apply_revision(&req, fallback).await {
+        Ok(()) => ReloadOutcome::RolledBack(reason),
+        Err(e) => {
+            tracing::error!(error = %e, "rollback reload failed");
+            ReloadOutcome::NeedsRestart(reason)
+        }
+    }
+}
+
+/// compose → run/config.yaml → `PUT /configs` → `/proxies` readable → selection.
+async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> {
+    let raw = revisions::read_raw(&req.layout, &req.profile, rev)?;
+    let detected = detect::detect(&raw)?;
+    let overlay = ManagedOverlay {
+        mixed_port: req.mixed_port,
+        controller: req.controller_addr,
+        secret: &req.secret,
+        log_level: CORE_LOG_LEVEL,
+        profile_id: &req.profile.id,
+    };
+    let composed = compose::compose(&detected.text, &overlay)?;
+    let run_config = req.layout.run_config();
+    atomic::write(&run_config, composed.yaml.as_bytes())
+        .map_err(|e| AppError::storage(STAGE, e))?;
+    req.controller.reload(&run_config).await?;
+    let groups = req.controller.groups().await?;
+    if groups.is_empty() && composed.summary.groups > 0 {
+        return Err(AppError::new(
+            AppErrorKind::CoreNotReady,
+            STAGE,
+            "重载后读不到代理组",
+        ));
+    }
+    restore_selection(&req.layout, &req.profile.id, &req.controller).await;
+    Ok(())
 }
 
 /// Closes connections, terminates the owned process and removes the run config.

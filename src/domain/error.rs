@@ -7,8 +7,10 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppErrorKind {
     Network,
+    Tls,
     Timeout,
     Http(u16),
+    InvalidUrl,
     UnsupportedFormat,
     ResponseTooLarge,
     NotAConfig,
@@ -29,8 +31,10 @@ impl AppErrorKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Network => "网络错误",
+            Self::Tls => "TLS 证书或握手失败",
             Self::Timeout => "请求超时",
             Self::Http(_) => "HTTP 错误",
+            Self::InvalidUrl => "订阅地址无效",
             Self::UnsupportedFormat => "不支持的配置格式",
             Self::ResponseTooLarge => "内容过大",
             Self::NotAConfig => "不是有效的配置",

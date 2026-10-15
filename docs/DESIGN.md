@@ -776,7 +776,7 @@ TUN 在 Windows 上需要管理员权限，用来创建 wintun 网卡和写路�
 - 所有客户端都调用 `.no_proxy()`。reqwest 默认会使用“系统代理”，调用 `no_proxy()` 后会清除并禁用它（reqwest 0.13 文档）。否则在本应用开启系统代理、内核却没在运行时，内部请求会打到失效的本地端口，或形成自我代理的环路。
 - 只允许 `https://` 地址，控制器使用环回 `http://` 除外。URL 中不能包含 userinfo（`user:pass@`）。
 - 所有客户端都不启用 cookie jar。
-- TLS 使用 rustls，配合 `rustls-platform-verifier`（系统证书库），不提供“跳过证书校验”的选项。
+- TLS 使用 rustls，配合 `rustls-platform-verifier`（系统证书库），不提供“跳过证书校验”的选项。【M3】加密后端用 `ring`（`reqwest` 的 `rustls-no-provider` + 启动时安装 ring provider），避免 aws-lc 所需的 C/NASM 工具链。
 - 响应体用流式读取并累计长度，超过上限时立即中断，报 `ResponseTooLarge`。不信任 `Content-Length`。
 
 ### 12.2 出站路由策略
@@ -1014,7 +1014,7 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 | 托盘 | Slint 内置 `SystemTrayIcon` | 不需要额外 crate |
 | 图标 | Lucide（lucide-static 1.57.0，ISC） | SVG 放在 `assets/icons/lucide/`，新增图标从同一版本获取 |
 | 异步 | `tokio`、`tokio-util`、`futures`、`async-trait` | |
-| HTTP | `reqwest`（`rustls-tls`、`stream`、`json`）、`rustls-platform-verifier` | 0.12/0.13，以开工时版本为准 |
+| HTTP | `reqwest` =0.13.5（`rustls-no-provider`、`json`）、`rustls` =0.23.45（`ring`）；平台校验器由 reqwest 引入 | 已锁定（M3） |
 | 序列化 | `serde`、`serde_json`、`serde_yaml_ng`（或备选） | §9.1 |
 | Windows | `windows`（Win32_System_Threading、JobObjects、Networking_WinInet、Security_Credentials、Security_Cryptography、Storage_FileSystem、Security_Authorization、NetworkManagement_IpHelper 等 feature） | |
 | 日志 | `tracing`、`tracing-subscriber`、`tracing-appender` | |

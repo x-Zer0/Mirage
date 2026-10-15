@@ -146,7 +146,7 @@ impl AppCore {
         if !on {
             // Also while Restarting: the proxy may still point at the dead port.
             self.release_sysproxy();
-        } else if self.view.runtime == RuntimeStatus::Running {
+        } else if self.view.runtime.is_up() {
             self.ensure_sysproxy();
         }
     }

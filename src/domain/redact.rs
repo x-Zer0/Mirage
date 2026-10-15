@@ -48,3 +48,24 @@ pub fn redact_text(input: &str) -> Cow<'_, str> {
     }
     out
 }
+
+/// A value that must never reach a log line, e.g. a full subscription URL.
+/// `Debug` prints a placeholder; read it with [`SecretString::expose`].
+#[derive(Clone, PartialEq, Eq)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretString(***)")
+    }
+}

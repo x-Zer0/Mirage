@@ -8,10 +8,19 @@ pub enum RuntimeStatus {
     Stopped,
     Starting,
     Running,
+    /// Running; a new revision is being hot-applied (§5.2).
+    Reloading,
     /// Unexpected exit; a supervised restart is pending (§5.2).
     Restarting,
     Stopping,
     Failed(String),
+}
+
+impl RuntimeStatus {
+    /// The core is up and serving the mixed port.
+    pub fn is_up(&self) -> bool {
+        matches!(self, Self::Running | Self::Reloading)
+    }
 }
 
 /// Reachability through the local core, independent of the core state (§5.1).
@@ -32,12 +41,26 @@ pub struct ProfileView {
     pub detail: String,
     pub updated: String,
     pub selected: bool,
+    pub remote: bool,
+    pub updating: bool,
+    /// "已用 1.2 GiB / 100 GiB · 到期 2026-12-01"; empty when unknown.
+    pub usage: String,
+    /// Last fetch failure ("更新失败（仍使用 … 的版本）：…"); empty when fine.
+    pub fetch_error: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub error: bool,
     pub text: String,
+}
+
+impl Notice {
+    /// Error notice from already-composed, redacted text.
+    pub fn error(text: String) -> Self {
+        tracing::warn!(%text, "operation failed");
+        Self { error: true, text }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

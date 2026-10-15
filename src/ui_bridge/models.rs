@@ -12,7 +12,7 @@ const SLOW_MS: u32 = 500;
 pub fn apply(w: &MainWindow, s: &AppStateView) {
     w.set_core_version(s.core_version.clone().into());
     w.set_status_text(status_text(&s.runtime).into());
-    w.set_running(s.runtime == RuntimeStatus::Running);
+    w.set_running(s.runtime.is_up());
     let busy =
         s.busy.is_some() || matches!(s.runtime, RuntimeStatus::Starting | RuntimeStatus::Stopping);
     w.set_busy(busy);
@@ -32,6 +32,10 @@ pub fn apply(w: &MainWindow, s: &AppStateView) {
         detail: p.detail.clone().into(),
         updated: p.updated.clone().into(),
         selected: p.selected,
+        remote: p.remote,
+        updating: p.updating,
+        usage: p.usage.clone().into(),
+        fetch_error: p.fetch_error.clone().into(),
     })));
     w.set_groups(rc(s.groups.iter().map(group_row)));
     w.set_testing_group(s.testing_group.clone().unwrap_or_default().into());
@@ -49,13 +53,13 @@ pub fn apply(w: &MainWindow, s: &AppStateView) {
 
 pub fn apply_tray(t: &AppTray, s: &AppStateView) {
     t.set_state(match s.runtime {
-        RuntimeStatus::Running => TrayState::Connected,
+        RuntimeStatus::Running | RuntimeStatus::Reloading => TrayState::Connected,
         RuntimeStatus::Restarting => TrayState::Restarting,
         RuntimeStatus::Failed(_) => TrayState::Error,
         _ => TrayState::Idle,
     });
     t.set_system_proxy(s.system_proxy_wanted);
-    t.set_running(s.runtime == RuntimeStatus::Running);
+    t.set_running(s.runtime.is_up());
     t.set_busy(matches!(
         s.runtime,
         RuntimeStatus::Starting | RuntimeStatus::Stopping
@@ -63,7 +67,7 @@ pub fn apply_tray(t: &AppTray, s: &AppStateView) {
 }
 
 fn connectivity_text(s: &AppStateView) -> (String, i32) {
-    if s.runtime != RuntimeStatus::Running {
+    if !s.runtime.is_up() {
         return ("未连接".into(), 0);
     }
     match &s.connectivity {

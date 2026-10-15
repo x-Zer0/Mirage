@@ -10,18 +10,23 @@ mod runtime;
 pub mod state;
 mod supervise;
 mod sysproxy;
+mod updates;
 
 use crate::cores::mihomo::binary::{self, CoreBinary};
 use crate::cores::mihomo::controller::ProxyGroupView;
 use crate::domain::error::AppError;
+use crate::domain::model::{ProfileId, RevisionId};
+use crate::domain::redact::SecretString;
+use crate::platform::windows::secret::SecretStore;
 use crate::storage::layout::Layout;
 use crate::storage::meta::{self, SettingsFile};
 use runtime::Running;
 use state::{AppStateView, Notice, RuntimeStatus};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Semaphore, mpsc, watch};
 
 const COMMAND_QUEUE: usize = 64;
 /// How often an applied system proxy is compared with WinINet (§11.3).
@@ -38,6 +43,13 @@ pub enum Command {
     ImportLocalFile(std::path::PathBuf),
     SelectProfile(String),
     RemoveProfile(String),
+    /// Name may be empty (then content-disposition or the host is used).
+    AddRemoteProfile {
+        name: String,
+        url: SecretString,
+    },
+    UpdateProfile(String),
+    UpdateAll,
     Connect,
     Disconnect,
     SelectNode {
@@ -58,12 +70,24 @@ enum Internal {
     CoreVerified(Result<CoreBinary, AppError>),
     Imported(Result<pipeline::ImportOutcome, AppError>),
     Started(u64, Result<Running, AppError>),
-    CoreExited { generation: u64, detail: String },
+    CoreExited {
+        generation: u64,
+        detail: String,
+    },
     Groups(u64, Result<Vec<ProxyGroupView>, AppError>),
     Stopped(u64),
     DelayDone(u64, String, Result<(), AppError>),
     RestartDue(u64),
     Connectivity(u64, Result<u32, AppError>),
+    RemoteAdded(Box<updates::AddedRemote>),
+    /// `bool`: started by the user (notices) rather than the schedule.
+    Updated(Box<pipeline::UpdateOutcome>, bool),
+    Reloaded {
+        generation: u64,
+        profile_id: ProfileId,
+        revision: RevisionId,
+        outcome: runtime::ReloadOutcome,
+    },
 }
 
 pub struct CoreHandle {
@@ -152,6 +176,12 @@ struct AppCore {
     restart_attempts: u32,
     /// Commands that need a verified core, held until verification finishes.
     deferred: Vec<Command>,
+    secrets: SecretStore,
+    /// Profiles with a download/check in flight.
+    updating: HashSet<ProfileId>,
+    fetch_permits: Arc<Semaphore>,
+    /// Candidate that arrived while a hot reload was running (§6.5).
+    queued_reload: Option<(ProfileId, RevisionId)>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
 }
@@ -174,6 +204,7 @@ impl AppCore {
                 SettingsFile::default()
             });
         view.system_proxy_wanted = settings.system_proxy;
+        let secrets = SecretStore::new(layout.secrets_dir());
         Self {
             layout,
             state_tx,
@@ -185,6 +216,10 @@ impl AppCore {
             settings,
             restart_attempts: 0,
             deferred: Vec::new(),
+            secrets,
+            updating: HashSet::new(),
+            fetch_permits: updates::fetch_permits(),
+            queued_reload: None,
             internal_tx,
             internal_rx: Some(internal_rx),
         }
@@ -195,6 +230,10 @@ impl AppCore {
         self.startup();
         let mut watch = tokio::time::interval(SYSPROXY_WATCH);
         watch.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // The first tick fires immediately; it runs before the binary is
+        // verified and is a no-op, so the first real check is one tick later.
+        let mut schedule = tokio::time::interval(updates::SCHEDULE_TICK);
+        schedule.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut ack = None;
         loop {
             tokio::select! {
@@ -208,6 +247,7 @@ impl AppCore {
                 },
                 Some(msg) = internal.recv() => self.handle_internal(msg),
                 _ = watch.tick() => self.watch_sysproxy(),
+                _ = schedule.tick() => self.schedule_due_updates(),
             }
             self.publish();
         }
@@ -272,6 +312,7 @@ pub fn status_text(status: &RuntimeStatus) -> String {
         RuntimeStatus::Stopped => "未连接".into(),
         RuntimeStatus::Starting => "正在连接…".into(),
         RuntimeStatus::Running => "已连接".into(),
+        RuntimeStatus::Reloading => "已连接 · 正在应用新配置…".into(),
         RuntimeStatus::Restarting => "内核异常退出，正在重启…".into(),
         RuntimeStatus::Stopping => "正在断开…".into(),
         RuntimeStatus::Failed(reason) => format!("连接失败：{reason}"),

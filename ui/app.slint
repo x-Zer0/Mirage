@@ -44,6 +44,9 @@ export component MainWindow inherits Window {
     callback connect();
     callback disconnect();
     callback import-file();
+    callback add-remote(string, string);
+    callback update-profile(string);
+    callback update-all();
     callback select-profile(string);
     callback remove-profile(string);
     callback select-node(string, string);
@@ -136,6 +139,9 @@ export component MainWindow inherits Window {
                 busy: root.busy;
                 policy-notes: root.policy-notes;
                 import-file => { root.import-file(); }
+                add-remote(name, url) => { root.add-remote(name, url); }
+                update(id) => { root.update-profile(id); }
+                update-all => { root.update-all(); }
                 select(id) => { root.select-profile(id); }
                 remove(id) => { root.remove-profile(id); }
             }
