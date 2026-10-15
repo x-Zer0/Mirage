@@ -1,4 +1,4 @@
-import { Button } from "std-widgets.slint";
+import { Button, Switch } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 import { Card } from "../components/card.slint";
 
@@ -9,8 +9,15 @@ export component OverviewPage inherits VerticalLayout {
     in property <string> profile-name;
     in property <int> mixed-port;
     in property <string> core-version;
+    // in-out: the Switch writes it on toggle; a one-way binding would break.
+    in-out property <bool> system-proxy-wanted;
+    in property <bool> system-proxy-active;
+    in property <string> connectivity-text;
+    in property <int> connectivity-level; // 0 unknown/checking, 1 ok, 2 failed
     callback connect();
     callback disconnect();
+    callback set-system-proxy(bool);
+    callback check-connectivity();
 
     spacing: 16px;
     alignment: start;
@@ -46,10 +53,58 @@ export component OverviewPage inherits VerticalLayout {
 
     Card {
         VerticalLayout {
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    Text { text: "系统代理"; color: Theme.text; font-weight: 600; }
+                    Text {
+                        text: root.system-proxy-active ? "已指向 127.0.0.1:" + root.mixed-port
+                            : root.system-proxy-wanted ? "连接后自动开启"
+                            : "未开启";
+                        color: Theme.text-muted;
+                    }
+                }
+                Switch {
+                    checked <=> root.system-proxy-wanted;
+                    accessible-label: "系统代理";
+                    toggled => { root.set-system-proxy(self.checked); }
+                }
+            }
+            Text {
+                text: "系统代理只对读取 Windows 代理设置的程序生效（如浏览器），并非接管全部流量。";
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    Card {
+        VerticalLayout {
             spacing: 6px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "连通性：" + root.connectivity-text;
+                    color: root.connectivity-level == 1 ? Theme.ok : root.connectivity-level == 2 ? Theme.danger : Theme.text;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                    colorize-icon: true;
+                    accessible-label: "重新检测连通性";
+                    enabled: root.running;
+                    clicked => { root.check-connectivity(); }
+                }
+            }
             Text { text: "本地代理端口：127.0.0.1:" + root.mixed-port; color: Theme.text; }
             Text { text: "内核：" + root.core-version; color: Theme.text-muted; }
-            Text { text: "系统代理与 TUN 将在后续版本提供；当前可在程序中手动设置 HTTP/SOCKS 代理为上述端口。"; color: Theme.text-muted; wrap: word-wrap; }
         }
     }
 }

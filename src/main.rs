@@ -29,7 +29,10 @@ fn main() -> anyhow::Result<()> {
     let _log_guard = logging::init(&layout.logs).context("init logging")?;
     tracing::info!(version = VERSION, autostart, "Mirage starting");
 
-    let core = app::spawn(layout.clone()).context("start app runtime")?;
+    // §11.5: undo what an abnormal exit left behind before anything else runs.
+    let recovery_notice = app::recovery::run(&layout);
+    let core = app::spawn(layout.clone(), recovery_notice).context("start app runtime")?;
+    platform::windows::session::on_session_end(core.session_end_hook());
     if let Some(path) = import_arg() {
         // Fresh queue, cannot be full.
         let _ = core.sender().try_send(app::Command::ImportLocalFile(path));

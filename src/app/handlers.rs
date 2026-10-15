@@ -1,6 +1,6 @@
 //! Command and completion handlers for [`AppCore`].
 
-use super::state::{ProfileView, RuntimeStatus};
+use super::state::{Connectivity, ProfileView, RuntimeStatus};
 use super::{AppCore, Command, Internal, error_notice, info_notice, pipeline, runtime};
 use crate::domain::error::{AppError, AppErrorKind};
 use crate::domain::model::{Profile, SubscriptionSource, Validity, now};
@@ -25,8 +25,11 @@ impl AppCore {
             Command::SelectNode { group, node } => self.select_node(group, node),
             Command::TestGroupDelay(group) => self.test_delay(group),
             Command::RefreshGroups => self.refresh_groups(),
+            Command::SetSystemProxy(on) => self.set_system_proxy(on),
+            Command::CheckConnectivity => self.check_connectivity(),
             Command::DismissNotice => self.view.notice = None,
-            Command::Quit => {}
+            // Both end the actor loop before reaching here (app::AppCore::run).
+            Command::SessionEnding(_) | Command::Quit => {}
         }
     }
 
@@ -54,6 +57,8 @@ impl AppCore {
                     Err(_) => {}
                 }
             }
+            Internal::RestartDue(generation) => self.on_restart_due(generation),
+            Internal::Connectivity(generation, result) => self.on_connectivity(generation, result),
         }
     }
 
@@ -79,6 +84,12 @@ impl AppCore {
         }
         for cmd in std::mem::take(&mut self.deferred) {
             self.handle(cmd);
+        }
+        // §16.1: start from the stored revision, never waiting on the network.
+        if self.binary.is_some() && self.settings.auto_connect && self.profiles.selected().is_some()
+        {
+            tracing::info!("auto-connect on startup");
+            self.connect();
         }
     }
 
@@ -214,11 +225,15 @@ impl AppCore {
         ) {
             return;
         }
+        // An explicit connect starts a fresh restart budget and re-reads the
+        // saved switch (an external change may have turned it off for this run).
+        self.restart_attempts = 0;
+        self.view.system_proxy_wanted = self.settings.system_proxy;
         self.start_after(None);
     }
 
     /// Starts the selected profile, first stopping `previous` in the same task.
-    fn start_after(&mut self, previous: Option<runtime::Running>) {
+    pub(super) fn start_after(&mut self, previous: Option<runtime::Running>) {
         let Some(binary) = self.require_binary() else {
             return;
         };
@@ -248,11 +263,17 @@ impl AppCore {
     fn on_started(&mut self, generation: u64, result: Result<runtime::Running, AppError>) {
         match result {
             Ok(running) if generation == self.generation => {
+                if self.view.runtime == RuntimeStatus::Restarting {
+                    tracing::info!(attempt = self.restart_attempts, "core restarted");
+                    self.view.notice = Some(info_notice("内核已自动重启"));
+                }
                 self.view.runtime = RuntimeStatus::Running;
                 self.view.check_lines = running.check_lines.clone();
                 self.watch_exit(&running);
                 self.running = Some(running);
+                self.ensure_sysproxy();
                 self.refresh_groups();
+                self.check_connectivity();
             }
             Ok(stale) => {
                 // A newer transaction superseded this start; discard its core.
@@ -260,45 +281,28 @@ impl AppCore {
                 tokio::spawn(async move { runtime::stop(stale, &layout).await });
             }
             Err(e) if generation == self.generation => {
-                self.view.runtime = RuntimeStatus::Failed(e.user_message());
-                self.view.notice = Some(error_notice(&e));
+                if self.view.runtime == RuntimeStatus::Restarting {
+                    self.schedule_restart(e.user_message());
+                } else {
+                    // A failed user connect may follow a crash; never leave the
+                    // system proxy pointing at a port nobody listens on.
+                    self.release_sysproxy();
+                    self.view.runtime = RuntimeStatus::Failed(e.user_message());
+                    self.view.notice = Some(error_notice(&e));
+                }
             }
             Err(_) => {}
         }
     }
 
-    fn watch_exit(&self, running: &runtime::Running) {
-        let mut exit = running.process.exit_watch();
-        let generation = running.generation;
-        let log = running.log_file.clone();
-        self.spawn(async move {
-            let _ = exit.wait_for(Option::is_some).await;
-            let code = exit.borrow().and_then(|e| e.code);
-            let tail = crate::cores::mihomo::process::log_tail(&log, 3);
-            Internal::CoreExited {
-                generation,
-                detail: format!("退出码 {code:?}；{tail}"),
-            }
-        });
-    }
-
-    fn on_core_exited(&mut self, generation: u64, detail: String) {
-        if generation != self.generation || self.running.is_none() {
-            return; // expected exit after a stop or a superseded start
-        }
-        // M1 reports the crash; supervised restart and sysproxy rollback land in M2 (§5.2, §11.4).
-        self.running = None;
-        runtime::remove_run_config(&self.layout);
-        let e = AppError::new(AppErrorKind::CoreExited, STAGE, detail);
-        self.view.runtime = RuntimeStatus::Failed(e.user_message());
-        self.view.groups.clear();
-        self.view.notice = Some(error_notice(&e));
-    }
-
+    /// User disconnect: system proxy first, then the core (§11.4).
     fn disconnect(&mut self) {
         self.generation += 1;
+        self.restart_attempts = 0;
+        self.release_sysproxy();
         self.view.groups.clear();
         self.view.testing_group = None;
+        self.view.connectivity = Connectivity::Unknown;
         let Some(running) = self.running.take() else {
             self.view.runtime = RuntimeStatus::Stopped;
             return;

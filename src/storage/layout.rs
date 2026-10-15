@@ -53,6 +53,10 @@ impl Layout {
         Ok(())
     }
 
+    pub fn settings_file(&self) -> PathBuf {
+        self.root.join("settings.json")
+    }
+
     pub fn profiles_file(&self) -> PathBuf {
         self.root.join("profiles.json")
     }

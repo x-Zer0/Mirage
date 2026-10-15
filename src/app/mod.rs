@@ -2,22 +2,32 @@
 //! slow work runs in spawned tasks that report back through `Internal`
 //! messages tagged with the generation they were started for.
 
+mod connectivity;
 mod pipeline;
 mod profiles;
+pub mod recovery;
 mod runtime;
 pub mod state;
+mod supervise;
+mod sysproxy;
 
 use crate::cores::mihomo::binary::{self, CoreBinary};
 use crate::cores::mihomo::controller::ProxyGroupView;
 use crate::domain::error::AppError;
 use crate::storage::layout::Layout;
+use crate::storage::meta::{self, SettingsFile};
 use runtime::Running;
 use state::{AppStateView, Notice, RuntimeStatus};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
 const COMMAND_QUEUE: usize = 64;
+/// How often an applied system proxy is compared with WinINet (§11.3).
+const SYSPROXY_WATCH: Duration = Duration::from_secs(5);
+/// Upper bound for the logoff/shutdown cleanup (§11.5).
+const SESSION_END_WAIT: Duration = Duration::from_secs(5);
 /// DESIGN.md §2: avoids 7890/7897 and ziyoumao's 17890.
 pub const DEFAULT_MIXED_PORT: u16 = 17896;
 
@@ -36,7 +46,11 @@ pub enum Command {
     },
     TestGroupDelay(String),
     RefreshGroups,
+    SetSystemProxy(bool),
+    CheckConnectivity,
     DismissNotice,
+    /// Logoff/shutdown: clean up now and acknowledge when done (§11.5).
+    SessionEnding(std::sync::mpsc::Sender<()>),
     Quit,
 }
 
@@ -48,6 +62,8 @@ enum Internal {
     Groups(u64, Result<Vec<ProxyGroupView>, AppError>),
     Stopped(u64),
     DelayDone(u64, String, Result<(), AppError>),
+    RestartDue(u64),
+    Connectivity(u64, Result<u32, AppError>),
 }
 
 pub struct CoreHandle {
@@ -69,6 +85,22 @@ impl CoreHandle {
         RUNTIME.get().expect("runtime started").clone()
     }
 
+    /// Hook for `platform::session`: asks the actor to restore the system proxy
+    /// and stop the core, then waits (bounded) so cleanup finishes before
+    /// Windows ends the process.
+    pub fn session_end_hook(&self) -> impl Fn() + Send + Sync + 'static {
+        let tx = self.tx.clone();
+        move || {
+            let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+            if tx.blocking_send(Command::SessionEnding(ack_tx)).is_ok()
+                && ack_rx.recv_timeout(SESSION_END_WAIT).is_ok()
+            {
+                return;
+            }
+            tracing::warn!("session-end cleanup did not finish in time");
+        }
+    }
+
     /// Stops the core (if running) and waits for the runtime thread.
     pub fn shutdown(self) {
         // A closed channel means the actor already stopped; nothing left to do.
@@ -81,7 +113,8 @@ impl CoreHandle {
 
 static RUNTIME: std::sync::OnceLock<tokio::runtime::Handle> = std::sync::OnceLock::new();
 
-pub fn spawn(layout: Layout) -> std::io::Result<CoreHandle> {
+/// `startup_notice` carries the outcome of [`recovery::run`] to the UI.
+pub fn spawn(layout: Layout, startup_notice: Option<String>) -> std::io::Result<CoreHandle> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("mirage-rt")
@@ -92,7 +125,13 @@ pub fn spawn(layout: Layout) -> std::io::Result<CoreHandle> {
     let (state_tx, state_rx) = watch::channel(Arc::new(AppStateView::default()));
     let thread = std::thread::Builder::new()
         .name("mirage-core".into())
-        .spawn(move || runtime.block_on(AppCore::new(layout, state_tx).run(rx)))?;
+        .spawn(move || {
+            let mut core = AppCore::new(layout, state_tx);
+            if let Some(text) = startup_notice {
+                core.view.notice = Some(Notice { error: true, text });
+            }
+            runtime.block_on(core.run(rx))
+        })?;
     Ok(CoreHandle {
         tx,
         state: state_rx,
@@ -108,6 +147,9 @@ struct AppCore {
     profiles: profiles::Profiles,
     running: Option<Running>,
     generation: u64,
+    settings: SettingsFile,
+    /// Consecutive supervised restarts since the core last ran stably (§5.2).
+    restart_attempts: u32,
     /// Commands that need a verified core, held until verification finishes.
     deferred: Vec<Command>,
     internal_tx: mpsc::UnboundedSender<Internal>,
@@ -126,6 +168,12 @@ impl AppCore {
             view.notice = Some(error_notice(&e));
             profiles::Profiles::empty()
         });
+        let settings: SettingsFile = meta::load(&layout.settings_file(), "app.settings")
+            .unwrap_or_else(|e| {
+                view.notice = Some(error_notice(&e));
+                SettingsFile::default()
+            });
+        view.system_proxy_wanted = settings.system_proxy;
         Self {
             layout,
             state_tx,
@@ -134,6 +182,8 @@ impl AppCore {
             profiles,
             running: None,
             generation: 0,
+            settings,
+            restart_attempts: 0,
             deferred: Vec::new(),
             internal_tx,
             internal_rx: Some(internal_rx),
@@ -143,25 +193,41 @@ impl AppCore {
     async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
         let mut internal = self.internal_rx.take().expect("internal receiver");
         self.startup();
+        let mut watch = tokio::time::interval(SYSPROXY_WATCH);
+        watch.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut ack = None;
         loop {
             tokio::select! {
                 cmd = commands.recv() => match cmd {
                     Some(Command::Quit) | None => break,
+                    Some(Command::SessionEnding(tx)) => {
+                        ack = Some(tx);
+                        break;
+                    }
                     Some(cmd) => self.handle(cmd),
                 },
                 Some(msg) = internal.recv() => self.handle_internal(msg),
+                _ = watch.tick() => self.watch_sysproxy(),
             }
             self.publish();
         }
-        if let Some(running) = self.running.take() {
-            runtime::stop(running, &self.layout).await;
+        self.shutdown_cleanup().await;
+        if let Some(ack) = ack {
+            let _ = ack.send(());
         }
         tracing::debug!("app core stopped");
     }
 
+    /// Quit and logoff path: system proxy first, then the core (§11.4, §11.5).
+    async fn shutdown_cleanup(&mut self) {
+        self.generation += 1;
+        self.release_sysproxy();
+        if let Some(running) = self.running.take() {
+            runtime::stop(running, &self.layout).await;
+        }
+    }
+
     fn startup(&mut self) {
-        clean_check_dir(&self.layout);
-        runtime::remove_run_config(&self.layout);
         if let Err(e) = binary::seed_core_home(&self.layout) {
             self.view.notice = Some(error_notice(&e));
         }
@@ -201,22 +267,12 @@ fn info_notice(text: impl Into<String>) -> Notice {
     }
 }
 
-/// Removes leftover check files; they may hold node credentials (§11.5).
-fn clean_check_dir(layout: &Layout) {
-    let Ok(entries) = std::fs::read_dir(layout.core_check_dir()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let _ = std::fs::remove_file(entry.path());
-    }
-}
-
-#[allow(dead_code)] // referenced by the UI bridge for status text
 pub fn status_text(status: &RuntimeStatus) -> String {
     match status {
         RuntimeStatus::Stopped => "未连接".into(),
         RuntimeStatus::Starting => "正在连接…".into(),
         RuntimeStatus::Running => "已连接".into(),
+        RuntimeStatus::Restarting => "内核异常退出，正在重启…".into(),
         RuntimeStatus::Stopping => "正在断开…".into(),
         RuntimeStatus::Failed(reason) => format!("连接失败：{reason}"),
     }

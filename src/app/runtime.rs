@@ -7,12 +7,14 @@ use crate::cores::mihomo::controller::Controller;
 use crate::cores::mihomo::process::{self, CoreCommand, CoreProcess};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{Profile, ProfileId};
+use crate::platform::windows::process as win_process;
+use crate::storage::journal::{self, CoreJournal};
 use crate::storage::layout::Layout;
 use crate::storage::{atomic, meta};
 use crate::subscriptions::revisions;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const STAGE: &str = "app.runtime";
 pub const CORE_LOG_LEVEL: &str = "warning";
@@ -28,8 +30,10 @@ pub struct Running {
     pub profile_id: ProfileId,
     pub process: CoreProcess,
     pub controller: Controller,
+    pub mixed_port: u16,
     pub log_file: PathBuf,
     pub check_lines: Vec<String>,
+    pub started_at: Instant,
 }
 
 pub struct StartRequest {
@@ -76,10 +80,12 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         log_file: log_file.clone(),
     })?;
     tracing::info!(pid = process.pid, %controller_addr, "core spawned");
+    record_core(&req.layout, process.pid);
 
     let controller = Controller::new(controller_addr, &secret)?;
     if let Err(e) = wait_ready(&process, &controller, req.mixed_port, &log_file).await {
         process.terminate(STOP_GRACE).await;
+        journal::remove(&journal::core_path(&req.layout));
         remove_run_config(&req.layout);
         return Err(e);
     }
@@ -89,8 +95,10 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         profile_id: req.profile.id,
         process,
         controller,
+        mixed_port: req.mixed_port,
         log_file,
         check_lines: prepared.report.lines,
+        started_at: Instant::now(),
     })
 }
 
@@ -104,8 +112,32 @@ pub async fn stop(running: Running, layout: &Layout) {
         tracing::debug!("close connections timed out");
     }
     running.process.terminate(STOP_GRACE).await;
-    remove_run_config(layout);
+    forget_exited(layout);
     tracing::info!("core stopped");
+}
+
+/// Cleanup after the core process is gone (stopped or crashed).
+pub fn forget_exited(layout: &Layout) {
+    journal::remove(&journal::core_path(layout));
+    remove_run_config(layout);
+}
+
+/// Journals PID + creation time + image so a crash of Mirage itself can be
+/// cleaned up on next start (§10.4). The Job Object normally makes this moot.
+fn record_core(layout: &Layout, pid: u32) {
+    let Some(identity) = win_process::identity(pid) else {
+        tracing::warn!(pid, "core identity not readable; not journaled");
+        return;
+    };
+    let mut entry = CoreJournal {
+        pid,
+        created: identity.created,
+        image: identity.image,
+        ..Default::default()
+    };
+    if let Err(e) = journal::save_core(layout, &mut entry) {
+        tracing::warn!(error = %e, "core journal not written");
+    }
 }
 
 pub fn remove_run_config(layout: &Layout) {

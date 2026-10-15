@@ -97,6 +97,10 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     window.on_test_delay(move |group| send(&c, Command::TestGroupDelay(group.into())));
     let c = commands.clone();
     window.on_refresh_groups(move || send(&c, Command::RefreshGroups));
+    let c = commands.clone();
+    window.on_set_system_proxy(move |on| send(&c, Command::SetSystemProxy(on)));
+    let c = commands.clone();
+    window.on_check_connectivity(move || send(&c, Command::CheckConnectivity));
     window.on_dismiss_notice(move || send(&commands, Command::DismissNotice));
     window.on_node_matches(|name, filter| {
         filter.is_empty() || name.to_lowercase().contains(&filter.to_lowercase())
@@ -132,6 +136,9 @@ fn wire_tray(window: &MainWindow, tray: &AppTray, commands: mpsc::Sender<Command
             },
         );
     });
+
+    let c = commands.clone();
+    tray.on_set_system_proxy(move |on| send(&c, Command::SetSystemProxy(on)));
 
     tray.on_quit_app(move || {
         // The core stops after the event loop returns (main.rs); quitting the

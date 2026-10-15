@@ -30,6 +30,32 @@ pub struct SelectionFile {
     pub groups: BTreeMap<String, String>,
 }
 
+/// User preferences (DESIGN.md §13 `settings.json`). M2 persists the system
+/// proxy switch and auto-connect; later milestones add ports and bypass.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SettingsFile {
+    pub schema_version: u32,
+    #[serde(default = "default_true")]
+    pub system_proxy: bool,
+    /// Connect with the active revision once the core is verified (§16.1).
+    #[serde(default)]
+    pub auto_connect: bool,
+}
+
+impl Default for SettingsFile {
+    fn default() -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            system_proxy: true,
+            auto_connect: false,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Loads a file, returning `T::default()` when it does not exist yet.
 /// A file written by a newer schema is refused rather than silently downgraded.
 pub fn load<T>(path: &Path, stage: &'static str) -> AppResult<T>
@@ -78,4 +104,4 @@ macro_rules! versioned {
         }
     )*};
 }
-versioned!(ProfilesFile, RevisionsFile, SelectionFile);
+versioned!(ProfilesFile, RevisionsFile, SelectionFile, SettingsFile);

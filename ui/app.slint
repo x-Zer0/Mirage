@@ -8,7 +8,7 @@ import { ProxiesPage, GroupRow, NodeRow } from "pages/proxies.slint";
 
 export { ProfileRow, GroupRow, NodeRow }
 
-export enum TrayState { idle, connected, error }
+export enum TrayState { idle, connected, restarting, error }
 
 export component MainWindow inherits Window {
     title: "Mirage";
@@ -27,6 +27,10 @@ export component MainWindow inherits Window {
     in property <bool> busy;
     in property <string> busy-text;
     in property <int> mixed-port;
+    in-out property <bool> system-proxy-wanted;
+    in property <bool> system-proxy-active;
+    in property <string> connectivity-text;
+    in property <int> connectivity-level;
     in property <string> profile-name;
     in property <[ProfileRow]> profiles;
     in property <[GroupRow]> groups;
@@ -45,6 +49,8 @@ export component MainWindow inherits Window {
     callback select-node(string, string);
     callback test-delay(string);
     callback refresh-groups();
+    callback set-system-proxy(bool);
+    callback check-connectivity();
     callback dismiss-notice();
     pure callback node-matches(string, string) -> bool;
 
@@ -115,8 +121,14 @@ export component MainWindow inherits Window {
                 profile-name: root.profile-name;
                 mixed-port: root.mixed-port;
                 core-version: root.core-version;
+                system-proxy-wanted <=> root.system-proxy-wanted;
+                system-proxy-active: root.system-proxy-active;
+                connectivity-text: root.connectivity-text;
+                connectivity-level: root.connectivity-level;
                 connect => { root.connect(); }
                 disconnect => { root.disconnect(); }
+                set-system-proxy(on) => { root.set-system-proxy(on); }
+                check-connectivity => { root.check-connectivity(); }
             }
             if root.page == 1: ProfilesPage {
                 vertical-stretch: 1;
@@ -166,16 +178,19 @@ export component AppTray inherits SystemTrayIcon {
     in property <bool> window-visible: true;
     in property <bool> running;
     in property <bool> busy;
+    in-out property <bool> system-proxy;
 
     callback toggle-window();
     callback toggle-connection();
+    callback set-system-proxy(bool);
     callback quit-app();
 
     icon: state == TrayState.connected ? @image-url("../assets/icons/tray/connected.svg")
-        : state == TrayState.error ? @image-url("../assets/icons/tray/error.svg")
+        : state == TrayState.error || state == TrayState.restarting ? @image-url("../assets/icons/tray/error.svg")
         : @image-url("../assets/icons/tray/idle.svg");
     tooltip: state == TrayState.connected ? "Mirage - 已连接"
         : state == TrayState.error ? "Mirage - 错误"
+        : state == TrayState.restarting ? "Mirage - 正在重启内核"
         : "Mirage - 未连接";
 
     clicked => { root.toggle-window(); }
@@ -189,6 +204,12 @@ export component AppTray inherits SystemTrayIcon {
             title: root.running ? "断开" : "连接";
             enabled: !root.busy;
             activated => { root.toggle-connection(); }
+        }
+        MenuItem {
+            title: "系统代理";
+            checkable: true;
+            checked <=> root.system-proxy;
+            activated => { root.set-system-proxy(self.checked); }
         }
         MenuSeparator { }
         MenuItem {

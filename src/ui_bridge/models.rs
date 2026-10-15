@@ -1,7 +1,7 @@
 //! Converts [`AppStateView`] snapshots into Slint properties.
 
 use super::{AppTray, GroupRow, MainWindow, NodeRow, ProfileRow, TrayState};
-use crate::app::state::{AppStateView, RuntimeStatus};
+use crate::app::state::{AppStateView, Connectivity, RuntimeStatus};
 use crate::app::status_text;
 use crate::cores::mihomo::controller::ProxyGroupView;
 use slint::{ModelRc, SharedString, VecModel};
@@ -18,6 +18,11 @@ pub fn apply(w: &MainWindow, s: &AppStateView) {
     w.set_busy(busy);
     w.set_busy_text(s.busy.clone().unwrap_or_default().into());
     w.set_mixed_port(i32::from(s.mixed_port));
+    w.set_system_proxy_wanted(s.system_proxy_wanted);
+    w.set_system_proxy_active(s.system_proxy_active);
+    let (text, level) = connectivity_text(s);
+    w.set_connectivity_text(text.into());
+    w.set_connectivity_level(level);
     let selected = s.profiles.iter().find(|p| p.selected);
     w.set_profile_name(selected.map(|p| p.name.clone()).unwrap_or_default().into());
     w.set_profiles(rc(s.profiles.iter().map(|p| ProfileRow {
@@ -45,14 +50,28 @@ pub fn apply(w: &MainWindow, s: &AppStateView) {
 pub fn apply_tray(t: &AppTray, s: &AppStateView) {
     t.set_state(match s.runtime {
         RuntimeStatus::Running => TrayState::Connected,
+        RuntimeStatus::Restarting => TrayState::Restarting,
         RuntimeStatus::Failed(_) => TrayState::Error,
         _ => TrayState::Idle,
     });
+    t.set_system_proxy(s.system_proxy_wanted);
     t.set_running(s.runtime == RuntimeStatus::Running);
     t.set_busy(matches!(
         s.runtime,
         RuntimeStatus::Starting | RuntimeStatus::Stopping
     ));
+}
+
+fn connectivity_text(s: &AppStateView) -> (String, i32) {
+    if s.runtime != RuntimeStatus::Running {
+        return ("未连接".into(), 0);
+    }
+    match &s.connectivity {
+        Connectivity::Unknown => ("未检测".into(), 0),
+        Connectivity::Checking => ("检测中…".into(), 0),
+        Connectivity::Reachable(ms) => (format!("可访问互联网（{ms} ms）"), 1),
+        Connectivity::Unreachable(reason) => (format!("无法访问互联网：{reason}"), 2),
+    }
 }
 
 fn group_row(g: &ProxyGroupView) -> GroupRow {
