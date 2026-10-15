@@ -1,0 +1,4 @@
+/target
+# Core binary and geodata are fetched by scripts/fetch-core.ps1, never committed.
+/assets/core/*
+!/assets/core/.gitkeep

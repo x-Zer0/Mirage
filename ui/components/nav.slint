@@ -1,0 +1,38 @@
+import { Theme } from "theme.slint";
+
+// Sidebar navigation entry with a Lucide icon.
+export component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked();
+
+    height: 36px;
+    border-radius: 6px;
+    background: root.selected ? Theme.nav-selected : touch.has-hover ? Theme.nav-hover : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        Image {
+            source: root.icon;
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            colorize: root.selected ? Theme.accent : Theme.text-muted;
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            color: root.selected ? Theme.accent : Theme.text;
+        }
+    }
+}

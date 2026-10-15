@@ -49,7 +49,7 @@
 | --- | --- | --- |
 | 应用名 | Mirage（暂定） | 影响数据目录、互斥体名、凭据前缀；改名需一次性迁移 |
 | 平台 | Windows 10 1809+ / Windows 11，x86_64 | ARM64 后续评估 |
-| UI | Slint 1.x，winit 后端，femtovg 渲染器 | 开工时锁定具体版本；渲染器可换 skia/software 对比体积与兼容性 |
+| UI | Slint =1.18.1（Rust 1.92+），winit 后端，femtovg 渲染器 | 渲染器可换 skia/software 对比体积与兼容性；界面图标统一用 Lucide |
 | 异步 | Tokio 多线程运行时，运行在后台线程 | UI 主线程只跑 Slint 事件循环 |
 | 内核 | Mihomo v1.19.32 windows-amd64 | 随安装包分发，启动时校验 SHA256（§10.1） |
 | 代理接入 | 系统代理；TUN 默认关闭 | TUN 需要管理员权限，通过辅助服务实现（§11.7） |
@@ -123,7 +123,7 @@ Mirage/
   Cargo.toml
   build.rs                 # slint-build 编译 ui/*.slint；嵌入图标与清单
   assets/
-    icons/                 # 托盘与窗口图标
+    icons/                 # app.svg、tray/*.svg（状态色）、lucide/*.svg（界面图标，ISC，lucide-static 1.57.0）
     core/                  # 构建时复制：mihomo.exe、geodata（不入库，见 §10.1）
   ui/                      # Slint 源文件
     app.slint
@@ -455,7 +455,7 @@ pub enum Event {
 - UI 回调 → `Command`：Slint 回调中调用 `cmd_tx.try_send(cmd)`，不阻塞，也不在 UI 线程上 `.await`。队列满时提示“操作过于频繁”。
 - `Event` → UI：`ui_bridge` 的一个 Tokio 任务订阅事件，通过 `slint::Weak::upgrade_in_event_loop` 把更新投递回 UI 线程。
 - 状态快照节流：`State` 事件最多每 100 毫秒发一次，合并期间的中间状态。流量事件每秒一次，窗口隐藏时停止发送。
-- 托盘：`tray-icon` + `muda` 菜单。Slint 的 winit 后端在 Windows 上运行 Win32 消息循环，托盘消息会被同一循环处理，菜单事件通过 `MenuEvent::set_event_handler` 转为 `Command`。开工时第一件事是用最小样例验证这一点（M0）。
+- 托盘：使用 Slint 1.17+ 内置的 `SystemTrayIcon`（`system-tray` 特性，Windows 上基于 `Shell_NotifyIcon`），在 `.slint` 中声明菜单，回调转为 `Command`。可见的托盘会保持事件循环存活，因此窗口隐藏后应用继续运行。【已验证 M0】不再引入 `tray-icon`/`muda`。
 - 不跨 `.await` 持有锁。共享只读数据用 `Arc`，可变状态只放在 `AppCore` 内部。
 
 ---
@@ -600,7 +600,7 @@ tun:
 ```
 
 - 规则中出现 GEOIP/GEOSITE 时，`-t` 校验也会加载 geodata，文件缺失时内核会尝试联网下载。首次启动时网络可能不通，会导致校验失败。因此 geodata 随安装包附带，并且合成时强制 `geo-auto-update: false`。设置页提供“更新 geodata”按钮，通过控制器 `POST /upgrade/geo` 触发，由用户主动执行。
-- 【已验证】分析期间的临时运行目录中有 `ASN.mmdb`、`GEOIP.dat`、`GEOIP.metadb`、`GEOSITE.dat` 四个文件，校验和运行都能通过。打包时附带这四个文件，具体来源和版本在 M0 阶段确定。
+- 随包附带 `GEOIP.metadb`、`GEOSITE.dat`、`GEOIP.dat`、`ASN.mmdb` 四个文件，来源为 MetaCubeX/meta-rules-dat 的 `latest` release（2026-10-15 发布版，对应 `geoip.metadb`/`geosite.dat`/`geoip.dat`/`GeoLite2-ASN.mmdb`）。SHA256 固定在 `scripts/fetch-core.ps1` 中；该 release 会滚动更新，更新 geodata 时需要有意识地修改脚本里的哈希。
 - Mihomo 只允许 provider、external-ui 等路径位于 `-d` 指定的 home 目录或 `SAFE_PATHS` 列表内。本设计把所有路径都放在 core-home 下，因此不需要设置 `SAFE_PATHS`。
 - core-home 目录的 ACL 只授予当前用户和 SYSTEM（§14.2）。
 
@@ -1011,7 +1011,8 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 | 用途 | crate | 备注 |
 | --- | --- | --- |
 | UI | `slint`、`slint-build` | 1.x；许可证见 §21 |
-| 托盘 | `tray-icon`、`muda` | M0 验证与 Slint winit 循环共存 |
+| 托盘 | Slint 内置 `SystemTrayIcon` | 不需要额外 crate |
+| 图标 | Lucide（lucide-static 1.57.0，ISC） | SVG 放在 `assets/icons/lucide/`，新增图标从同一版本获取 |
 | 异步 | `tokio`、`tokio-util`、`futures`、`async-trait` | |
 | HTTP | `reqwest`（`rustls-tls`、`stream`、`json`）、`rustls-platform-verifier` | 0.12/0.13，以开工时版本为准 |
 | 序列化 | `serde`、`serde_json`、`serde_yaml_ng`（或备选） | §9.1 |
@@ -1070,11 +1071,9 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 | 事项 | 何时确认 | 默认处理 |
 | --- | --- | --- |
 | 应用最终名称 | M8 前 | Mirage |
-| Slint 渲染器（femtovg / skia / software） | M0 | femtovg；按体积和兼容性对比后决定 |
-| tray-icon 与 Slint 事件循环共存 | M0 | 失败时改用独立线程运行托盘消息循环 |
+| Slint 渲染器（femtovg / skia / software） | M5 | 当前用 Slint 默认特性（femtovg + software 回退）；M5 对比体积与兼容性后再定 |
 | `serde_yaml_ng` 对合并键和大文件的表现 | M1 | 不满足时换 `serde_norway` |
 | REST 接口在 v1.19.32 上的实际行为 | M1 | 未核实的接口不启用 |
-| geodata 文件来源和版本 | M0 | MetaCubeX meta-rules-dat 对应 release |
 | 自由猫首次登录编码与响应 | M4 | JSON；结果写回 ZIYOUMAO.md |
 | 无代理环境下自由猫 API 是否可达 | M4 | Auto 出站策略 |
 | TUN stack 与 DNS 默认值 | M7 | mixed + 注入最小 DNS |
