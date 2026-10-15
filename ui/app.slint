@@ -1,8 +1,12 @@
-// M0 skeleton: main window with navigation shell + system tray.
-// Pages are placeholders; real content lands in M1-M5 (DESIGN.md §17).
-import { AboutSlint, VerticalBox } from "std-widgets.slint";
+// Main window, navigation shell and system tray (DESIGN.md §17).
+import { AboutSlint, Button, ScrollView } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
 import { NavItem } from "components/nav.slint";
+import { OverviewPage } from "pages/overview.slint";
+import { ProfilesPage, ProfileRow } from "pages/profiles.slint";
+import { ProxiesPage, GroupRow, NodeRow } from "pages/proxies.slint";
+
+export { ProfileRow, GroupRow, NodeRow }
 
 export enum TrayState { idle, connected, error }
 
@@ -17,7 +21,32 @@ export component MainWindow inherits Window {
 
     in property <string> version;
     in property <string> data-dir;
+    in property <string> core-version;
+    in property <string> status-text;
+    in property <bool> running;
+    in property <bool> busy;
+    in property <string> busy-text;
+    in property <int> mixed-port;
+    in property <string> profile-name;
+    in property <[ProfileRow]> profiles;
+    in property <[GroupRow]> groups;
+    in property <string> testing-group;
+    in property <[string]> policy-notes;
+    in property <[string]> check-lines;
+    in property <string> notice;
+    in property <bool> notice-error;
     in-out property <int> page: 0;
+
+    callback connect();
+    callback disconnect();
+    callback import-file();
+    callback select-profile(string);
+    callback remove-profile(string);
+    callback select-node(string, string);
+    callback test-delay(string);
+    callback refresh-groups();
+    callback dismiss-notice();
+    pure callback node-matches(string, string) -> bool;
 
     HorizontalLayout {
         Rectangle {
@@ -43,25 +72,90 @@ export component MainWindow inherits Window {
             }
         }
 
-        VerticalBox {
+        VerticalLayout {
             padding: 24px;
-            alignment: start;
+            spacing: 12px;
+
             Text {
                 text: ["总览", "配置", "节点", "账号", "设置", "诊断"][root.page];
                 font-size: 22px;
                 font-weight: 600;
                 color: Theme.text;
             }
-            if root.page != 5: Text {
-                text: "M0 工程骨架：页面内容将在后续里程碑实现。";
-                color: Theme.text-muted;
+
+            if root.notice != "": Rectangle {
+                background: root.notice-error ? Theme.error-bg : Theme.info-bg;
+                border-radius: 6px;
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    Text {
+                        text: root.notice;
+                        color: root.notice-error ? Theme.danger : Theme.text;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        icon: @image-url("../assets/icons/lucide/x.svg");
+                        colorize-icon: true;
+                        accessible-label: "关闭提示";
+                        clicked => { root.dismiss-notice(); }
+                    }
+                }
             }
-            if root.page == 5: VerticalLayout {
-                spacing: 8px;
-                Text { text: "版本：" + root.version; color: Theme.text; }
-                Text { text: "数据目录：" + root.data-dir; color: Theme.text; wrap: word-wrap; }
-                Text { text: "图标：Lucide (ISC)"; color: Theme.text-muted; }
-                AboutSlint { max-height: 220px; }
+
+            if root.busy: Text { text: root.busy-text; color: Theme.text-muted; }
+
+            if root.page == 0: OverviewPage {
+                vertical-stretch: 1;
+                status-text: root.status-text;
+                running: root.running;
+                busy: root.busy;
+                profile-name: root.profile-name;
+                mixed-port: root.mixed-port;
+                core-version: root.core-version;
+                connect => { root.connect(); }
+                disconnect => { root.disconnect(); }
+            }
+            if root.page == 1: ProfilesPage {
+                vertical-stretch: 1;
+                profiles: root.profiles;
+                busy: root.busy;
+                policy-notes: root.policy-notes;
+                import-file => { root.import-file(); }
+                select(id) => { root.select-profile(id); }
+                remove(id) => { root.remove-profile(id); }
+            }
+            if root.page == 2: ProxiesPage {
+                vertical-stretch: 1;
+                groups: root.groups;
+                running: root.running;
+                testing-group: root.testing-group;
+                select-node(g, n) => { root.select-node(g, n); }
+                test-delay(g) => { root.test-delay(g); }
+                refresh => { root.refresh-groups(); }
+                matches(name, filter) => { return root.node-matches(name, filter); }
+            }
+            if root.page == 3 || root.page == 4: Text {
+                text: "将在后续版本提供。";
+                color: Theme.text-muted;
+                vertical-stretch: 1;
+                vertical-alignment: top;
+            }
+            if root.page == 5: ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text { text: "版本：" + root.version; color: Theme.text; }
+                    Text { text: "内核：" + root.core-version; color: Theme.text; }
+                    Text { text: "数据目录：" + root.data-dir; color: Theme.text; wrap: word-wrap; }
+                    if root.check-lines.length > 0: Text { text: "最近一次配置校验输出："; color: Theme.text-muted; }
+                    for line in root.check-lines: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                    Text { text: "图标：Lucide (ISC)"; color: Theme.text-muted; }
+                    AboutSlint { max-height: 220px; }
+                }
             }
         }
     }
@@ -70,8 +164,11 @@ export component MainWindow inherits Window {
 export component AppTray inherits SystemTrayIcon {
     in property <TrayState> state: TrayState.idle;
     in property <bool> window-visible: true;
+    in property <bool> running;
+    in property <bool> busy;
 
     callback toggle-window();
+    callback toggle-connection();
     callback quit-app();
 
     icon: state == TrayState.connected ? @image-url("../assets/icons/tray/connected.svg")
@@ -87,6 +184,11 @@ export component AppTray inherits SystemTrayIcon {
         MenuItem {
             title: root.window-visible ? "隐藏主窗口" : "显示主窗口";
             activated => { root.toggle-window(); }
+        }
+        MenuItem {
+            title: root.running ? "断开" : "连接";
+            enabled: !root.busy;
+            activated => { root.toggle-connection(); }
         }
         MenuSeparator { }
         MenuItem {

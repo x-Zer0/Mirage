@@ -1,0 +1,82 @@
+import { Button, ListView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+
+export struct ProfileRow {
+    id: string,
+    name: string,
+    source: string,
+    detail: string,
+    updated: string,
+    selected: bool,
+}
+
+export component ProfilesPage inherits VerticalLayout {
+    in property <[ProfileRow]> profiles;
+    in property <bool> busy;
+    in property <[string]> policy-notes;
+    callback import-file();
+    callback select(string);
+    callback remove(string);
+
+    spacing: 12px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button {
+            text: "导入本地配置";
+            icon: @image-url("../../assets/icons/lucide/file-plus.svg");
+            colorize-icon: true;
+            enabled: !root.busy;
+            clicked => { root.import-file(); }
+        }
+    }
+
+    if root.profiles.length == 0: Text {
+        text: "还没有配置。导入一个完整的 Mihomo YAML 配置开始使用。";
+        color: Theme.text-muted;
+    }
+
+    ListView {
+        vertical-stretch: 1;
+        for p in root.profiles: Rectangle {
+            height: 64px;
+            background: p.selected ? Theme.nav-selected : touch.has-hover ? Theme.nav-hover : transparent;
+            border-radius: 6px;
+            accessible-role: list-item;
+            accessible-label: p.name;
+            // No switching while a start/stop or import is in flight.
+            touch := TouchArea { enabled: !root.busy; clicked => { root.select(p.id); } }
+            HorizontalLayout {
+                padding: 10px;
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; }
+                    Text { text: p.source + " · " + p.detail + " · " + p.updated; color: Theme.text-muted; font-size: 12px; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                if p.selected: Image {
+                    source: @image-url("../../assets/icons/lucide/check.svg");
+                    width: 18px; height: 18px;
+                    y: (parent.height - self.height) / 2;
+                    colorize: Theme.accent;
+                }
+                Button {
+                    icon: @image-url("../../assets/icons/lucide/trash-2.svg");
+                    colorize-icon: true;
+                    accessible-label: "删除 " + p.name;
+                    enabled: !root.busy;
+                    clicked => { root.remove(p.id); }
+                }
+            }
+        }
+    }
+
+    if root.policy-notes.length > 0: VerticalLayout {
+        spacing: 2px;
+        Text { text: "最近一次导入的安全调整："; color: Theme.text-muted; font-size: 12px; }
+        for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; }
+    }
+}

@@ -1,0 +1,12 @@
+import { Theme } from "theme.slint";
+
+export component Card inherits Rectangle {
+    background: Theme.card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding: 16px;
+        @children
+    }
+}

@@ -1,0 +1,55 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { Card } from "../components/card.slint";
+
+export component OverviewPage inherits VerticalLayout {
+    in property <string> status-text;
+    in property <bool> running;
+    in property <bool> busy;
+    in property <string> profile-name;
+    in property <int> mixed-port;
+    in property <string> core-version;
+    callback connect();
+    callback disconnect();
+
+    spacing: 16px;
+    alignment: start;
+
+    Card {
+        HorizontalLayout {
+            spacing: 16px;
+            Image {
+                source: root.running ? @image-url("../../assets/icons/tray/connected.svg") : @image-url("../../assets/icons/tray/idle.svg");
+                width: 48px;
+                height: 48px;
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 4px;
+                Text { text: root.status-text; font-size: 18px; font-weight: 600; color: Theme.text; wrap: word-wrap; }
+                Text { text: root.profile-name == "" ? "未选择配置" : "当前配置：" + root.profile-name; color: Theme.text-muted; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                Button {
+                    text: root.running ? "断开" : "连接";
+                    primary: !root.running;
+                    enabled: !root.busy;
+                    icon: @image-url("../../assets/icons/lucide/power.svg");
+                    colorize-icon: true;
+                    clicked => { root.running ? root.disconnect() : root.connect(); }
+                }
+            }
+        }
+    }
+
+    Card {
+        VerticalLayout {
+            spacing: 6px;
+            Text { text: "本地代理端口：127.0.0.1:" + root.mixed-port; color: Theme.text; }
+            Text { text: "内核：" + root.core-version; color: Theme.text-muted; }
+            Text { text: "系统代理与 TUN 将在后续版本提供；当前可在程序中手动设置 HTTP/SOCKS 代理为上述端口。"; color: Theme.text-muted; wrap: word-wrap; }
+        }
+    }
+}

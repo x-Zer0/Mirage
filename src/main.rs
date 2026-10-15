@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod cores;
 mod domain;
 mod logging;
 mod platform;
 mod storage;
+mod subscriptions;
 mod ui_bridge;
 
 use anyhow::Context;
@@ -27,9 +29,12 @@ fn main() -> anyhow::Result<()> {
     let _log_guard = logging::init(&layout.logs).context("init logging")?;
     tracing::info!(version = VERSION, autostart, "Mirage starting");
 
-    let core = app::spawn().context("start app runtime")?;
-    let ui =
-        ui_bridge::Ui::build(&layout, VERSION, core.sender(), autostart).context("build UI")?;
+    let core = app::spawn(layout.clone()).context("start app runtime")?;
+    if let Some(path) = import_arg() {
+        // Fresh queue, cannot be full.
+        let _ = core.sender().try_send(app::Command::ImportLocalFile(path));
+    }
+    let ui = ui_bridge::Ui::build(&layout, VERSION, &core, autostart).context("build UI")?;
     instance.on_activate(ui.activator());
 
     slint::run_event_loop_until_quit().context("run event loop")?;
@@ -38,4 +43,15 @@ fn main() -> anyhow::Result<()> {
     drop(ui);
     core.shutdown();
     Ok(())
+}
+
+/// `--import <file>`: import a local config on start (used by file associations later).
+fn import_arg() -> Option<std::path::PathBuf> {
+    let mut args = std::env::args_os().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--import" {
+            return args.next().map(Into::into);
+        }
+    }
+    None
 }
