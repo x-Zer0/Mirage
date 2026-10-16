@@ -49,7 +49,7 @@
 | --- | --- | --- |
 | 应用名 | Mirage（暂定） | 影响数据目录、互斥体名、凭据前缀；改名需一次性迁移 |
 | 平台 | Windows 10 1809+ / Windows 11，x86_64 | ARM64 后续评估 |
-| UI | Slint =1.18.1（Rust 1.92+），winit 后端，femtovg 渲染器 | 渲染器可换 skia/software 对比体积与兼容性；界面图标统一用 Lucide |
+| UI | Slint =1.18.1（Rust 1.92+），winit 后端，software 渲染器（M5 决定） | 不加载 OpenGL 驱动，RDP/虚拟机可用；对比数据见 `acceptance/M5.md`；界面图标统一用 Lucide |
 | 异步 | Tokio 多线程运行时，运行在后台线程 | UI 主线程只跑 Slint 事件循环 |
 | 内核 | Mihomo v1.19.32 windows-amd64 | 随安装包分发，启动时校验 SHA256（§10.1） |
 | 代理接入 | 系统代理；TUN 默认关闭 | TUN 需要管理员权限，通过辅助服务实现（§11.7） |
@@ -970,10 +970,11 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 
 ### 17.2 托盘
 
-- 托盘图标有三种状态：未连接（灰色）、已连接（彩色）、错误（带角标）。
-- 托盘菜单：显示主窗口 / 连接·断开 / 系统代理 ✓ / TUN ✓ / 路由模式 ▸ / 退出。
+- 托盘图标有三种状态：未连接（灰色）、已连接（彩色）、错误（带角标）。【M5】错误状态只由内核状态决定（连接失败、重启中、重启超过上限），普通操作错误只进错误条，不改托盘图标。
+- 托盘菜单：显示主窗口 / 连接·断开 / 系统代理 ✓ / TUN ✓ / 路由模式 ▸ / 退出。【M5】Slint 1.18 的 Windows 托盘不渲染 `MenuItem.checked`，勾选状态用标题前缀“✓ ”表示；TUN 在 M7 之前为禁用项。
 - 左键单击显示主窗口。
 - 关闭窗口时默认最小化到托盘，第一次关闭时弹通知提示一次。也可以在设置中改为“关闭即退出”。
+- 【M5】托盘通知：Slint 的 `SystemTrayIcon` 没有通知接口，`platform::windows::tray_balloon` 对 Slint 注册的图标（本进程的消息窗口 `SlintSystemTrayWindow`，图标 id 1）追加 `NIM_MODIFY + NIF_INFO`。这依赖 Slint 1.18 的内部实现，升级 Slint 时必须复核；找不到窗口或被外壳拒绝时只记 warn 日志，不影响功能。只在窗口隐藏时对需要用户知道的事件（内核停止并已恢复网络设置、系统代理被外部修改、登录失效）弹通知。
 
 ### 17.3 交互约束
 
@@ -981,12 +982,15 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 - 错误条展示的内容：`stage` 加上脱敏后的 `detail`，以及重试按钮。
 - UI 中不显示完整的令牌或订阅 URL。订阅 URL 只有在用户点击“复制”时才放进剪贴板。
 - 用户看到的是“自由猫账号”这类业务名称，不出现 `ziyoumao`、`provider` 等内部模块名。
+- 【M5】消息分两类：错误进入错误条，保留到关闭、重试或被新的错误替换；`stage` 由内部阶段映射为业务步骤名（如“订阅下载”“内核启动”），映射不到时不显示。可重试的操作（连接、手动更新订阅、刷新账号）带重试按钮，重试即重新发送原命令。普通提示以 Toast 显示约 3.5 秒，不打断操作。
+- 【M5】路由模式：用户选择后保存在 `settings.json` 的 `routing_mode`，运行中通过 `PATCH /configs` 立即生效并关闭现有连接，之后的合成配置写入 `mode`（§9.2）；从未选择时显示内核报告的模式。全局模式下“节点”页把 `GLOBAL` 组放在第一个（它决定全局模式的出口），其他模式不显示该组。
 
 ### 17.4 资源占用
 
 - 窗口隐藏时：停止订阅流量和日志流（断开 `/traffic`、`/logs` 连接），停止图表重绘。
 - 节点列表最多 1000 项，使用 Slint 的 `ListView` 虚拟化，超出部分在搜索时再显示。
 - 不使用强制 GC 或清空工作集等手段来做出低内存数字。
+- 【M5】实现：AppCore 只在快照确实变化时发布（`watch::send_if_modified`），UI 桥按 100 ms 节流应用，列表模型只在对应数据变化时替换，节点延迟/选择变化按行更新。搜索与延迟排序在 Rust 侧完成，不在每行绑定回调。日志按 500 ms 批量送达，每批最多 200 行，UI 环形保留 2000 行。窗口最小化时流保持连接（两条环回连接，每秒一行），但不重绘，实测 CPU 接近 0。
 
 ---
 
@@ -1071,10 +1075,10 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 | 事项 | 何时确认 | 默认处理 |
 | --- | --- | --- |
 | 应用最终名称 | M8 前 | Mirage |
-| Slint 渲染器（femtovg / skia / software） | M5 | 当前用 Slint 默认特性（femtovg + software 回退）；M5 对比体积与兼容性后再定 |
+| Slint 渲染器（femtovg / skia / software） | M5 | 【已决定 M5】只用 software：与 femtovg 相比画面一致，体积小 0.5 MB，工作集 43 vs 89 MB，图表刷新时 CPU 3.1 vs 15.6 ms/s，不依赖 OpenGL。大列表滚动开销待真机观察 |
 | `serde_yaml_ng` 对合并键和大文件的表现 | M1 | 不满足时换 `serde_norway` |
 | REST 接口在 v1.19.32 上的实际行为 | M1 | 未核实的接口不启用 |
-| 自由猫首次登录编码与响应 | M4 | 【M4】JSON 被接受，密码错误为 HTTP 500 + 信封 message；成功响应字段待真实账号确认 |
+| 自由猫首次登录编码与响应 | M4 | 【已验证】JSON 被接受，密码错误为 HTTP 500 + 信封 message；成功为 HTTP 200，`data` 字段 `auth_data`/`is_admin`/`token`（2026-10-16 真实账号） |
 | 无代理环境下自由猫 API 是否可达 | M4 | Auto 出站策略 |
 | TUN stack 与 DNS 默认值 | M7 | mixed + 注入最小 DNS |
 | 安装包工具与代码签名 | M8 | Inno Setup，未签名 |

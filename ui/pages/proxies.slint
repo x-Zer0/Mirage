@@ -1,4 +1,4 @@
-import { Button, ListView, LineEdit, ScrollView } from "std-widgets.slint";
+import { Button, CheckBox, ListView, LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 
 export struct NodeRow {
@@ -14,6 +14,8 @@ export struct GroupRow {
     now: string,
     selectable: bool,
     nodes: [NodeRow],
+    // Nodes not listed: beyond the 1000-row cap or not matching the search.
+    hidden: int,
 }
 
 export component ProxiesPage inherits VerticalLayout {
@@ -22,10 +24,15 @@ export component ProxiesPage inherits VerticalLayout {
     in property <string> testing-group;
     in-out property <int> current-group: 0;
     in-out property <string> filter;
+    in-out property <bool> sort-by-delay;
     callback select-node(string, string);
+    callback sort-changed(bool);
     callback test-delay(string);
     callback refresh();
-    pure callback matches(string, string) -> bool;
+    callback filter-changed(string);
+
+    // The tab list changes with the routing mode (GLOBAL); stay in range.
+    property <int> shown-group: min(root.current-group, max(0, root.groups.length - 1));
 
     spacing: 12px;
 
@@ -45,13 +52,14 @@ export component ProxiesPage inherits VerticalLayout {
                     width: label.preferred-width + 24px;
                     height: 32px;
                     border-radius: 6px;
-                    background: i == root.current-group ? Theme.nav-selected : tab.has-hover ? Theme.nav-hover : Theme.sidebar;
+                    background: i == root.shown-group ? Theme.nav-selected : tab.has-hover ? Theme.nav-hover : Theme.sidebar;
                     accessible-role: AccessibleRole.tab;
                     accessible-label: g.name;
+                    accessible-item-selected: i == root.shown-group;
                     tab := TouchArea { clicked => { root.current-group = i; } }
                     label := Text {
                         text: g.name;
-                        color: i == root.current-group ? Theme.accent : Theme.text;
+                        color: i == root.shown-group ? Theme.accent : Theme.text;
                         vertical-alignment: center;
                         horizontal-alignment: center;
                     }
@@ -66,10 +74,10 @@ export component ProxiesPage inherits VerticalLayout {
         }
     }
 
-    if root.running && root.groups.length > root.current-group: VerticalLayout {
+    if root.running && root.groups.length > 0: VerticalLayout {
         spacing: 8px;
         vertical-stretch: 1;
-        property <GroupRow> group: root.groups[root.current-group];
+        property <GroupRow> group: root.groups[root.shown-group];
 
         HorizontalLayout {
             spacing: 8px;
@@ -79,7 +87,17 @@ export component ProxiesPage inherits VerticalLayout {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            LineEdit { placeholder-text: "搜索节点"; width: 180px; text <=> root.filter; }
+            CheckBox {
+                text: "按延迟排序";
+                checked <=> root.sort-by-delay;
+                toggled => { root.sort-changed(self.checked); }
+            }
+            LineEdit {
+                placeholder-text: "搜索节点";
+                width: 180px;
+                text <=> root.filter;
+                edited(text) => { root.filter-changed(text); }
+            }
             Button {
                 text: root.testing-group == group.name ? "测速中…" : "测速";
                 icon: @image-url("../../assets/icons/lucide/activity.svg");
@@ -92,8 +110,7 @@ export component ProxiesPage inherits VerticalLayout {
         ListView {
             vertical-stretch: 1;
             for n in group.nodes: Rectangle {
-                visible: root.matches(n.name, root.filter);
-                height: self.visible ? 40px : 0px;
+                height: 40px;
                 border-radius: 6px;
                 background: n.current ? Theme.nav-selected : row.has-hover && group.selectable ? Theme.nav-hover : transparent;
                 accessible-role: list-item;
@@ -123,6 +140,12 @@ export component ProxiesPage inherits VerticalLayout {
                     }
                 }
             }
+        }
+
+        if group.hidden > 0: Text {
+            text: "另有 " + group.hidden + " 个节点未列出" + (root.filter == "" ? "（列表最多显示 1000 个，可用搜索查找）" : "（不匹配搜索或超出 1000 个）");
+            color: Theme.text-muted;
+            font-size: 12px;
         }
     }
 }

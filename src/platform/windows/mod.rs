@@ -1,4 +1,5 @@
 pub mod acl;
+pub mod clipboard;
 pub mod known_folder;
 pub mod process;
 pub mod secret;
@@ -6,3 +7,4 @@ pub mod session;
 pub mod single_instance;
 pub mod sysproxy;
 pub mod token;
+pub mod tray_balloon;

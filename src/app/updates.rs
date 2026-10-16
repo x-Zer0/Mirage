@@ -7,12 +7,11 @@
 use super::accounts;
 use super::pipeline::{self, RemoteAdded, RemoteFetch, UpdateOutcome, UpdateResult};
 use super::runtime::{self, ReloadOutcome};
-use super::state::{Notice, RuntimeStatus};
+use super::state::{Notice, Retry, RuntimeStatus, stage_label};
 use super::{AppCore, Internal, error_notice, info_notice};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{
-    DEFAULT_SUBSCRIPTION_UA, FetchRecord, Profile, ProfileId, RevisionId, SubscriptionSource,
-    UpdatePolicy, Validity, now,
+    FetchRecord, Profile, ProfileId, RevisionId, SubscriptionSource, UpdatePolicy, Validity, now,
 };
 use crate::domain::redact::SecretString;
 use crate::net;
@@ -52,7 +51,7 @@ impl AppCore {
         let req = RemoteFetch {
             binary,
             layout: self.layout.clone(),
-            desc: Descriptor::plain(parsed, DEFAULT_SUBSCRIPTION_UA.into()),
+            desc: Descriptor::plain(parsed, self.settings.default_user_agent.clone()),
             egress: UpdatePolicy::default().egress,
             core_port: self.core_port(),
             mixed_port: self.view.mixed_port,
@@ -214,7 +213,7 @@ impl AppCore {
                 let url = self.load_url(url_secret)?;
                 let ua = user_agent
                     .clone()
-                    .unwrap_or_else(|| DEFAULT_SUBSCRIPTION_UA.into());
+                    .unwrap_or_else(|| self.settings.default_user_agent.clone());
                 Ok(Some(UpdateSource::Url(Descriptor::plain(url, ua))))
             }
             SubscriptionSource::ProviderAccount { account_id, .. } => self
@@ -240,7 +239,11 @@ impl AppCore {
         });
         let name = profile.name.clone();
         if manual {
-            self.view.notice = Some(Notice::error(format!("“{name}” {text}")));
+            self.view.notice = Some(
+                Notice::error(format!("“{name}” {text}"))
+                    .with_stage(stage_label(e.stage))
+                    .with_retry(Retry::UpdateProfile(profile_id.to_owned())),
+            );
         }
         self.save_profiles();
         self.refresh_profiles_view();
@@ -302,7 +305,11 @@ impl AppCore {
                     error: Some(text.clone()),
                 });
                 if manual {
-                    self.view.notice = Some(Notice::error(format!("“{name}” {text}")));
+                    self.view.notice = Some(
+                        Notice::error(format!("“{name}” {text}"))
+                            .with_stage(stage_label(e.stage))
+                            .with_retry(Retry::UpdateProfile(outcome.profile_id.clone())),
+                    );
                 }
             }
             Ok(UpdateResult::Unchanged) => {
@@ -366,6 +373,7 @@ impl AppCore {
             controller_addr: running.controller_addr,
             secret: running.secret.clone(),
             mixed_port: running.mixed_port,
+            mode: self.settings.routing_mode,
             fallback: profile.last_good_revision.clone(),
             candidate: candidate.clone(),
         };

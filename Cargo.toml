@@ -12,7 +12,9 @@ name = "Mirage"
 path = "src/main.rs"
 
 [dependencies]
-slint = "=1.18.1"
+# Software renderer only (DESIGN.md §2, §22, decided in M5): no OpenGL driver
+# in the process, works over RDP/VMs, lower memory and CPU for this UI.
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "system-tray"] }
 tokio = { version = "=1.53.3", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "net", "fs"] }
 tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["fmt", "registry", "env-filter"] }
@@ -49,9 +51,11 @@ features = [
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_DataExchange",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

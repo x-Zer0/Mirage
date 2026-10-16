@@ -4,7 +4,7 @@
 //! back-off. When the attempts run out the system proxy is withdrawn so the
 //! machine is not left pointing at a dead port.
 
-use super::state::{Connectivity, RuntimeStatus};
+use super::state::{Connectivity, Retry, RuntimeStatus};
 use super::sysproxy::{self, Restore};
 use super::{AppCore, Internal, connectivity, error_notice, info_notice, runtime};
 use crate::domain::error::{AppError, AppErrorKind};
@@ -94,12 +94,17 @@ impl AppCore {
         self.release_sysproxy();
         let e = AppError::new(AppErrorKind::CoreExited, STAGE, detail);
         tracing::error!(error = %e, "core restart limit reached");
-        self.view.runtime = RuntimeStatus::Failed(e.user_message());
-        self.view.notice = Some(error_notice(&AppError::new(
-            AppErrorKind::CoreExited,
-            STAGE,
-            "代理内核已停止，已恢复系统网络设置",
-        )));
+        // Short status; the exit code and log tail stay in the log.
+        self.view.runtime = RuntimeStatus::Failed("内核多次意外退出".into());
+        self.view.notice = Some(
+            error_notice(&AppError::new(
+                AppErrorKind::CoreExited,
+                STAGE,
+                "代理内核已停止，已恢复系统网络设置",
+            ))
+            .with_retry(Retry::Connect)
+            .notifying(),
+        );
     }
 
     /// After the core became ready: point the system proxy at it if wanted
@@ -112,7 +117,12 @@ impl AppCore {
         if !ours {
             // A stale journal (setting changed meanwhile) must not become `original`.
             sysproxy::forget(&self.layout);
-            if let Err(e) = sysproxy::enable(&self.layout, self.view.mixed_port) {
+            // The running core's port: a port edited during a start applies next time.
+            let port = self
+                .running
+                .as_ref()
+                .map_or(self.view.mixed_port, |r| r.mixed_port);
+            if let Err(e) = sysproxy::enable(&self.layout, port, &self.settings.bypass) {
                 self.view.notice = Some(error_notice(&e));
                 self.view.system_proxy_active = false;
                 return;
@@ -165,9 +175,9 @@ impl AppCore {
                 sysproxy::forget(&self.layout);
                 self.view.system_proxy_active = false;
                 self.view.system_proxy_wanted = false;
-                self.view.notice = Some(info_notice(
-                    Restore::KeptExternal.notice().unwrap_or_default(),
-                ));
+                self.view.notice = Some(
+                    info_notice(Restore::KeptExternal.notice().unwrap_or_default()).notifying(),
+                );
             }
             Err(e) => tracing::debug!(error = %e, "system proxy watch failed"),
         }

@@ -1,23 +1,26 @@
 // Main window, navigation shell and system tray (DESIGN.md §17).
-import { AboutSlint, Button, ScrollView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
 import { NavItem } from "components/nav.slint";
+import { ErrorBar, Toast } from "components/error-bar.slint";
 import { OverviewPage } from "pages/overview.slint";
 import { ProfilesPage, ProfileRow } from "pages/profiles.slint";
 import { ProxiesPage, GroupRow, NodeRow } from "pages/proxies.slint";
 import { AccountsPage, AccountRow } from "pages/accounts.slint";
+import { SettingsPage } from "pages/settings.slint";
+import { DiagnosticsPage, LogRow } from "pages/diagnostics.slint";
 
-export { ProfileRow, GroupRow, NodeRow, AccountRow }
+export { ProfileRow, GroupRow, NodeRow, AccountRow, LogRow }
 
 export enum TrayState { idle, connected, restarting, error }
 
 export component MainWindow inherits Window {
     title: "Mirage";
     icon: @image-url("../assets/icons/app.svg");
-    preferred-width: 960px;
-    preferred-height: 640px;
-    min-width: 720px;
-    min-height: 480px;
+    preferred-width: 1000px;
+    preferred-height: 680px;
+    min-width: 760px;
+    min-height: 520px;
     background: Theme.surface;
 
     in property <string> version;
@@ -25,6 +28,7 @@ export component MainWindow inherits Window {
     in property <string> core-version;
     in property <string> status-text;
     in property <bool> running;
+    in property <bool> failed;
     in property <bool> busy;
     in property <string> busy-text;
     in property <int> mixed-port;
@@ -32,20 +36,48 @@ export component MainWindow inherits Window {
     in property <bool> system-proxy-active;
     in property <string> connectivity-text;
     in property <int> connectivity-level;
+    in property <int> routing-mode: -1;
+    in property <string> exit-node;
     in property <string> profile-name;
+    in property <string> account-plan;
+    in property <string> account-usage;
     in property <[ProfileRow]> profiles;
     in property <[GroupRow]> groups;
     in property <string> testing-group;
     in property <[string]> policy-notes;
     in property <[string]> check-lines;
-    in property <string> notice;
-    in property <bool> notice-error;
+    in property <string> error-stage;
+    in property <string> error-text;
+    in property <bool> error-retry;
     in property <[AccountRow]> accounts;
     in property <bool> login-busy;
     in property <string> login-message;
     in property <bool> probing-hosts;
     in property <[string]> provider-hosts;
+    in property <[string]> egress-options;
+    in property <int> settings-port;
+    in property <string> settings-bypass;
+    in property <string> settings-user-agent;
+    in property <int> settings-provider-egress;
+    in property <bool> settings-auto-connect;
+    in property <bool> settings-close-to-tray;
+    in property <string> core-path;
+    in property <bool> geo-updating;
+    // Live data: only fed while the window is visible (§17.4).
+    in property <string> up-rate: "0 B/s";
+    in property <string> down-rate: "0 B/s";
+    in property <string> up-path;
+    in property <string> down-path;
+    in property <[LogRow]> logs;
     in-out property <int> page: 0;
+    in-out property <bool> sort-by-delay;
+    // Kept here so leaving the nodes page does not reset search or tab.
+    in-out property <string> node-filter;
+    in-out property <int> node-group;
+
+    // Toast: shown for a few seconds after `show-toast`.
+    property <string> toast-text;
+    property <bool> toast-visible;
 
     callback connect();
     callback disconnect();
@@ -55,18 +87,42 @@ export component MainWindow inherits Window {
     callback update-all();
     callback select-profile(string);
     callback remove-profile(string);
+    callback copy-profile-url(string);
+    callback set-update-policy(string, int, int);
     callback select-node(string, string);
     callback test-delay(string);
     callback refresh-groups();
+    callback sort-nodes(bool);
     callback set-system-proxy(bool);
+    callback set-routing-mode(int);
     callback check-connectivity();
-    callback dismiss-notice();
+    callback dismiss-error();
+    callback retry-error();
     callback provider-login(string, string);
     callback revalidate-account(string);
     callback remove-account(string, bool);
     callback import-legacy();
     callback probe-hosts();
-    pure callback node-matches(string, string) -> bool;
+    callback save-settings(string, string, string, int, bool, bool);
+    callback update-geodata();
+    callback clear-logs();
+    callback filter-nodes(string);
+
+    public function show-toast(text: string) {
+        root.toast-text = text;
+        root.toast-visible = true;
+        toast-timer.running = false;
+        toast-timer.running = true;
+    }
+
+    toast-timer := Timer {
+        interval: 3500ms;
+        running: false;
+        triggered => {
+            root.toast-visible = false;
+            self.running = false;
+        }
+    }
 
     HorizontalLayout {
         Rectangle {
@@ -75,12 +131,22 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 padding: 12px;
                 spacing: 4px;
-                alignment: start;
-                Text {
-                    text: "Mirage";
-                    font-size: 20px;
-                    font-weight: 700;
-                    color: Theme.text;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Image {
+                        source: root.running ? @image-url("../assets/icons/tray/connected.svg")
+                            : root.failed ? @image-url("../assets/icons/tray/error.svg")
+                            : @image-url("../assets/icons/tray/idle.svg");
+                        width: 22px;
+                        height: 22px;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: "Mirage";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
                 }
                 Rectangle { height: 12px; }
                 NavItem { icon: @image-url("../assets/icons/lucide/layout-dashboard.svg"); label: "总览"; selected: root.page == 0; clicked => { root.page = 0; } }
@@ -89,6 +155,18 @@ export component MainWindow inherits Window {
                 NavItem { icon: @image-url("../assets/icons/lucide/circle-user.svg"); label: "账号"; selected: root.page == 3; clicked => { root.page = 3; } }
                 NavItem { icon: @image-url("../assets/icons/lucide/settings.svg"); label: "设置"; selected: root.page == 4; clicked => { root.page = 4; } }
                 NavItem { icon: @image-url("../assets/icons/lucide/activity.svg"); label: "诊断"; selected: root.page == 5; clicked => { root.page = 5; } }
+                Rectangle { vertical-stretch: 1; }
+                Text {
+                    text: root.status-text;
+                    color: root.running ? Theme.ok : root.failed ? Theme.danger : Theme.text-muted;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+                if root.running: Text {
+                    text: "↑ " + root.up-rate + "  ↓ " + root.down-rate;
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                }
             }
         }
 
@@ -96,75 +174,88 @@ export component MainWindow inherits Window {
             padding: 24px;
             spacing: 12px;
 
-            Text {
-                text: ["总览", "配置", "节点", "账号", "设置", "诊断"][root.page];
-                font-size: 22px;
-                font-weight: 600;
-                color: Theme.text;
-            }
-
-            if root.notice != "": Rectangle {
-                background: root.notice-error ? Theme.error-bg : Theme.info-bg;
-                border-radius: 6px;
-                HorizontalLayout {
-                    padding: 10px;
-                    spacing: 8px;
-                    Text {
-                        text: root.notice;
-                        color: root.notice-error ? Theme.danger : Theme.text;
-                        wrap: word-wrap;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                    }
-                    Button {
-                        icon: @image-url("../assets/icons/lucide/x.svg");
-                        colorize-icon: true;
-                        accessible-label: "关闭提示";
-                        clicked => { root.dismiss-notice(); }
-                    }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: ["总览", "配置", "节点", "账号", "设置", "诊断"][root.page];
+                    font-size: 22px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    horizontal-stretch: 1;
+                }
+                if root.busy: Text {
+                    text: root.busy-text;
+                    color: Theme.accent;
+                    vertical-alignment: center;
                 }
             }
 
-            if root.busy: Text { text: root.busy-text; color: Theme.text-muted; }
+            if root.error-text != "": ErrorBar {
+                stage: root.error-stage;
+                text: root.error-text;
+                can-retry: root.error-retry;
+                retry => { root.retry-error(); }
+                dismiss => { root.dismiss-error(); }
+            }
 
-            if root.page == 0: OverviewPage {
+            if root.page == 0: ScrollView {
                 vertical-stretch: 1;
-                status-text: root.status-text;
-                running: root.running;
-                busy: root.busy;
-                profile-name: root.profile-name;
-                mixed-port: root.mixed-port;
-                core-version: root.core-version;
-                system-proxy-wanted <=> root.system-proxy-wanted;
-                system-proxy-active: root.system-proxy-active;
-                connectivity-text: root.connectivity-text;
-                connectivity-level: root.connectivity-level;
-                connect => { root.connect(); }
-                disconnect => { root.disconnect(); }
-                set-system-proxy(on) => { root.set-system-proxy(on); }
-                check-connectivity => { root.check-connectivity(); }
+                OverviewPage {
+                    status-text: root.status-text;
+                    running: root.running;
+                    failed: root.failed;
+                    busy: root.busy;
+                    profile-name: root.profile-name;
+                    mixed-port: root.mixed-port;
+                    core-version: root.core-version;
+                    system-proxy-wanted <=> root.system-proxy-wanted;
+                    system-proxy-active: root.system-proxy-active;
+                    connectivity-text: root.connectivity-text;
+                    connectivity-level: root.connectivity-level;
+                    routing-mode: root.routing-mode;
+                    exit-node: root.exit-node;
+                    up-rate: root.up-rate;
+                    down-rate: root.down-rate;
+                    up-path: root.up-path;
+                    down-path: root.down-path;
+                    plan: root.account-plan;
+                    usage: root.account-usage;
+                    connect => { root.connect(); }
+                    disconnect => { root.disconnect(); }
+                    set-system-proxy(on) => { root.set-system-proxy(on); }
+                    check-connectivity => { root.check-connectivity(); }
+                    set-routing-mode(m) => { root.set-routing-mode(m); }
+                }
             }
             if root.page == 1: ProfilesPage {
                 vertical-stretch: 1;
                 profiles: root.profiles;
                 busy: root.busy;
                 policy-notes: root.policy-notes;
+                egress-options: root.egress-options;
                 import-file => { root.import-file(); }
                 add-remote(name, url) => { root.add-remote(name, url); }
                 update(id) => { root.update-profile(id); }
                 update-all => { root.update-all(); }
                 select(id) => { root.select-profile(id); }
                 remove(id) => { root.remove-profile(id); }
+                copy-url(id) => { root.copy-profile-url(id); }
+                open-accounts => { root.page = 3; }
+                set-policy(id, hours, egress) => { root.set-update-policy(id, hours, egress); }
             }
             if root.page == 2: ProxiesPage {
                 vertical-stretch: 1;
                 groups: root.groups;
                 running: root.running;
                 testing-group: root.testing-group;
+                sort-by-delay <=> root.sort-by-delay;
+                filter <=> root.node-filter;
+                current-group <=> root.node-group;
                 select-node(g, n) => { root.select-node(g, n); }
                 test-delay(g) => { root.test-delay(g); }
                 refresh => { root.refresh-groups(); }
-                matches(name, filter) => { return root.node-matches(name, filter); }
+                sort-changed(on) => { root.sort-nodes(on); }
+                filter-changed(text) => { root.filter-nodes(text); }
             }
             if root.page == 3: ScrollView {
                 vertical-stretch: 1;
@@ -179,60 +270,74 @@ export component MainWindow inherits Window {
                     import-legacy => { root.import-legacy(); }
                 }
             }
-            if root.page == 4: Text {
-                text: "将在后续版本提供。";
-                color: Theme.text-muted;
+            if root.page == 4: ScrollView {
                 vertical-stretch: 1;
-                vertical-alignment: top;
-            }
-            if root.page == 5: ScrollView {
-                vertical-stretch: 1;
-                VerticalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Text { text: "版本：" + root.version; color: Theme.text; }
-                    Text { text: "内核：" + root.core-version; color: Theme.text; }
-                    Text { text: "数据目录：" + root.data-dir; color: Theme.text; wrap: word-wrap; }
-                    if root.check-lines.length > 0: Text { text: "最近一次配置校验输出："; color: Theme.text-muted; }
-                    for line in root.check-lines: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: "自由猫服务地址："; color: Theme.text; vertical-alignment: center; }
-                        Button {
-                            text: root.probing-hosts ? "检测中…" : "检测";
-                            enabled: !root.probing-hosts;
-                            clicked => { root.probe-hosts(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    for line in root.provider-hosts: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
-                    Text { text: "图标：Lucide (ISC)"; color: Theme.text-muted; }
-                    AboutSlint { max-height: 220px; }
+                SettingsPage {
+                    saved-port: root.settings-port;
+                    saved-bypass: root.settings-bypass;
+                    saved-user-agent: root.settings-user-agent;
+                    saved-provider-egress: root.settings-provider-egress;
+                    saved-auto-connect: root.settings-auto-connect;
+                    saved-close-to-tray: root.settings-close-to-tray;
+                    egress-options: root.egress-options;
+                    core-version: root.core-version;
+                    core-path: root.core-path;
+                    running: root.running;
+                    geo-updating: root.geo-updating;
+                    busy: root.busy;
+                    save(port, bypass, ua, egress, auto, tray) => { root.save-settings(port, bypass, ua, egress, auto, tray); }
+                    update-geodata => { root.update-geodata(); }
                 }
             }
+            if root.page == 5: DiagnosticsPage {
+                vertical-stretch: 1;
+                version: root.version;
+                core-version: root.core-version;
+                status-text: root.status-text;
+                data-dir: root.data-dir;
+                connectivity-text: root.connectivity-text;
+                running: root.running;
+                check-lines: root.check-lines;
+                policy-notes: root.policy-notes;
+                logs: root.logs;
+                probing-hosts: root.probing-hosts;
+                provider-hosts: root.provider-hosts;
+                check-connectivity => { root.check-connectivity(); }
+                probe-hosts => { root.probe-hosts(); }
+                clear-logs => { root.clear-logs(); }
+            }
         }
+    }
+
+    if root.toast-visible: Toast {
+        text: root.toast-text;
+        x: (parent.width - self.width) / 2 + 100px;
+        y: parent.height - self.height - 24px;
     }
 }
 
 export component AppTray inherits SystemTrayIcon {
     in property <TrayState> state: TrayState.idle;
+    in property <string> detail;
     in property <bool> window-visible: true;
     in property <bool> running;
     in property <bool> busy;
+    in property <int> routing-mode: -1;
     in-out property <bool> system-proxy;
 
     callback toggle-window();
     callback toggle-connection();
     callback set-system-proxy(bool);
+    callback set-routing-mode(int);
     callback quit-app();
 
     icon: state == TrayState.connected ? @image-url("../assets/icons/tray/connected.svg")
         : state == TrayState.error || state == TrayState.restarting ? @image-url("../assets/icons/tray/error.svg")
         : @image-url("../assets/icons/tray/idle.svg");
-    tooltip: state == TrayState.connected ? "Mirage - 已连接"
+    tooltip: (state == TrayState.connected ? "Mirage - 已连接"
         : state == TrayState.error ? "Mirage - 错误"
         : state == TrayState.restarting ? "Mirage - 正在重启内核"
-        : "Mirage - 未连接";
+        : "Mirage - 未连接") + (root.detail == "" ? "" : "\n" + root.detail);
 
     clicked => { root.toggle-window(); }
 
@@ -242,15 +347,33 @@ export component AppTray inherits SystemTrayIcon {
             activated => { root.toggle-window(); }
         }
         MenuItem {
-            title: root.running ? "断开" : "连接";
+            title: root.busy ? "请稍候…" : root.running ? "断开" : "连接";
             enabled: !root.busy;
             activated => { root.toggle-connection(); }
         }
+        MenuSeparator { }
         MenuItem {
-            title: "系统代理";
-            checkable: true;
-            checked <=> root.system-proxy;
-            activated => { root.set-system-proxy(self.checked); }
+            title: root.system-proxy ? "✓ 系统代理" : "系统代理";
+            activated => { root.set-system-proxy(!root.system-proxy); }
+        }
+        MenuItem {
+            title: "TUN（后续版本）";
+            enabled: false;
+        }
+        Menu {
+            title: "路由模式";
+            MenuItem {
+                title: root.routing-mode == 0 ? "✓ 规则" : "规则";
+                activated => { root.set-routing-mode(0); }
+            }
+            MenuItem {
+                title: root.routing-mode == 1 ? "✓ 全局" : "全局";
+                activated => { root.set-routing-mode(1); }
+            }
+            MenuItem {
+                title: root.routing-mode == 2 ? "✓ 直连" : "直连";
+                activated => { root.set-routing-mode(2); }
+            }
         }
         MenuSeparator { }
         MenuItem {

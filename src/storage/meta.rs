@@ -2,7 +2,10 @@
 
 use super::atomic;
 use crate::domain::error::{AppError, AppResult};
-use crate::domain::model::{ConfigRevision, Profile, ProfileId, ProviderAccount};
+use crate::domain::model::{
+    ConfigRevision, DEFAULT_SUBSCRIPTION_UA, EgressPolicy, Profile, ProfileId, ProviderAccount,
+    RoutingMode,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -37,9 +40,9 @@ pub struct SelectionFile {
     pub groups: BTreeMap<String, String>,
 }
 
-/// User preferences (DESIGN.md §13 `settings.json`). M2 persists the system
-/// proxy switch and auto-connect; later milestones add ports and bypass.
-#[derive(Debug, Serialize, Deserialize)]
+/// User preferences (DESIGN.md §13 `settings.json`). Fields added after M2
+/// carry serde defaults, so older files load unchanged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsFile {
     pub schema_version: u32,
     #[serde(default = "default_true")]
@@ -47,6 +50,26 @@ pub struct SettingsFile {
     /// Connect with the active revision once the core is verified (§16.1).
     #[serde(default)]
     pub auto_connect: bool,
+    #[serde(default = "default_mixed_port")]
+    pub mixed_port: u16,
+    /// WinINet bypass list written with the system proxy (§11.2).
+    #[serde(default = "default_bypass")]
+    pub bypass: String,
+    /// UA for plain URL subscriptions without their own (§15).
+    #[serde(default = "default_ua")]
+    pub default_user_agent: String,
+    /// Egress of the provider account API (§12.2).
+    #[serde(default)]
+    pub provider_egress: EgressPolicy,
+    /// `None`: keep the mode the config declares (§9.2).
+    #[serde(default)]
+    pub routing_mode: Option<RoutingMode>,
+    /// Closing the window hides it to the tray instead of quitting (§17.2).
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+    /// The one-time "still running in the tray" hint was shown.
+    #[serde(default)]
+    pub close_hint_shown: bool,
 }
 
 impl Default for SettingsFile {
@@ -55,8 +78,27 @@ impl Default for SettingsFile {
             schema_version: SCHEMA_VERSION,
             system_proxy: true,
             auto_connect: false,
+            mixed_port: default_mixed_port(),
+            bypass: default_bypass(),
+            default_user_agent: default_ua(),
+            provider_egress: EgressPolicy::default(),
+            routing_mode: None,
+            close_to_tray: true,
+            close_hint_shown: false,
         }
     }
+}
+
+fn default_mixed_port() -> u16 {
+    crate::app::DEFAULT_MIXED_PORT
+}
+
+fn default_bypass() -> String {
+    crate::app::sysproxy::DEFAULT_BYPASS.to_owned()
+}
+
+fn default_ua() -> String {
+    DEFAULT_SUBSCRIPTION_UA.to_owned()
 }
 
 fn default_true() -> bool {

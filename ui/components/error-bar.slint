@@ -1,0 +1,93 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// Persistent error bar (DESIGN.md §17.3): stage + redacted detail + retry.
+export component ErrorBar inherits Rectangle {
+    in property <string> stage;
+    in property <string> text;
+    in property <bool> can-retry;
+    callback retry();
+    callback dismiss();
+
+    background: Theme.error-bg;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Theme.danger.with-alpha(0.25);
+    accessible-role: AccessibleRole.text;
+    accessible-label: (root.stage == "" ? "" : root.stage + "失败：") + root.text;
+
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 8px;
+        Image {
+            source: @image-url("../../assets/icons/lucide/shield-alert.svg");
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            colorize: Theme.danger;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            if root.stage != "": Text {
+                text: root.stage + "失败";
+                color: Theme.danger;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            Text {
+                text: root.text;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+        }
+        if root.can-retry: Button {
+            text: "重试";
+            icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+            colorize-icon: true;
+            clicked => { root.retry(); }
+        }
+        Button {
+            icon: @image-url("../../assets/icons/lucide/x.svg");
+            colorize-icon: true;
+            accessible-label: "关闭错误提示";
+            clicked => { root.dismiss(); }
+        }
+    }
+}
+
+// Transient info message; hidden again by a timer in the window (§17.3).
+// Placed freely in the window, so it sizes itself to its content.
+export component Toast inherits Rectangle {
+    in property <string> text;
+    width: content.preferred-width;
+    height: content.preferred-height;
+    background: Theme.toast-bg;
+    border-radius: 6px;
+    drop-shadow-blur: 8px;
+    drop-shadow-color: #00000030;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    content := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 8px;
+        Image {
+            source: @image-url("../../assets/icons/lucide/check.svg");
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            colorize: Theme.toast-text;
+        }
+        Text {
+            text: root.text;
+            color: Theme.toast-text;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            max-width: 480px;
+        }
+    }
+}

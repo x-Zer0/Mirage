@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
         let _ = core.sender().try_send(app::Command::ImportLocalFile(path));
     }
     let ui = ui_bridge::Ui::build(&layout, VERSION, &core, autostart).context("build UI")?;
-    instance.on_activate(ui.activator());
+    instance.on_activate(ui.activator(core.sender()));
 
     slint::run_event_loop_until_quit().context("run event loop")?;
 

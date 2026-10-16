@@ -1,0 +1,144 @@
+import { Button, CheckBox, ComboBox, LineEdit, TextEdit } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { Card } from "../components/card.slint";
+
+// Settings (DESIGN.md §17.1). Edits stay local until "保存"; the core
+// validates them and answers with a toast or the error bar.
+export component SettingsPage inherits VerticalLayout {
+    in property <int> saved-port;
+    in property <string> saved-bypass;
+    in property <string> saved-user-agent;
+    in property <int> saved-provider-egress;
+    in property <bool> saved-auto-connect;
+    in property <bool> saved-close-to-tray;
+    in property <[string]> egress-options;
+    in property <string> core-version;
+    in property <string> core-path;
+    in property <bool> running;
+    in property <bool> geo-updating;
+    // A start/stop is in flight; saving could restart the core again.
+    in property <bool> busy;
+    callback save(string, string, string, int, bool, bool);
+    callback update-geodata();
+
+    // Working copies, reset from the saved values whenever the page opens.
+    property <string> port: root.saved-port;
+    property <string> bypass: root.saved-bypass;
+    property <string> user-agent: root.saved-user-agent;
+    property <int> provider-egress: root.saved-provider-egress;
+    property <bool> auto-connect: root.saved-auto-connect;
+    property <bool> close-to-tray: root.saved-close-to-tray;
+
+    spacing: 16px;
+    alignment: start;
+
+    Card {
+        VerticalLayout {
+            spacing: 10px;
+            Text { text: "网络"; font-weight: 600; color: Theme.text; }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "本地代理端口（mixed-port）"; color: Theme.text; vertical-alignment: center; width: 220px; }
+                LineEdit {
+                    text <=> root.port;
+                    input-type: InputType.number;
+                    width: 120px;
+                    horizontal-stretch: 0;
+                    accessible-label: "本地代理端口";
+                }
+                Text { text: "仅监听 127.0.0.1；修改后内核会重启"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
+            }
+            Text { text: "系统代理例外（分号或换行分隔）"; color: Theme.text; }
+            TextEdit {
+                text <=> root.bypass;
+                height: 72px;
+                wrap: word-wrap;
+                font-size: 12px;
+                accessible-label: "系统代理例外";
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "订阅默认 User-Agent"; color: Theme.text; vertical-alignment: center; width: 220px; }
+                LineEdit { text <=> root.user-agent; accessible-label: "订阅默认 User-Agent"; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "自由猫账号请求出站"; color: Theme.text; vertical-alignment: center; width: 220px; }
+                ComboBox {
+                    model: root.egress-options;
+                    current-index <=> root.provider-egress;
+                    accessible-label: "自由猫账号请求出站";
+                }
+            }
+            Text {
+                text: "内部请求默认直连并忽略系统代理；“经本地内核”会按订阅规则分流，可能经过某个节点。";
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    Card {
+        VerticalLayout {
+            spacing: 8px;
+            Text { text: "启动与窗口"; font-weight: 600; color: Theme.text; }
+            CheckBox { text: "启动后自动连接"; checked <=> root.auto-connect; }
+            CheckBox { text: "关闭窗口时最小化到托盘（取消则关闭即退出）"; checked <=> root.close-to-tray; }
+            Text { text: "开机启动将在后续版本提供。"; color: Theme.text-muted; font-size: 12px; }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button {
+            text: "保存设置";
+            primary: true;
+            enabled: !root.busy;
+            icon: @image-url("../../assets/icons/lucide/check.svg");
+            colorize-icon: true;
+            clicked => {
+                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray);
+            }
+        }
+        Button {
+            text: "还原";
+            clicked => {
+                root.port = root.saved-port;
+                root.bypass = root.saved-bypass;
+                root.user-agent = root.saved-user-agent;
+                root.provider-egress = root.saved-provider-egress;
+                root.auto-connect = root.saved-auto-connect;
+                root.close-to-tray = root.saved-close-to-tray;
+            }
+        }
+    }
+
+    Card {
+        VerticalLayout {
+            spacing: 8px;
+            Text { text: "内核"; font-weight: 600; color: Theme.text; }
+            Text { text: "版本：" + root.core-version; color: Theme.text; }
+            Text { text: "路径：" + root.core-path; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Button {
+                    text: root.geo-updating ? "正在更新 geodata…" : "更新 geodata";
+                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                    colorize-icon: true;
+                    enabled: root.running && !root.geo-updating;
+                    clicked => { root.update-geodata(); }
+                }
+                Text {
+                    text: root.running ? "通过运行中的内核下载" : "连接后可用";
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+            Text { text: "TUN 模式与辅助服务将在后续版本提供。"; color: Theme.text-muted; font-size: 12px; }
+        }
+    }
+}

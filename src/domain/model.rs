@@ -71,6 +71,54 @@ pub enum EgressPolicy {
     Auto,
 }
 
+impl EgressPolicy {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::Direct, Self::ViaLocalCore];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "自动（先直连，失败再经本地内核）",
+            Self::Direct => "直连",
+            Self::ViaLocalCore => "经本地内核",
+        }
+    }
+}
+
+/// Mihomo `mode` (DESIGN.md §9.2, §10.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingMode {
+    Rule,
+    Global,
+    Direct,
+}
+
+impl RoutingMode {
+    pub const ALL: [Self; 3] = [Self::Rule, Self::Global, Self::Direct];
+
+    /// Value of the `mode` key / `PATCH /configs`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rule => "rule",
+            Self::Global => "global",
+            Self::Direct => "direct",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|m| m.as_str().eq_ignore_ascii_case(text))
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rule => "规则",
+            Self::Global => "全局",
+            Self::Direct => "直连",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdatePolicy {
     /// 0 = manual only.

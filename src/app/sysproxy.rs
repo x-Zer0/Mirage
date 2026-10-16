@@ -33,11 +33,11 @@ impl Restore {
     }
 }
 
-pub fn applied_settings(mixed_port: u16) -> ProxySettings {
+pub fn applied_settings(mixed_port: u16, bypass: &str) -> ProxySettings {
     ProxySettings {
         flags: FLAG_DIRECT | FLAG_PROXY,
         server: Some(server_for(mixed_port)),
-        bypass: Some(DEFAULT_BYPASS.to_owned()),
+        bypass: Some(bypass.to_owned()),
         autoconfig_url: None,
     }
 }
@@ -47,7 +47,7 @@ fn server_for(port: u16) -> String {
 }
 
 /// Points the system proxy at the local core (steps 1–6 of §11.3).
-pub fn enable(layout: &Layout, mixed_port: u16) -> AppResult<()> {
+pub fn enable(layout: &Layout, mixed_port: u16, bypass: &str) -> AppResult<()> {
     let mut original = sysproxy::read().map_err(|e| sysproxy_error(e.to_string()))?;
     if points_at(&original, mixed_port) {
         // Leftover from an earlier crash: restoring it would leave a dead proxy.
@@ -57,7 +57,7 @@ pub fn enable(layout: &Layout, mixed_port: u16) -> AppResult<()> {
     let mut journal = SysProxyJournal {
         state: SysProxyState::Pending,
         original,
-        applied: applied_settings(mixed_port),
+        applied: applied_settings(mixed_port, bypass),
         ..Default::default()
     };
     journal::save_sysproxy(layout, &mut journal)?;

@@ -4,19 +4,21 @@
 
 mod accounts;
 mod connectivity;
+pub mod live;
 mod pipeline;
 mod profiles;
 pub mod recovery;
 mod runtime;
+pub mod settings;
 pub mod state;
 mod supervise;
-mod sysproxy;
+pub mod sysproxy;
 mod updates;
 
 use crate::cores::mihomo::binary::{self, CoreBinary};
 use crate::cores::mihomo::controller::ProxyGroupView;
 use crate::domain::error::AppError;
-use crate::domain::model::{AccountId, AccountStatus, ProfileId, RevisionId};
+use crate::domain::model::{AccountId, AccountStatus, ProfileId, RevisionId, RoutingMode};
 use crate::domain::redact::{Password, SecretString};
 use crate::platform::windows::secret::SecretStore;
 use crate::storage::layout::Layout;
@@ -74,6 +76,24 @@ pub enum Command {
     SetSystemProxy(bool),
     CheckConnectivity,
     DismissNotice,
+    /// Error bar retry button: re-sends the failed operation (§17.3).
+    RetryNotice,
+    SetRoutingMode(RoutingMode),
+    SaveSettings(settings::SettingsInput),
+    /// Interval (hours, 0 = manual) and egress index for one profile.
+    SetUpdatePolicy {
+        id: String,
+        interval_hours: u32,
+        egress: usize,
+    },
+    /// Copies a URL subscription's link to the clipboard on user request.
+    CopyProfileUrl(String),
+    UpdateGeodata,
+    /// Main window shown/hidden; live streams only run while visible (§17.4).
+    WindowVisible(bool),
+    CloseHintShown,
+    /// Installs the receiver of traffic samples and log batches.
+    SetLiveSink(std::sync::Arc<dyn live::LiveSink>),
     /// Logoff/shutdown: clean up now and acknowledge when done (§11.5).
     SessionEnding(std::sync::mpsc::Sender<()>),
     Quit,
@@ -113,6 +133,9 @@ enum Internal {
         manual: bool,
     },
     HostsProbed(Result<crate::providers::ziyoumao::bootstrap::Discovery, AppError>),
+    ModeApplied(u64, Result<(), AppError>),
+    CoreMode(u64, Result<String, AppError>),
+    GeoUpdated(Result<(), AppError>),
 }
 
 pub struct CoreHandle {
@@ -177,7 +200,7 @@ pub fn spawn(layout: Layout, startup_notice: Option<String>) -> std::io::Result<
         .spawn(move || {
             let mut core = AppCore::new(layout, state_tx);
             if let Some(text) = startup_notice {
-                core.view.notice = Some(Notice { error: true, text });
+                core.view.notice = Some(Notice::error(text).with_stage("启动恢复"));
             }
             runtime.block_on(core.run(rx))
         })?;
@@ -210,6 +233,7 @@ struct AppCore {
     accounts: accounts::Accounts,
     /// Status before a running session check, restored on inconclusive errors.
     validating_prev: HashMap<AccountId, AccountStatus>,
+    live: live::LiveStreams,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
 }
@@ -232,6 +256,7 @@ impl AppCore {
                 SettingsFile::default()
             });
         view.system_proxy_wanted = settings.system_proxy;
+        view.routing_mode = settings.routing_mode;
         let accounts = accounts::Accounts::load(&layout).unwrap_or_else(|e| {
             view.notice = Some(error_notice(&e));
             accounts::Accounts::empty()
@@ -254,6 +279,7 @@ impl AppCore {
             queued_reload: None,
             accounts,
             validating_prev: HashMap::new(),
+            live: live::LiveStreams::default(),
             internal_tx,
             internal_rx: Some(internal_rx),
         }
@@ -283,6 +309,7 @@ impl AppCore {
                 _ = watch.tick() => self.watch_sysproxy(),
                 _ = schedule.tick() => self.schedule_due_updates(),
             }
+            self.sync_live_streams();
             self.publish();
         }
         self.shutdown_cleanup().await;
@@ -295,6 +322,7 @@ impl AppCore {
     /// Quit and logoff path: system proxy first, then the core (§11.4, §11.5).
     async fn shutdown_cleanup(&mut self) {
         self.generation += 1;
+        self.live.set_window_hidden_for_quit();
         self.release_sysproxy();
         if let Some(running) = self.running.take() {
             runtime::stop(running, &self.layout).await;
@@ -307,6 +335,7 @@ impl AppCore {
         }
         let layout = self.layout.clone();
         self.spawn(async move { Internal::CoreVerified(binary::verify(&layout).await) });
+        self.refresh_settings_view();
         self.refresh_profiles_view();
         self.refresh_accounts_view();
         // §16.1: sessions are checked in the background, never blocking connect.
@@ -322,26 +351,34 @@ impl AppCore {
         });
     }
 
-    fn publish(&self) {
-        self.state_tx.send_replace(Arc::new(self.view.clone()));
+    /// Publishes only when something changed: the UI bridge redraws on
+    /// every snapshot, so idle ticks (sysproxy watch, schedule) cost nothing.
+    fn publish(&mut self) {
+        if let Some(n) = self.view.notice.take() {
+            if n.error {
+                self.view.error = Some(n);
+            } else {
+                self.view.toast = Some(n);
+            }
+        }
+        self.state_tx.send_if_modified(|current| {
+            if **current == self.view {
+                return false;
+            }
+            *current = Arc::new(self.view.clone());
+            true
+        });
     }
 }
 
 mod handlers;
 
 fn error_notice(e: &AppError) -> Notice {
-    tracing::warn!(error = %e, "operation failed");
-    Notice {
-        error: true,
-        text: e.user_message(),
-    }
+    Notice::from_error(e)
 }
 
 fn info_notice(text: impl Into<String>) -> Notice {
-    Notice {
-        error: false,
-        text: text.into(),
-    }
+    Notice::info(text)
 }
 
 pub fn status_text(status: &RuntimeStatus) -> String {

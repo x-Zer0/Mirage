@@ -18,6 +18,6 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 
 ## 当前状态
 
-- 已验证：自由猫保存会话可取账号与订阅；`User-Agent: clash-verge` 可取得标准 Mihomo YAML；官方 Mihomo v1.19.32 校验通过且单节点联网成功。
-- 未验证：账号密码首次登录、令牌有效期、验证码/设备要求、TUN/UDP/IPv6、原客户端退出后的完整独立运行。
-- 尚未创建 Rust 工程；`Mirage/` 为工程根目录。
+- 里程碑：M0～M5 已完成，手工验收记录见 [acceptance/](acceptance/)；下一步 M6（可靠性收尾）。
+- 已验证：自由猫账号密码登录（真实账号，2026-10-16）、会话恢复与订阅下载；`User-Agent: clash-verge` 可取得标准 Mihomo YAML；官方 Mihomo v1.19.32 校验通过且联网成功。
+- 未验证：令牌有效期、验证码/设备要求、TUN/UDP/IPv6、原客户端退出后的完整独立运行。

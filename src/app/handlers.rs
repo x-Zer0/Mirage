@@ -1,9 +1,9 @@
 //! Command and completion handlers for [`AppCore`].
 
-use super::state::{Connectivity, ProfileView, RuntimeStatus};
+use super::state::{Connectivity, ProfileView, Retry, RuntimeStatus};
 use super::{AppCore, Command, Internal, error_notice, info_notice, pipeline, runtime, updates};
 use crate::domain::error::{AppError, AppErrorKind};
-use crate::domain::model::{Profile, SubscriptionSource, Validity, now};
+use crate::domain::model::{EgressPolicy, Profile, SubscriptionSource, Validity, now};
 use crate::storage::meta;
 use crate::subscriptions::revisions;
 
@@ -38,7 +38,20 @@ impl AppCore {
             Command::RefreshGroups => self.refresh_groups(),
             Command::SetSystemProxy(on) => self.set_system_proxy(on),
             Command::CheckConnectivity => self.check_connectivity(),
-            Command::DismissNotice => self.view.notice = None,
+            Command::DismissNotice => self.view.error = None,
+            Command::RetryNotice => self.retry(),
+            Command::SetRoutingMode(mode) => self.set_routing_mode(mode),
+            Command::SaveSettings(input) => self.save_settings(input),
+            Command::SetUpdatePolicy {
+                id,
+                interval_hours,
+                egress,
+            } => self.set_update_policy(&id, interval_hours, egress),
+            Command::CopyProfileUrl(id) => self.copy_profile_url(&id),
+            Command::UpdateGeodata => self.update_geodata(),
+            Command::WindowVisible(visible) => self.set_window_visible(visible),
+            Command::CloseHintShown => self.close_hint_shown(),
+            Command::SetLiveSink(sink) => self.live.set_sink(sink),
             // Both end the actor loop before reaching here (app::AppCore::run).
             Command::SessionEnding(_) | Command::Quit => {}
         }
@@ -88,6 +101,9 @@ impl AppCore {
                 manual,
             } => self.on_account_refreshed(account_id, result, manual),
             Internal::HostsProbed(result) => self.on_hosts_probed(result),
+            Internal::ModeApplied(generation, result) => self.on_mode_applied(generation, result),
+            Internal::CoreMode(generation, result) => self.on_core_mode(generation, result),
+            Internal::GeoUpdated(result) => self.on_geo_updated(result),
         }
     }
 
@@ -286,13 +302,14 @@ impl AppCore {
         self.generation += 1;
         let generation = self.generation;
         self.view.runtime = RuntimeStatus::Starting;
-        self.view.notice = None;
+        self.view.error = None;
         let req = runtime::StartRequest {
             generation,
             layout: self.layout.clone(),
             binary,
             profile,
             mixed_port: self.view.mixed_port,
+            mode: self.settings.routing_mode,
         };
         self.spawn(async move {
             if let Some(previous) = previous {
@@ -315,7 +332,10 @@ impl AppCore {
                 self.running = Some(running);
                 self.ensure_sysproxy();
                 self.refresh_groups();
+                self.read_core_mode();
                 self.check_connectivity();
+                // The controller address changed with the new process.
+                self.restart_live_streams();
             }
             Ok(stale) => {
                 // A newer transaction superseded this start; discard its core.
@@ -329,8 +349,10 @@ impl AppCore {
                     // A failed user connect may follow a crash; never leave the
                     // system proxy pointing at a port nobody listens on.
                     self.release_sysproxy();
-                    self.view.runtime = RuntimeStatus::Failed(e.user_message());
-                    self.view.notice = Some(error_notice(&e));
+                    // The status names the failure; the error bar carries the
+                    // detail (which may include the core's log tail).
+                    self.view.runtime = RuntimeStatus::Failed(e.kind.label().to_owned());
+                    self.view.notice = Some(error_notice(&e).with_retry(Retry::Connect));
                 }
             }
             Err(_) => {}
@@ -434,10 +456,12 @@ fn profile_view(
     selected: &str,
     updating: bool,
 ) -> ProfileView {
-    let detail = p
+    let active = p
         .active_revision
         .as_ref()
-        .and_then(|rev| revisions::find(layout, p, rev).ok().flatten())
+        .and_then(|rev| revisions::find(layout, p, rev).ok().flatten());
+    let detail = active
+        .as_ref()
         .map(|r| match &r.validity {
             Validity::Valid => format!(
                 "{} 个节点 · {} 个组 · {} 条规则",
@@ -466,6 +490,13 @@ fn profile_view(
             .as_ref()
             .and_then(|f| f.error.clone())
             .unwrap_or_default(),
+        has_url: matches!(p.source, SubscriptionSource::RemoteUrl { .. }),
+        interval_hours: p.update_policy.interval_hours,
+        egress: EgressPolicy::ALL
+            .iter()
+            .position(|e| *e == p.update_policy.egress)
+            .unwrap_or(0),
+        policy_notes: active.map(|r| r.policy_notes).unwrap_or_default(),
     }
 }
 

@@ -37,7 +37,7 @@ bootstrap（公开 Base64 JSON）→ 候选主机 → GET /guest/comm/config 验
 | 订阅下载 | 【已验证】UA 为 `Clash.Meta` 时返回 567，UA 为 `clash-verge` 时返回 200 明文 YAML（Content-Type: text/html） | 必须指定 UA；不能依据 Content-Type 判断 |
 | 订阅样本 | 118 个 Trojan 节点，3 个组，516 条规则，0 个 provider；节点字段 name/password/port/server/skip-cert-verify/sni/type/udp | 仅是当时的样本，不得硬编码 |
 | 官方核心校验 | 【已验证】v1.19.32 `-t` 退出码 0，带有 `fallback-filter.geosite` 弃用警告 | 警告不影响使用 |
-| 账号密码登录 | 【已验证 M4，失败路径】JSON `{"email","password"}` 被接受（未返回 415/422）；不存在的账号返回 **HTTP 500** + JSON 信封 `message: "邮箱或密码错误"` | 成功响应的字段名待用真实账号登录时记录 |
+| 账号密码登录 | 【已验证 M4】JSON `{"email","password"}` 被接受（未返回 415/422）；不存在的账号返回 **HTTP 500** + JSON 信封 `message: "邮箱或密码错误"`。【已验证 2026-10-16，真实账号】成功为 HTTP 200，`data` 字段名为 `auth_data`、`is_admin`、`token` | 只用 `auth_data`；`token` 的用途未知，不保存、不使用 |
 | 刷新令牌 / 续期 | 【待核验】没有找到 refresh_token 或刷新接口的证据 | 不实现续期 |
 | 服务端注销 | 【待核验】未确认接口 | v1 只清除本地数据 |
 | TUN/UDP/IPv6 | 未验证 | 不宣称支持 |
@@ -125,7 +125,7 @@ struct BootstrapDoc {
 
 ### 5.1 响应信封
 
-接口风格属于 V2Board 一类面板。【已验证 M4】登录失败的响应是 JSON 信封，`message` 为可展示的中文原因；状态码为 500（V2Board `abort(500, …)` 风格），不是 4xx。成功响应的形状仍待真实账号登录时记录。
+接口风格属于 V2Board 一类面板。【已验证 M4】登录失败的响应是 JSON 信封，`message` 为可展示的中文原因；状态码为 500（V2Board `abort(500, …)` 风格），不是 4xx。【已验证 2026-10-16】成功响应为 HTTP 200 信封，`data` 含 `auth_data`、`is_admin`、`token`。
 
 ```rust
 #[derive(Deserialize)]
@@ -149,7 +149,7 @@ struct Envelope<T> {
 
 ```rust
 #[derive(Deserialize)]
-struct LoginData { auth_data: Option<String> /* 其他字段首次登录时记录 */ }
+struct LoginData { auth_data: Option<String> /* 【已验证】另有 is_admin、token，不使用 */ }
 
 #[derive(Deserialize)]
 struct UserInfo {
@@ -195,7 +195,7 @@ Accept: application/json
 {"email":"<用户输入>","password":"<用户输入>"}
 ```
 
-- 【已验证 M4】服务端接受 JSON 编码（用不存在的账号实测：返回业务错误而不是 415/422）。成功响应中 `data` 的字段名在首次真实账号登录时由日志 `ziyoumao login response fields=…` 记录（只记字段名）。
+- 【已验证 M4】服务端接受 JSON 编码（用不存在的账号实测：返回业务错误而不是 415/422）。【已验证 2026-10-16】真实账号登录成功，日志 `ziyoumao login response status=200 fields=auth_data,is_admin,token`（只记字段名）；随后 user/info、getSubscribe 与订阅下载（UA `clash-verge`）均成功。
 - 编码方式采用 JSON，与 Python 原型一致。原则上：如果服务端拒绝 JSON（例如返回 415 或 422，并提示字段缺失），把错误信息展示给用户并记录下来，然后人工决定是否改为表单编码。不得自动用多种编码重复提交密码。
 - 登录只由用户主动触发，失败时不自动重试。
 - 密码以 `Zeroizing<String>` 保存在内存中，请求发出后立即清零，永不写入磁盘。
@@ -353,7 +353,7 @@ fn decode_legacy(raw: &[u8]) -> Result<String, AppError> {
 
 ## 11. 仍需确认
 
-- 首次登录成功时的响应结构（编码与失败响应已在 M4 确认）。
+- ~~首次登录成功时的响应结构~~ 【已确认 2026-10-16】HTTP 200 信封，`data` 含 `auth_data`、`is_admin`、`token`（见 §2、§5、§6.1）。
 - 令牌的有效期、并发登录限制、设备绑定方式。
 - 是否有验证码或设备确认流程。
 - 订阅 URL 是否会轮换。

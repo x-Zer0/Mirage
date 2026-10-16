@@ -95,6 +95,7 @@ async fn check_candidate(
         secret: &secret,
         log_level: super::runtime::CORE_LOG_LEVEL,
         profile_id,
+        mode: None,
     };
     let prepared = prepare(binary, layout, rev_id, raw, &overlay).await?;
     let revision = ConfigRevision {

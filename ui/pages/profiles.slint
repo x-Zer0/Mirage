@@ -1,4 +1,4 @@
-import { Button, ListView, LineEdit } from "std-widgets.slint";
+import { Button, ComboBox, ListView, LineEdit, SpinBox } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 
 export struct ProfileRow {
@@ -12,13 +12,20 @@ export struct ProfileRow {
     updating: bool,
     usage: string,
     fetch-error: string,
+    has-url: bool,
+    interval-hours: int,
+    egress: int,
+    policy-notes: [string],
 }
 
 export component ProfilesPage inherits VerticalLayout {
     in property <[ProfileRow]> profiles;
     in property <bool> busy;
     in property <[string]> policy-notes;
+    in property <[string]> egress-options;
     in-out property <string> new-name;
+    // Profile whose details panel is open; "" = none.
+    in-out property <string> expanded;
     in-out property <string> new-url;
     callback import-file();
     callback add-remote(string, string);
@@ -26,6 +33,9 @@ export component ProfilesPage inherits VerticalLayout {
     callback update-all();
     callback select(string);
     callback remove(string);
+    callback copy-url(string);
+    callback open-accounts();
+    callback set-policy(string, int, int);
 
     spacing: 12px;
 
@@ -79,6 +89,12 @@ export component ProfilesPage inherits VerticalLayout {
             colorize-icon: true;
             clicked => { root.update-all(); }
         }
+        Button {
+            text: "添加自由猫账号";
+            icon: @image-url("../../assets/icons/lucide/circle-user.svg");
+            colorize-icon: true;
+            clicked => { root.open-accounts(); }
+        }
     }
 
     if root.profiles.length == 0: Text {
@@ -110,12 +126,79 @@ export component ProfilesPage inherits VerticalLayout {
                     if p.usage != "": Text { text: p.usage; color: Theme.text-muted; font-size: 12px; }
                     if p.updating: Text { text: "正在更新…"; color: Theme.accent; font-size: 12px; }
                     if !p.updating && p.fetch-error != "": Text { text: p.fetch-error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
+                    // The panel swallows clicks: a click on its background must
+                    // not fall through to the row and switch the active profile.
+                    if root.expanded == p.id: Rectangle {
+                        TouchArea { }
+                        details := VerticalLayout {
+                            spacing: 6px;
+                            padding-top: 6px;
+                            property <int> hours: p.interval-hours;
+                            property <int> egress: p.egress;
+                            if p.remote: HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "自动更新间隔（小时，0 = 仅手动）"; color: Theme.text; vertical-alignment: center; }
+                                SpinBox {
+                                    minimum: 0;
+                                    maximum: 720;
+                                    value: p.interval-hours;
+                                    width: 120px;
+                                    horizontal-stretch: 0;
+                                    accessible-label: "自动更新间隔（小时）";
+                                    edited(v) => { details.hours = v; }
+                                }
+                            }
+                            if p.remote: HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "下载出站"; color: Theme.text; vertical-alignment: center; }
+                                ComboBox {
+                                    model: root.egress-options;
+                                    current-index: p.egress;
+                                    accessible-label: "下载出站";
+                                    selected => { details.egress = self.current-index; }
+                                }
+                                Button {
+                                    text: "保存";
+                                    clicked => { root.set-policy(p.id, details.hours, details.egress); }
+                                }
+                            }
+                            if p.remote: Text {
+                                text: "经本地内核下载时，请求会按订阅规则分流，可能经过某个节点。";
+                                color: Theme.text-muted;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                            if p.has-url: HorizontalLayout {
+                                alignment: start;
+                                Button {
+                                    text: "复制订阅链接";
+                                    icon: @image-url("../../assets/icons/lucide/link.svg");
+                                    colorize-icon: true;
+                                    clicked => { root.copy-url(p.id); }
+                                }
+                            }
+                            Text {
+                                text: p.policy-notes.length == 0 ? "安全调整：无" : "安全调整：";
+                                color: Theme.text-muted;
+                                font-size: 12px;
+                            }
+                            for note in p.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                        }
+                    }
                 }
                 if p.selected: Image {
                     source: @image-url("../../assets/icons/lucide/check.svg");
                     width: 18px; height: 18px;
                     y: (parent.height - self.height) / 2;
                     colorize: Theme.accent;
+                }
+                Button {
+                    icon: @image-url("../../assets/icons/lucide/settings.svg");
+                    colorize-icon: true;
+                    accessible-label: "详情 " + p.name;
+                    checkable: true;
+                    checked: root.expanded == p.id;
+                    clicked => { root.expanded = root.expanded == p.id ? "" : p.id; }
                 }
                 if p.remote: Button {
                     icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");

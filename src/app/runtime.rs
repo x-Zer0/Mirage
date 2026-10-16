@@ -3,10 +3,10 @@
 use super::pipeline;
 use crate::cores::mihomo::binary::CoreBinary;
 use crate::cores::mihomo::compose::{self, ManagedOverlay};
-use crate::cores::mihomo::controller::Controller;
+use crate::cores::mihomo::controller::{Controller, GLOBAL_GROUP};
 use crate::cores::mihomo::process::{self, CoreCommand, CoreProcess};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{Profile, ProfileId, RevisionId};
+use crate::domain::model::{Profile, ProfileId, RevisionId, RoutingMode};
 use crate::platform::windows::process as win_process;
 use crate::storage::journal::{self, CoreJournal};
 use crate::storage::layout::Layout;
@@ -45,6 +45,7 @@ pub struct StartRequest {
     pub binary: CoreBinary,
     pub profile: Profile,
     pub mixed_port: u16,
+    pub mode: Option<RoutingMode>,
 }
 
 pub async fn start(req: StartRequest) -> AppResult<Running> {
@@ -64,6 +65,7 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         secret: &secret,
         log_level: CORE_LOG_LEVEL,
         profile_id: &req.profile.id,
+        mode: req.mode,
     };
     let prepared = pipeline::prepare(&req.binary, &req.layout, &rev_id, &raw, &overlay).await?;
     let run_config = req.layout.run_config();
@@ -114,6 +116,7 @@ pub struct ReloadRequest {
     pub controller_addr: SocketAddr,
     pub secret: String,
     pub mixed_port: u16,
+    pub mode: Option<RoutingMode>,
     pub candidate: RevisionId,
     /// last_good, written back when the candidate fails (§8 step 9).
     pub fallback: Option<RevisionId>,
@@ -160,6 +163,7 @@ async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> 
         secret: &req.secret,
         log_level: CORE_LOG_LEVEL,
         profile_id: &req.profile.id,
+        mode: req.mode,
     };
     let composed = compose::compose(&detected.text, &overlay)?;
     let run_config = req.layout.run_config();
@@ -167,7 +171,8 @@ async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> 
         .map_err(|e| AppError::storage(STAGE, e))?;
     req.controller.reload(&run_config).await?;
     let groups = req.controller.groups().await?;
-    if groups.is_empty() && composed.summary.groups > 0 {
+    let declared = groups.iter().filter(|g| g.name != GLOBAL_GROUP).count();
+    if declared == 0 && composed.summary.groups > 0 {
         return Err(AppError::new(
             AppErrorKind::CoreNotReady,
             STAGE,

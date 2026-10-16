@@ -1,0 +1,144 @@
+import { AboutSlint, Button, ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { Card } from "../components/card.slint";
+
+export struct LogRow {
+    level: string,
+    text: string,
+}
+
+// Diagnostics (DESIGN.md §17.1, §18). The core log view is fed only while
+// the window is visible and keeps at most the last 2000 lines.
+export component DiagnosticsPage inherits VerticalLayout {
+    in property <string> version;
+    in property <string> core-version;
+    in property <string> status-text;
+    in property <string> data-dir;
+    in property <string> connectivity-text;
+    in property <bool> running;
+    in property <[string]> check-lines;
+    in property <[string]> policy-notes;
+    in property <[LogRow]> logs;
+    in property <bool> probing-hosts;
+    in property <[string]> provider-hosts;
+    callback check-connectivity();
+    callback probe-hosts();
+    callback clear-logs();
+
+    spacing: 12px;
+
+    HorizontalLayout {
+        spacing: 12px;
+        vertical-stretch: 0;
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Mirage " + root.version + " · " + root.core-version; color: Theme.text; font-weight: 600; }
+                Text { text: "内核状态：" + root.status-text; color: Theme.text; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "连通性：" + root.connectivity-text; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                    Button {
+                        text: "检测";
+                        enabled: root.running;
+                        clicked => { root.check-connectivity(); }
+                    }
+                }
+                Text { text: "数据目录：" + root.data-dir; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "自由猫服务地址"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                    Button {
+                        text: root.probing-hosts ? "检测中…" : "检测";
+                        enabled: !root.probing-hosts;
+                        clicked => { root.probe-hosts(); }
+                    }
+                }
+                if root.provider-hosts.length == 0: Text { text: "未检测"; color: Theme.text-muted; font-size: 12px; }
+                for line in root.provider-hosts: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+    }
+
+    if root.check-lines.length > 0 || root.policy-notes.length > 0: Card {
+        vertical-stretch: 0;
+        // Bounded so a long check output never pushes the core log away.
+        ScrollView {
+            max-height: 160px;
+            VerticalLayout {
+                spacing: 2px;
+                if root.check-lines.length > 0: Text { text: "最近一次配置校验输出"; color: Theme.text; font-weight: 600; }
+                for line in root.check-lines: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                if root.policy-notes.length > 0: Text { text: "最近一次导入或更新的安全调整"; color: Theme.text; font-weight: 600; }
+                for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        vertical-stretch: 0;
+        Text { text: "内核日志（warning 及以上，最近 2000 行）"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+        Button {
+            text: "清空";
+            icon: @image-url("../../assets/icons/lucide/trash-2.svg");
+            colorize-icon: true;
+            enabled: root.logs.length > 0;
+            clicked => { root.clear-logs(); }
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        min-height: 120px;
+        background: Theme.card;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border;
+        if root.logs.length == 0: Text {
+            text: root.running ? "暂无日志" : "连接后显示内核日志";
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        ListView {
+            for line in root.logs: HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 8px;
+                Text {
+                    text: line.level;
+                    width: 56px;
+                    font-size: 12px;
+                    color: line.level == "error" ? Theme.danger : line.level == "warning" ? Theme.warn : Theme.text-muted;
+                }
+                Text {
+                    text: line.text;
+                    font-size: 12px;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 12px;
+        vertical-stretch: 0;
+        alignment: start;
+        Button {
+            text: "导出诊断包";
+            enabled: false;
+            accessible-label: "导出诊断包（后续版本提供）";
+        }
+        Text { text: "诊断包将在后续版本提供 · 图标：Lucide (ISC)"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
+        AboutSlint { max-height: 80px; max-width: 260px; }
+    }
+}

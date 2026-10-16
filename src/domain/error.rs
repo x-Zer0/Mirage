@@ -24,6 +24,8 @@ pub enum AppErrorKind {
     /// Login refused with a message from the server (e.g. wrong password).
     LoginRejected,
     InvalidUrl,
+    /// A settings value the user typed is out of range.
+    InvalidInput,
     UnsupportedFormat,
     ResponseTooLarge,
     NotAConfig,
@@ -53,6 +55,7 @@ impl AppErrorKind {
             Self::NeedsUserAction => "需要用户操作",
             Self::LoginRejected => "登录被拒绝",
             Self::InvalidUrl => "订阅地址无效",
+            Self::InvalidInput => "输入无效",
             Self::UnsupportedFormat => "不支持的配置格式",
             Self::ResponseTooLarge => "内容过大",
             Self::NotAConfig => "不是有效的配置",

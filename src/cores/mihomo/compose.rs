@@ -2,7 +2,7 @@
 //! and provider `path` fields are touched; everything else is passed through.
 
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{ConfigSummary, ProfileId};
+use crate::domain::model::{ConfigSummary, ProfileId, RoutingMode};
 use serde_yaml_ng::{Mapping, Value};
 use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
@@ -17,6 +17,8 @@ pub struct ManagedOverlay<'a> {
     pub secret: &'a str,
     pub log_level: &'a str,
     pub profile_id: &'a ProfileId,
+    /// Only set when the user picked a mode; otherwise the config's own `mode` stays.
+    pub mode: Option<RoutingMode>,
 }
 
 pub struct Composed {
@@ -139,6 +141,9 @@ fn override_managed(map: &mut Mapping, o: &ManagedOverlay<'_>, notes: &mut Vec<S
     set("log-level", Value::from(o.log_level));
     set("geo-auto-update", Value::Bool(false));
     set("tun", mapping([("enable", Value::Bool(false))]));
+    if let Some(mode) = o.mode {
+        set("mode", Value::from(mode.as_str()));
+    }
     set(
         "profile",
         mapping([

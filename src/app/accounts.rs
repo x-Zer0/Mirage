@@ -9,8 +9,8 @@ use super::pipeline::{self, RemoteAdded, RemoteFetch};
 use super::{AppCore, Internal, error_notice, info_notice};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{
-    AccountId, AccountStatus, EgressPolicy, Profile, ProviderAccount, SubscriptionSource,
-    UpdatePolicy, new_id, now,
+    AccountId, AccountStatus, Profile, ProviderAccount, SubscriptionSource, UpdatePolicy, new_id,
+    now,
 };
 use crate::domain::redact::{Password, SecretString};
 use crate::providers::ziyoumao::{self, Egress, LoggedIn, Refreshed, bootstrap};
@@ -113,7 +113,7 @@ pub async fn resolve(
 impl AppCore {
     pub(super) fn provider_egress(&self) -> Egress {
         Egress {
-            policy: EgressPolicy::Auto,
+            policy: self.settings.provider_egress,
             core_port: self.core_port(),
         }
     }
@@ -364,8 +364,12 @@ impl AppCore {
                         .unwrap_or(AccountStatus::Valid),
                 };
                 if manual || e.kind == AppErrorKind::AuthInvalid {
-                    self.view.notice =
-                        Some(Notice::error(format!("自由猫账号：{}", e.user_message())));
+                    let notice = Notice::error(e.user_message()).with_stage("自由猫账号");
+                    self.view.notice = Some(if e.kind == AppErrorKind::AuthInvalid {
+                        notice.notifying()
+                    } else {
+                        notice.with_retry(Retry::RevalidateAccount(id.clone()))
+                    });
                 }
             }
         }
@@ -580,7 +584,7 @@ impl AppCore {
     }
 }
 
-use super::state::Notice;
+use super::state::{Notice, Retry};
 
 /// Whether a profile belongs to a provider account.
 pub fn account_of(profile: &Profile) -> Option<&str> {

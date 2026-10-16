@@ -1,7 +1,7 @@
 //! Snapshot published to the UI (DESIGN.md §6.5 `Event::State`).
 
 use crate::cores::mihomo::controller::ProxyGroupView;
-use crate::domain::model::{AccountStatus, ProviderAccount};
+use crate::domain::model::{AccountStatus, ProviderAccount, RoutingMode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RuntimeStatus {
@@ -48,6 +48,14 @@ pub struct ProfileView {
     pub usage: String,
     /// Last fetch failure ("更新失败（仍使用 … 的版本）：…"); empty when fine.
     pub fetch_error: String,
+    /// The subscription URL can be copied (plain URL profiles only).
+    pub has_url: bool,
+    /// 0 = manual only.
+    pub interval_hours: u32,
+    /// Index into [`EgressPolicy::ALL`].
+    pub egress: usize,
+    /// Composer adjustments of the active revision (§9.5).
+    pub policy_notes: Vec<String>,
 }
 
 /// One provider account as shown on the accounts page.
@@ -63,6 +71,7 @@ pub struct AccountView {
     pub usage: String,
     pub expires: String,
     pub has_profile: bool,
+    pub profile_id: String,
 }
 
 impl AccountView {
@@ -109,25 +118,124 @@ impl AccountView {
             usage,
             expires: format!("到期 {expires}"),
             has_profile: a.profile_id.is_some(),
+            profile_id: a.profile_id.clone().unwrap_or_default(),
         }
     }
 }
 
+/// What the error bar's retry button re-sends (§17.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Notice {
-    pub error: bool,
-    pub text: String,
+pub enum Retry {
+    Connect,
+    UpdateProfile(String),
+    RevalidateAccount(String),
 }
 
+/// One user-facing message. Info notices are shown as a toast that fades out;
+/// errors stay in the error bar until dismissed or replaced (§17.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    /// Increases with every notice, so the UI can tell a repeat from a new one.
+    pub seq: u64,
+    pub error: bool,
+    /// Step that failed, in user terms ("订阅下载"); empty when unknown.
+    pub stage: String,
+    pub text: String,
+    pub retry: Option<Retry>,
+    /// Also raise a tray notification (for events the user must see even
+    /// with the window hidden, §11.4).
+    pub notify: bool,
+}
+
+static NOTICE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 impl Notice {
+    fn make(error: bool, stage: String, text: String) -> Self {
+        Self {
+            seq: NOTICE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            error,
+            stage,
+            text,
+            retry: None,
+            notify: false,
+        }
+    }
+
+    pub fn info(text: impl Into<String>) -> Self {
+        Self::make(false, String::new(), text.into())
+    }
+
     /// Error notice from already-composed, redacted text.
     pub fn error(text: String) -> Self {
         tracing::warn!(%text, "operation failed");
-        Self { error: true, text }
+        Self::make(true, String::new(), text)
+    }
+
+    pub fn from_error(e: &crate::domain::error::AppError) -> Self {
+        tracing::warn!(error = %e, "operation failed");
+        Self::make(true, stage_label(e.stage).into(), e.user_message())
+    }
+
+    pub fn with_retry(mut self, retry: Retry) -> Self {
+        self.retry = Some(retry);
+        self
+    }
+
+    pub fn with_stage(mut self, stage: &str) -> Self {
+        self.stage = stage.into();
+        self
+    }
+
+    pub fn notifying(mut self) -> Self {
+        self.notify = true;
+        self
     }
 }
 
-#[derive(Debug, Clone, Default)]
+/// Maps an internal error stage to the step name shown in the error bar;
+/// module names never reach the UI (§17.3).
+pub fn stage_label(stage: &str) -> &'static str {
+    match stage {
+        "app.runtime" | "mihomo.process" => "内核启动",
+        "mihomo.binary" => "内核校验",
+        "mihomo.check" | "mihomo.compose" | "subscriptions.detect" => "配置校验",
+        "mihomo.controller" => "内核控制",
+        "subscriptions.fetch" | "net" => "订阅下载",
+        "subscriptions.import" => "导入文件",
+        "subscriptions.revisions" | "storage.journal" | "app.profiles" => "保存数据",
+        "ziyoumao" | "app.accounts" => "自由猫账号",
+        "app.sysproxy" => "系统代理",
+        "app.supervise" => "内核监督",
+        "app.connectivity" => "连通检测",
+        "app.updates" => "订阅更新",
+        "platform.secret" => "凭据存储",
+        "app.settings" => "设置",
+        _ => "",
+    }
+}
+
+/// Settings as shown on the settings page.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SettingsView {
+    pub mixed_port: u16,
+    pub bypass: String,
+    pub default_user_agent: String,
+    /// Index into [`EgressPolicy::ALL`].
+    pub provider_egress: usize,
+    pub auto_connect: bool,
+    pub close_to_tray: bool,
+    pub close_hint_shown: bool,
+    pub core_path: String,
+}
+
+/// Bytes per second from `/traffic` (§6.5 `Event::Traffic`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TrafficSample {
+    pub up: u64,
+    pub down: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppStateView {
     pub core_version: String,
     pub core_ready: bool,
@@ -138,12 +246,19 @@ pub struct AppStateView {
     /// The system proxy currently points at the core (journal says so).
     pub system_proxy_active: bool,
     pub connectivity: Connectivity,
+    /// Effective mode: the user's choice, else what the running core reports.
+    pub routing_mode: Option<RoutingMode>,
     pub profiles: Vec<ProfileView>,
     pub selected_profile: String,
     pub groups: Vec<ProxyGroupView>,
     pub testing_group: Option<String>,
     pub busy: Option<String>,
+    /// Set by handlers; moved into `error` or `toast` before publishing.
     pub notice: Option<Notice>,
+    /// Error bar: stays until dismissed, retried or replaced by another error.
+    pub error: Option<Notice>,
+    /// Latest info message; the UI shows it briefly.
+    pub toast: Option<Notice>,
     pub policy_notes: Vec<String>,
     pub check_lines: Vec<String>,
     pub accounts: Vec<AccountView>,
@@ -153,4 +268,6 @@ pub struct AppStateView {
     pub probing_hosts: bool,
     /// Diagnostics: ziyoumao host discovery result lines.
     pub provider_hosts: Vec<String>,
+    pub settings: SettingsView,
+    pub geo_updating: bool,
 }

@@ -6,6 +6,7 @@ export component OverviewPage inherits VerticalLayout {
     in property <string> status-text;
     in property <bool> running;
     in property <bool> busy;
+    in property <bool> failed;
     in property <string> profile-name;
     in property <int> mixed-port;
     in property <string> core-version;
@@ -14,10 +15,20 @@ export component OverviewPage inherits VerticalLayout {
     in property <bool> system-proxy-active;
     in property <string> connectivity-text;
     in property <int> connectivity-level; // 0 unknown/checking, 1 ok, 2 failed
+    in property <int> routing-mode; // -1 unknown, 0 rule, 1 global, 2 direct
+    in property <string> exit-node;
+    in property <string> up-rate;
+    in property <string> down-rate;
+    // SVG path commands over a 60 x 100 viewbox (one point per second).
+    in property <string> up-path;
+    in property <string> down-path;
+    in property <string> plan;
+    in property <string> usage;
     callback connect();
     callback disconnect();
     callback set-system-proxy(bool);
     callback check-connectivity();
+    callback set-routing-mode(int);
 
     spacing: 16px;
     alignment: start;
@@ -26,21 +37,31 @@ export component OverviewPage inherits VerticalLayout {
         HorizontalLayout {
             spacing: 16px;
             Image {
-                source: root.running ? @image-url("../../assets/icons/tray/connected.svg") : @image-url("../../assets/icons/tray/idle.svg");
+                source: root.running ? @image-url("../../assets/icons/tray/connected.svg")
+                    : root.failed ? @image-url("../../assets/icons/tray/error.svg")
+                    : @image-url("../../assets/icons/tray/idle.svg");
                 width: 48px;
                 height: 48px;
             }
             VerticalLayout {
                 alignment: center;
                 spacing: 4px;
-                Text { text: root.status-text; font-size: 18px; font-weight: 600; color: Theme.text; wrap: word-wrap; }
+                horizontal-stretch: 1;
+                Text {
+                    text: root.status-text;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: root.failed ? Theme.danger : Theme.text;
+                    // Details belong in the error bar; keep the header one line.
+                    overflow: elide;
+                }
                 Text { text: root.profile-name == "" ? "未选择配置" : "当前配置：" + root.profile-name; color: Theme.text-muted; }
+                if root.running && root.exit-node != "": Text { text: "出口节点：" + root.exit-node; color: Theme.text-muted; overflow: elide; }
             }
-            Rectangle { horizontal-stretch: 1; }
             VerticalLayout {
                 alignment: center;
                 Button {
-                    text: root.running ? "断开" : "连接";
+                    text: root.busy ? "请稍候…" : root.running ? "断开" : "连接";
                     primary: !root.running;
                     enabled: !root.busy;
                     icon: @image-url("../../assets/icons/lucide/power.svg");
@@ -51,34 +72,130 @@ export component OverviewPage inherits VerticalLayout {
         }
     }
 
-    Card {
-        VerticalLayout {
-            spacing: 10px;
-            HorizontalLayout {
-                spacing: 12px;
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 2px;
-                    horizontal-stretch: 1;
-                    Text { text: "系统代理"; color: Theme.text; font-weight: 600; }
-                    Text {
-                        text: root.system-proxy-active ? "已指向 127.0.0.1:" + root.mixed-port
-                            : root.system-proxy-wanted ? "连接后自动开启"
-                            : "未开启";
-                        color: Theme.text-muted;
+    HorizontalLayout {
+        spacing: 16px;
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+                        Text { text: "系统代理"; color: Theme.text; font-weight: 600; }
+                        Text {
+                            text: root.system-proxy-active ? "已指向 127.0.0.1:" + root.mixed-port
+                                : root.system-proxy-wanted ? "连接后自动开启"
+                                : "未开启";
+                            color: Theme.text-muted;
+                        }
+                    }
+                    Switch {
+                        checked <=> root.system-proxy-wanted;
+                        accessible-label: "系统代理";
+                        toggled => { root.set-system-proxy(self.checked); }
                     }
                 }
-                Switch {
-                    checked <=> root.system-proxy-wanted;
-                    accessible-label: "系统代理";
-                    toggled => { root.set-system-proxy(self.checked); }
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+                        Text { text: "TUN 模式"; color: Theme.text; font-weight: 600; }
+                        Text { text: "需要辅助服务，将在后续版本提供"; color: Theme.text-muted; }
+                    }
+                    Switch {
+                        checked: false;
+                        enabled: false;
+                        accessible-label: "TUN 模式（暂不可用）";
+                    }
+                }
+                Text {
+                    text: "系统代理只对读取 Windows 代理设置的程序生效（如浏览器），并非接管全部流量。";
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
                 }
             }
-            Text {
-                text: "系统代理只对读取 Windows 代理设置的程序生效（如浏览器），并非接管全部流量。";
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
+        }
+
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                spacing: 10px;
+                Text { text: "路由模式"; color: Theme.text; font-weight: 600; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    for label[i] in ["规则", "全局", "直连"]: Rectangle {
+                        height: 32px;
+                        horizontal-stretch: 1;
+                        border-radius: 6px;
+                        background: i == root.routing-mode ? Theme.nav-selected : mode-touch.has-hover ? Theme.nav-hover : Theme.sidebar;
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: "路由模式：" + label;
+                        accessible-checkable: true;
+                        accessible-checked: i == root.routing-mode;
+                        accessible-action-default => { root.set-routing-mode(i); }
+                        mode-touch := TouchArea { clicked => { root.set-routing-mode(i); } }
+                        Text {
+                            text: label;
+                            color: i == root.routing-mode ? Theme.accent : Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Text {
+                    text: root.routing-mode < 0 ? "使用配置中的模式" : "规则：按订阅规则分流；全局：全部经所选节点；直连：不经代理。";
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
+    Card {
+        VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 16px;
+                Text { text: "实时速率"; color: Theme.text; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
+                Text { text: "↑ " + root.up-rate; color: Theme.up; vertical-alignment: center; }
+                Text { text: "↓ " + root.down-rate; color: Theme.down; vertical-alignment: center; }
+            }
+            Rectangle {
+                height: 64px;
+                background: Theme.sidebar;
+                border-radius: 4px;
+                clip: true;
+                if root.running: Path {
+                    width: parent.width;
+                    height: parent.height;
+                    viewbox-width: 60;
+                    viewbox-height: 100;
+                    commands: root.down-path;
+                    stroke: Theme.down;
+                    stroke-width: 1.5px;
+                }
+                if root.running: Path {
+                    width: parent.width;
+                    height: parent.height;
+                    viewbox-width: 60;
+                    viewbox-height: 100;
+                    commands: root.up-path;
+                    stroke: Theme.up;
+                    stroke-width: 1.5px;
+                }
+                if !root.running: Text {
+                    text: "连接后显示";
+                    color: Theme.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
         }
     }
@@ -104,6 +221,8 @@ export component OverviewPage inherits VerticalLayout {
                 }
             }
             Text { text: "本地代理端口：127.0.0.1:" + root.mixed-port; color: Theme.text; }
+            if root.plan != "": Text { text: "套餐：" + root.plan; color: Theme.text; }
+            if root.usage != "": Text { text: root.usage; color: Theme.text-muted; }
             Text { text: "内核：" + root.core-version; color: Theme.text-muted; }
         }
     }
