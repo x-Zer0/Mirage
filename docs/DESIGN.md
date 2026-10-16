@@ -1074,7 +1074,7 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 | Slint 渲染器（femtovg / skia / software） | M5 | 当前用 Slint 默认特性（femtovg + software 回退）；M5 对比体积与兼容性后再定 |
 | `serde_yaml_ng` 对合并键和大文件的表现 | M1 | 不满足时换 `serde_norway` |
 | REST 接口在 v1.19.32 上的实际行为 | M1 | 未核实的接口不启用 |
-| 自由猫首次登录编码与响应 | M4 | JSON；结果写回 ZIYOUMAO.md |
+| 自由猫首次登录编码与响应 | M4 | 【M4】JSON 被接受，密码错误为 HTTP 500 + 信封 message；成功响应字段待真实账号确认 |
 | 无代理环境下自由猫 API 是否可达 | M4 | Auto 出站策略 |
 | TUN stack 与 DNS 默认值 | M7 | mixed + 注入最小 DNS |
 | 安装包工具与代码签名 | M8 | Inno Setup，未签名 |

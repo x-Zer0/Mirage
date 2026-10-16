@@ -4,6 +4,7 @@
 //! hard size limit.
 
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
+use crate::domain::model::EgressPolicy;
 use reqwest::{Client, Url};
 use std::time::Duration;
 
@@ -32,6 +33,54 @@ pub const SUBSCRIPTION: Purpose = Purpose {
     max_body: 16 * 1024 * 1024,
     max_redirects: 5,
 };
+
+/// Account API of a provider: no redirects, 1 MiB, 20 s (§12.1).
+pub const PROVIDER_API: Purpose = Purpose {
+    connect_timeout: Duration::from_secs(10),
+    total_timeout: Duration::from_secs(20),
+    max_body: 1024 * 1024,
+    max_redirects: 0,
+};
+
+/// Public bootstrap documents (host lists): no redirects, 256 KiB, 20 s.
+pub const BOOTSTRAP: Purpose = Purpose {
+    connect_timeout: Duration::from_secs(10),
+    total_timeout: Duration::from_secs(20),
+    max_body: 256 * 1024,
+    max_redirects: 0,
+};
+
+/// Runs `request` honouring the egress policy (§12.2). Auto goes direct
+/// first and retries once through a running core on a transport failure;
+/// HTTP errors are never retried here.
+pub async fn with_egress<T, F, Fut>(
+    policy: EgressPolicy,
+    core_port: Option<u16>,
+    request: F,
+) -> AppResult<T>
+where
+    F: Fn(EgressRoute) -> Fut,
+    Fut: Future<Output = AppResult<T>>,
+{
+    match (policy, core_port) {
+        (EgressPolicy::ViaLocalCore, Some(port)) => request(EgressRoute::ViaLocalCore(port)).await,
+        (EgressPolicy::ViaLocalCore, None) => Err(AppError::new(
+            AppErrorKind::Network,
+            STAGE,
+            "已设置为经本地内核访问，但内核未运行",
+        )),
+        (EgressPolicy::Direct, _) | (EgressPolicy::Auto, None) => {
+            request(EgressRoute::Direct).await
+        }
+        (EgressPolicy::Auto, Some(port)) => match request(EgressRoute::Direct).await {
+            Err(e) if is_transport_failure(&e) => {
+                tracing::info!(error = %e, "direct request failed, retrying via local core");
+                request(EgressRoute::ViaLocalCore(port)).await
+            }
+            other => other,
+        },
+    }
+}
 
 pub fn client(purpose: &Purpose, route: EgressRoute) -> AppResult<Client> {
     let max = purpose.max_redirects;
@@ -76,6 +125,21 @@ pub fn check_url(url: &Url) -> AppResult<()> {
     }
     if url.host_str().is_none_or(str::is_empty) {
         return Err(invalid("缺少主机名"));
+    }
+    Ok(())
+}
+
+/// Provider endpoints (ZIYOUMAO.md §4.2, §7.1): additionally the host must be
+/// a domain name, never an IP literal (its certificate cannot match), and the
+/// address carries no query or fragment unless `allow_query`.
+pub fn check_domain_url(url: &Url, allow_query: bool) -> AppResult<()> {
+    check_url(url)?;
+    let loopback_dev = cfg!(debug_assertions) && url.host_str() == Some("127.0.0.1");
+    if !loopback_dev && url.domain().is_none() {
+        return Err(invalid("主机必须是域名"));
+    }
+    if url.fragment().is_some() || (!allow_query && url.query().is_some()) {
+        return Err(invalid("地址中不能包含查询参数或片段"));
     }
     Ok(())
 }

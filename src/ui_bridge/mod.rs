@@ -6,7 +6,7 @@ mod models;
 
 use crate::app::state::AppStateView;
 use crate::app::{Command, CoreHandle};
-use crate::domain::redact::SecretString;
+use crate::domain::redact::{Password, SecretString};
 use crate::storage::layout::Layout;
 use slint::ComponentHandle;
 use std::sync::Arc;
@@ -116,6 +116,27 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     window.on_set_system_proxy(move |on| send(&c, Command::SetSystemProxy(on)));
     let c = commands.clone();
     window.on_check_connectivity(move || send(&c, Command::CheckConnectivity));
+    let c = commands.clone();
+    window.on_provider_login(move |email, password| {
+        // The Slint string is dropped right after; the core zeroes its copy.
+        send(
+            &c,
+            Command::ProviderLogin {
+                email: email.into(),
+                password: Password::new(password.as_str().to_owned()),
+            },
+        )
+    });
+    let c = commands.clone();
+    window.on_revalidate_account(move |id| send(&c, Command::RevalidateAccount(id.into())));
+    let c = commands.clone();
+    window.on_remove_account(move |id, with_profile| {
+        send(&c, Command::RemoveAccount(id.into(), with_profile))
+    });
+    let c = commands.clone();
+    window.on_import_legacy(move || send(&c, Command::ImportLegacyZiyoumao));
+    let c = commands.clone();
+    window.on_probe_hosts(move || send(&c, Command::ProbeProviderHosts));
     window.on_dismiss_notice(move || send(&commands, Command::DismissNotice));
     window.on_node_matches(|name, filter| {
         filter.is_empty() || name.to_lowercase().contains(&filter.to_lowercase())

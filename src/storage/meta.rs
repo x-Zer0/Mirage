@@ -2,7 +2,7 @@
 
 use super::atomic;
 use crate::domain::error::{AppError, AppResult};
-use crate::domain::model::{ConfigRevision, Profile, ProfileId};
+use crate::domain::model::{ConfigRevision, Profile, ProfileId, ProviderAccount};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -21,6 +21,13 @@ pub struct ProfilesFile {
 pub struct RevisionsFile {
     pub schema_version: u32,
     pub revisions: Vec<ConfigRevision>,
+}
+
+/// `accounts.json` (DESIGN.md §13): provider accounts, SecretRefs only.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct AccountsFile {
+    pub schema_version: u32,
+    pub accounts: Vec<ProviderAccount>,
 }
 
 /// `{group: node}` remembered per profile (DESIGN.md §10.6).
@@ -104,4 +111,10 @@ macro_rules! versioned {
         }
     )*};
 }
-versioned!(ProfilesFile, RevisionsFile, SelectionFile, SettingsFile);
+versioned!(
+    ProfilesFile,
+    RevisionsFile,
+    SelectionFile,
+    SettingsFile,
+    AccountsFile
+);

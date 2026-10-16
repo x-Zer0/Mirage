@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 pub type ProfileId = String;
 pub type RevisionId = String;
+pub type AccountId = String;
+/// Compiled-in provider module id, e.g. `"ziyoumao"`.
+pub type ProviderId = String;
 
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
@@ -31,6 +34,12 @@ pub enum SubscriptionSource {
         #[serde(default)]
         user_agent: Option<String>,
     },
+    /// Subscription discovered through a provider account (DESIGN.md §6.2);
+    /// the URL is resolved by the provider module before every update.
+    ProviderAccount {
+        provider_id: ProviderId,
+        account_id: AccountId,
+    },
 }
 
 impl SubscriptionSource {
@@ -38,6 +47,7 @@ impl SubscriptionSource {
         match self {
             Self::LocalFile { .. } => "本地文件",
             Self::RemoteUrl { .. } => "订阅链接",
+            Self::ProviderAccount { .. } => "自由猫账号",
         }
     }
 }
@@ -154,7 +164,73 @@ pub struct Profile {
 }
 
 impl Profile {
+    /// Fetched from the network (URL or provider account), so it can be updated.
     pub fn is_remote(&self) -> bool {
-        matches!(self.source, SubscriptionSource::RemoteUrl { .. })
+        !matches!(self.source, SubscriptionSource::LocalFile { .. })
     }
+}
+
+/// DESIGN.md §5.1; independent of the core and subscription states.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", content = "detail", rename_all = "snake_case")]
+pub enum AccountStatus {
+    #[default]
+    LoggedOut,
+    LoggingIn,
+    Validating,
+    Valid,
+    /// The server rejected the saved session; log in again.
+    ReauthRequired,
+    /// Captcha / device confirmation; the text tells the user what to do.
+    NeedsUserAction(String),
+    /// Hosts unreachable; the session and the old config are kept.
+    NetworkUnavailable(String),
+}
+
+/// Account data from the provider API (DESIGN.md §6.1). `None` = not provided.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountSnapshot {
+    pub email_masked: Option<String>,
+    pub plan_name: Option<String>,
+    pub used_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    /// None or 0 from the server means "not provided", never "permanent".
+    pub expires_at: Option<Timestamp>,
+    pub device_count: Option<u32>,
+    pub banned: Option<bool>,
+    pub fetched_at: Timestamp,
+}
+
+impl AccountSnapshot {
+    /// Provider usage wins over subscription headers (§15).
+    pub fn usage(&self) -> Option<UsageInfo> {
+        if self.used_bytes.is_none() && self.total_bytes.is_none() && self.expires_at.is_none() {
+            return None;
+        }
+        Some(UsageInfo {
+            upload: 0,
+            download: self.used_bytes.unwrap_or(0),
+            total: self.total_bytes.unwrap_or(0),
+            expire: self.expires_at,
+        })
+    }
+}
+
+/// `accounts.json` entry (DESIGN.md §5). Secrets are only referenced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderAccount {
+    pub id: AccountId,
+    pub provider_id: ProviderId,
+    /// Masked e-mail, e.g. `a***@example.com`.
+    pub display_name: String,
+    pub session_secret: Option<SecretRef>,
+    pub subscribe_secret: Option<SecretRef>,
+    /// API bases the session may be sent to (ZIYOUMAO.md §4.3).
+    pub trusted_hosts: Vec<String>,
+    pub status: AccountStatus,
+    pub snapshot: Option<AccountSnapshot>,
+    /// Profile created from this account's subscription.
+    #[serde(default)]
+    pub profile_id: Option<ProfileId>,
+    pub created_at: Timestamp,
 }

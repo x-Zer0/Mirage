@@ -62,6 +62,15 @@ impl Layout {
         self.root.join("secrets")
     }
 
+    pub fn accounts_file(&self) -> PathBuf {
+        self.root.join("accounts.json")
+    }
+
+    /// Cached provider data without tokens, e.g. `ziyoumao/bootstrap.json`.
+    pub fn provider_cache(&self, provider: &str) -> PathBuf {
+        self.providers_cache.join(provider)
+    }
+
     pub fn profiles_file(&self) -> PathBuf {
         self.root.join("profiles.json")
     }

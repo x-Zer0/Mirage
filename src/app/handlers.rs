@@ -23,6 +23,14 @@ impl AppCore {
             Command::AddRemoteProfile { name, url } => self.add_remote(name, url),
             Command::UpdateProfile(id) => self.update_profile(&id, true),
             Command::UpdateAll => self.update_all(),
+            Command::ProviderLogin { email, password } => self.provider_login(email, password),
+            Command::RevalidateAccount(id) => self.revalidate_account(&id, true),
+            Command::RemoveAccount(id, with_profile) => self.remove_account(&id, with_profile),
+            Command::ImportLegacyZiyoumao if !self.core_checked() => {
+                self.deferred.push(Command::ImportLegacyZiyoumao);
+            }
+            Command::ImportLegacyZiyoumao => self.import_legacy(),
+            Command::ProbeProviderHosts => self.probe_provider_hosts(),
             Command::Connect => self.connect(),
             Command::Disconnect => self.disconnect(),
             Command::SelectNode { group, node } => self.select_node(group, node),
@@ -70,6 +78,16 @@ impl AppCore {
                 revision,
                 outcome,
             } => self.on_reloaded(generation, profile_id, revision, outcome),
+            Internal::LoggedIn(result) => self.on_logged_in(*result),
+            Internal::ProviderProfileAdded { account_id, result } => {
+                self.on_provider_profile_added(account_id, *result)
+            }
+            Internal::AccountRefreshed {
+                account_id,
+                result,
+                manual,
+            } => self.on_account_refreshed(account_id, result, manual),
+            Internal::HostsProbed(result) => self.on_hosts_probed(result),
         }
     }
 
@@ -217,7 +235,7 @@ impl AppCore {
         }
     }
 
-    fn remove_profile(&mut self, id: &str) {
+    pub(super) fn remove_profile(&mut self, id: &str) {
         if self.running.as_ref().is_some_and(|r| r.profile_id == id) {
             self.disconnect();
         }

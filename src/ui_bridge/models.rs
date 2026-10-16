@@ -1,6 +1,6 @@
 //! Converts [`AppStateView`] snapshots into Slint properties.
 
-use super::{AppTray, GroupRow, MainWindow, NodeRow, ProfileRow, TrayState};
+use super::{AccountRow, AppTray, GroupRow, MainWindow, NodeRow, ProfileRow, TrayState};
 use crate::app::state::{AppStateView, Connectivity, RuntimeStatus};
 use crate::app::status_text;
 use crate::cores::mihomo::controller::ProxyGroupView;
@@ -49,6 +49,21 @@ pub fn apply(w: &MainWindow, s: &AppStateView) {
             .into(),
     );
     w.set_notice_error(s.notice.as_ref().is_some_and(|n| n.error));
+    w.set_accounts(rc(s.accounts.iter().map(|a| AccountRow {
+        id: a.id.clone().into(),
+        name: a.name.clone().into(),
+        status: a.status.clone().into(),
+        status_level: a.status_level,
+        busy: a.busy,
+        plan: a.plan.clone().into(),
+        usage: a.usage.clone().into(),
+        expires: a.expires.clone().into(),
+        has_profile: a.has_profile,
+    })));
+    w.set_login_busy(s.login_busy);
+    w.set_login_message(s.login_message.clone().unwrap_or_default().into());
+    w.set_probing_hosts(s.probing_hosts);
+    w.set_provider_hosts(rc(s.provider_hosts.iter().map(SharedString::from)));
 }
 
 pub fn apply_tray(t: &AppTray, s: &AppStateView) {

@@ -9,9 +9,9 @@ use crate::domain::model::{
     now,
 };
 use crate::storage::layout::Layout;
+use crate::subscriptions::fetch::{self, Descriptor};
 use crate::subscriptions::userinfo::SubscriptionMeta;
-use crate::subscriptions::{detect, fetch, import, revisions};
-use reqwest::Url;
+use crate::subscriptions::{detect, import, revisions};
 use std::path::Path;
 
 pub struct Prepared {
@@ -55,21 +55,25 @@ pub async fn import_local(
     mixed_port: u16,
 ) -> AppResult<ImportOutcome> {
     let imported = import::read_local(path)?;
+    import_raw(binary, layout, imported.name, imported.raw, mixed_port).await
+}
+
+/// Same as [`import_local`] for bytes already in memory (legacy import).
+pub async fn import_raw(
+    binary: &CoreBinary,
+    layout: &Layout,
+    name: String,
+    raw: Vec<u8>,
+    mixed_port: u16,
+) -> AppResult<ImportOutcome> {
     let profile_id = new_id();
     let rev_id = new_id();
-    let (revision, check_lines) = check_candidate(
-        binary,
-        layout,
-        &profile_id,
-        &rev_id,
-        &imported.raw,
-        mixed_port,
-    )
-    .await?;
+    let (revision, check_lines) =
+        check_candidate(binary, layout, &profile_id, &rev_id, &raw, mixed_port).await?;
     Ok(ImportOutcome {
         profile_id,
-        name: imported.name,
-        raw: imported.raw,
+        name,
+        raw,
         revision,
         check_lines,
     })
@@ -112,8 +116,7 @@ async fn check_candidate(
 pub struct RemoteFetch {
     pub binary: CoreBinary,
     pub layout: Layout,
-    pub url: Url,
-    pub user_agent: String,
+    pub desc: Descriptor,
     pub egress: EgressPolicy,
     /// Mixed port of a running core, for the Auto/ViaLocalCore routes.
     pub core_port: Option<u16>,
@@ -131,7 +134,7 @@ pub struct RemoteAdded {
 /// fetch → detect → compose → check for a new subscription. Nothing is
 /// stored unless every step passed, so a broken URL never becomes a profile.
 pub async fn add_remote(req: RemoteFetch) -> AppResult<RemoteAdded> {
-    let downloaded = fetch::download(&req.url, &req.user_agent, req.egress, req.core_port).await?;
+    let downloaded = fetch::download(&req.desc, req.egress, req.core_port).await?;
     let profile_id = new_id();
     let rev_id = new_id();
     let (revision, check_lines) = check_candidate(
@@ -172,17 +175,16 @@ pub struct UpdateOutcome {
 /// as Unchecked; a failed check marks it Invalid. The active revision is never
 /// touched here — committing is the actor's job.
 pub async fn update_remote(req: RemoteFetch, profile: Profile) -> UpdateOutcome {
-    let downloaded =
-        match fetch::download(&req.url, &req.user_agent, req.egress, req.core_port).await {
-            Ok(d) => d,
-            Err(e) => {
-                return UpdateOutcome {
-                    profile_id: profile.id,
-                    meta: None,
-                    result: Err(e),
-                };
-            }
-        };
+    let downloaded = match fetch::download(&req.desc, req.egress, req.core_port).await {
+        Ok(d) => d,
+        Err(e) => {
+            return UpdateOutcome {
+                profile_id: profile.id,
+                meta: None,
+                result: Err(e),
+            };
+        }
+    };
     let meta = Some(downloaded.meta.clone());
     let result = store_and_check(&req, &profile, &downloaded.raw).await;
     UpdateOutcome {

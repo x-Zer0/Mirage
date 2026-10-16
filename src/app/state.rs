@@ -1,6 +1,7 @@
 //! Snapshot published to the UI (DESIGN.md §6.5 `Event::State`).
 
 use crate::cores::mihomo::controller::ProxyGroupView;
+use crate::domain::model::{AccountStatus, ProviderAccount};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RuntimeStatus {
@@ -49,6 +50,69 @@ pub struct ProfileView {
     pub fetch_error: String,
 }
 
+/// One provider account as shown on the accounts page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountView {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    /// 0 neutral, 1 ok, 2 error.
+    pub status_level: i32,
+    pub busy: bool,
+    pub plan: String,
+    pub usage: String,
+    pub expires: String,
+    pub has_profile: bool,
+}
+
+impl AccountView {
+    pub fn from_account(a: &ProviderAccount) -> Self {
+        let (status, status_level) = match &a.status {
+            AccountStatus::LoggedOut => ("未登录".to_owned(), 0),
+            AccountStatus::LoggingIn => ("正在登录…".to_owned(), 0),
+            AccountStatus::Validating => ("正在验证会话…".to_owned(), 0),
+            AccountStatus::Valid => ("已登录".to_owned(), 1),
+            AccountStatus::ReauthRequired => ("登录已失效，请重新登录".to_owned(), 2),
+            AccountStatus::NeedsUserAction(t) => (t.clone(), 2),
+            AccountStatus::NetworkUnavailable(t) => (format!("暂时无法连接服务：{t}"), 2),
+        };
+        let snap = a.snapshot.clone().unwrap_or_default();
+        let gib = |b: u64| format!("{:.1} GiB", b as f64 / (1024.0 * 1024.0 * 1024.0));
+        let usage = match (snap.used_bytes, snap.total_bytes) {
+            (None, None) => String::new(),
+            (used, total) => format!(
+                "已用 {} / {}",
+                used.map_or_else(|| "未提供".into(), gib),
+                total.map_or_else(|| "未提供".into(), gib)
+            ),
+        };
+        let expires = snap
+            .expires_at
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+            .map(|t| {
+                t.with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d")
+                    .to_string()
+            })
+            .unwrap_or_else(|| "未提供".into());
+        let mut plan = snap.plan_name.unwrap_or_default();
+        if snap.banned == Some(true) {
+            plan.push_str("（账号已被停用）");
+        }
+        Self {
+            id: a.id.clone(),
+            name: a.display_name.clone(),
+            status,
+            status_level,
+            busy: a.status == AccountStatus::Validating,
+            plan,
+            usage,
+            expires: format!("到期 {expires}"),
+            has_profile: a.profile_id.is_some(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub error: bool,
@@ -82,4 +146,11 @@ pub struct AppStateView {
     pub notice: Option<Notice>,
     pub policy_notes: Vec<String>,
     pub check_lines: Vec<String>,
+    pub accounts: Vec<AccountView>,
+    pub login_busy: bool,
+    /// Last login failure, shown under the login form.
+    pub login_message: Option<String>,
+    pub probing_hosts: bool,
+    /// Diagnostics: ziyoumao host discovery result lines.
+    pub provider_hosts: Vec<String>,
 }

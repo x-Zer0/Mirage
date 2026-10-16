@@ -2,6 +2,7 @@
 //! slow work runs in spawned tasks that report back through `Internal`
 //! messages tagged with the generation they were started for.
 
+mod accounts;
 mod connectivity;
 mod pipeline;
 mod profiles;
@@ -15,14 +16,14 @@ mod updates;
 use crate::cores::mihomo::binary::{self, CoreBinary};
 use crate::cores::mihomo::controller::ProxyGroupView;
 use crate::domain::error::AppError;
-use crate::domain::model::{ProfileId, RevisionId};
-use crate::domain::redact::SecretString;
+use crate::domain::model::{AccountId, AccountStatus, ProfileId, RevisionId};
+use crate::domain::redact::{Password, SecretString};
 use crate::platform::windows::secret::SecretStore;
 use crate::storage::layout::Layout;
 use crate::storage::meta::{self, SettingsFile};
 use runtime::Running;
 use state::{AppStateView, Notice, RuntimeStatus};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -50,6 +51,18 @@ pub enum Command {
     },
     UpdateProfile(String),
     UpdateAll,
+    /// ziyoumao login; the password is zeroed after the request (§6.1).
+    ProviderLogin {
+        email: String,
+        password: Password,
+    },
+    RevalidateAccount(AccountId),
+    /// Local-only removal; `bool`: also remove the account's profile.
+    RemoveAccount(AccountId, bool),
+    /// Read-only import of the original client's config (ZIYOUMAO.md §9).
+    ImportLegacyZiyoumao,
+    /// Diagnostics: bootstrap + host checks without a token.
+    ProbeProviderHosts,
     Connect,
     Disconnect,
     SelectNode {
@@ -88,6 +101,18 @@ enum Internal {
         revision: RevisionId,
         outcome: runtime::ReloadOutcome,
     },
+    LoggedIn(Box<Result<crate::providers::ziyoumao::LoggedIn, AppError>>),
+    ProviderProfileAdded {
+        account_id: AccountId,
+        result: Box<Result<pipeline::RemoteAdded, AppError>>,
+    },
+    AccountRefreshed {
+        account_id: AccountId,
+        result: Result<crate::providers::ziyoumao::Refreshed, AppError>,
+        /// Started by the user (notices) rather than a background check.
+        manual: bool,
+    },
+    HostsProbed(Result<crate::providers::ziyoumao::bootstrap::Discovery, AppError>),
 }
 
 pub struct CoreHandle {
@@ -182,6 +207,9 @@ struct AppCore {
     fetch_permits: Arc<Semaphore>,
     /// Candidate that arrived while a hot reload was running (§6.5).
     queued_reload: Option<(ProfileId, RevisionId)>,
+    accounts: accounts::Accounts,
+    /// Status before a running session check, restored on inconclusive errors.
+    validating_prev: HashMap<AccountId, AccountStatus>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
 }
@@ -204,6 +232,10 @@ impl AppCore {
                 SettingsFile::default()
             });
         view.system_proxy_wanted = settings.system_proxy;
+        let accounts = accounts::Accounts::load(&layout).unwrap_or_else(|e| {
+            view.notice = Some(error_notice(&e));
+            accounts::Accounts::empty()
+        });
         let secrets = SecretStore::new(layout.secrets_dir());
         Self {
             layout,
@@ -220,6 +252,8 @@ impl AppCore {
             updating: HashSet::new(),
             fetch_permits: updates::fetch_permits(),
             queued_reload: None,
+            accounts,
+            validating_prev: HashMap::new(),
             internal_tx,
             internal_rx: Some(internal_rx),
         }
@@ -274,6 +308,9 @@ impl AppCore {
         let layout = self.layout.clone();
         self.spawn(async move { Internal::CoreVerified(binary::verify(&layout).await) });
         self.refresh_profiles_view();
+        self.refresh_accounts_view();
+        // §16.1: sessions are checked in the background, never blocking connect.
+        self.validate_accounts_on_start();
         self.publish();
     }
 

@@ -5,8 +5,9 @@ import { NavItem } from "components/nav.slint";
 import { OverviewPage } from "pages/overview.slint";
 import { ProfilesPage, ProfileRow } from "pages/profiles.slint";
 import { ProxiesPage, GroupRow, NodeRow } from "pages/proxies.slint";
+import { AccountsPage, AccountRow } from "pages/accounts.slint";
 
-export { ProfileRow, GroupRow, NodeRow }
+export { ProfileRow, GroupRow, NodeRow, AccountRow }
 
 export enum TrayState { idle, connected, restarting, error }
 
@@ -39,6 +40,11 @@ export component MainWindow inherits Window {
     in property <[string]> check-lines;
     in property <string> notice;
     in property <bool> notice-error;
+    in property <[AccountRow]> accounts;
+    in property <bool> login-busy;
+    in property <string> login-message;
+    in property <bool> probing-hosts;
+    in property <[string]> provider-hosts;
     in-out property <int> page: 0;
 
     callback connect();
@@ -55,6 +61,11 @@ export component MainWindow inherits Window {
     callback set-system-proxy(bool);
     callback check-connectivity();
     callback dismiss-notice();
+    callback provider-login(string, string);
+    callback revalidate-account(string);
+    callback remove-account(string, bool);
+    callback import-legacy();
+    callback probe-hosts();
     pure callback node-matches(string, string) -> bool;
 
     HorizontalLayout {
@@ -155,7 +166,20 @@ export component MainWindow inherits Window {
                 refresh => { root.refresh-groups(); }
                 matches(name, filter) => { return root.node-matches(name, filter); }
             }
-            if root.page == 3 || root.page == 4: Text {
+            if root.page == 3: ScrollView {
+                vertical-stretch: 1;
+                AccountsPage {
+                    accounts: root.accounts;
+                    login-busy: root.login-busy;
+                    login-message: root.login-message;
+                    busy: root.busy;
+                    login(email, password) => { root.provider-login(email, password); }
+                    revalidate(id) => { root.revalidate-account(id); }
+                    remove(id, with-profile) => { root.remove-account(id, with-profile); }
+                    import-legacy => { root.import-legacy(); }
+                }
+            }
+            if root.page == 4: Text {
                 text: "将在后续版本提供。";
                 color: Theme.text-muted;
                 vertical-stretch: 1;
@@ -171,6 +195,17 @@ export component MainWindow inherits Window {
                     Text { text: "数据目录：" + root.data-dir; color: Theme.text; wrap: word-wrap; }
                     if root.check-lines.length > 0: Text { text: "最近一次配置校验输出："; color: Theme.text-muted; }
                     for line in root.check-lines: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "自由猫服务地址："; color: Theme.text; vertical-alignment: center; }
+                        Button {
+                            text: root.probing-hosts ? "检测中…" : "检测";
+                            enabled: !root.probing-hosts;
+                            clicked => { root.probe-hosts(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    for line in root.provider-hosts: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
                     Text { text: "图标：Lucide (ISC)"; color: Theme.text-muted; }
                     AboutSlint { max-height: 220px; }
                 }

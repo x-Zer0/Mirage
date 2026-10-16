@@ -33,10 +33,11 @@ bootstrap（公开 Base64 JSON）→ 候选主机 → GET /guest/comm/config 验
 | bootstrap 入口 | 【已验证】HTTPS 200，内容为普通 Base64 编码的 JSON | 可以取得 hosts |
 | 两个域名主机的 `/guest/comm/config` | 【已验证】200 | 主机验证方法可行 |
 | `/user/info`、`/user/getSubscribe` | 【已验证】使用保存的会话令牌时返回 200 | Authorization 直接使用令牌原值 |
+| 2026-10-16 主机发现复测 | 【已验证 M4】入口 Base64 JSON 可直连读取；两个域名主机 `/guest/comm/config` 均 200，IP 主机按规则跳过 | 无现有代理时也可直连 |
 | 订阅下载 | 【已验证】UA 为 `Clash.Meta` 时返回 567，UA 为 `clash-verge` 时返回 200 明文 YAML（Content-Type: text/html） | 必须指定 UA；不能依据 Content-Type 判断 |
 | 订阅样本 | 118 个 Trojan 节点，3 个组，516 条规则，0 个 provider；节点字段 name/password/port/server/skip-cert-verify/sni/type/udp | 仅是当时的样本，不得硬编码 |
 | 官方核心校验 | 【已验证】v1.19.32 `-t` 退出码 0，带有 `fallback-filter.geosite` 弃用警告 | 警告不影响使用 |
-| 账号密码登录 | 【源码确认】表单为 email/password；Python 原型以 JSON 发送 | 首次真实登录时须核验 |
+| 账号密码登录 | 【已验证 M4，失败路径】JSON `{"email","password"}` 被接受（未返回 415/422）；不存在的账号返回 **HTTP 500** + JSON 信封 `message: "邮箱或密码错误"` | 成功响应的字段名待用真实账号登录时记录 |
 | 刷新令牌 / 续期 | 【待核验】没有找到 refresh_token 或刷新接口的证据 | 不实现续期 |
 | 服务端注销 | 【待核验】未确认接口 | v1 只清除本地数据 |
 | TUN/UDP/IPv6 | 未验证 | 不宣称支持 |
@@ -124,7 +125,7 @@ struct BootstrapDoc {
 
 ### 5.1 响应信封
 
-接口风格属于 V2Board 一类面板。这是【推测】：公开源码显示 `data` 字段被直接使用；错误响应的具体形状待首次登录失败时记录。
+接口风格属于 V2Board 一类面板。【已验证 M4】登录失败的响应是 JSON 信封，`message` 为可展示的中文原因；状态码为 500（V2Board `abort(500, …)` 风格），不是 4xx。成功响应的形状仍待真实账号登录时记录。
 
 ```rust
 #[derive(Deserialize)]
@@ -194,7 +195,8 @@ Accept: application/json
 {"email":"<用户输入>","password":"<用户输入>"}
 ```
 
-- 编码方式采用 JSON，与 Python 原型一致。首次真实登录时要核验：如果服务端拒绝 JSON（例如返回 415 或 422，并提示字段缺失），把错误信息展示给用户并记录下来，然后人工决定是否改为表单编码。不得自动用多种编码重复提交密码。
+- 【已验证 M4】服务端接受 JSON 编码（用不存在的账号实测：返回业务错误而不是 415/422）。成功响应中 `data` 的字段名在首次真实账号登录时由日志 `ziyoumao login response fields=…` 记录（只记字段名）。
+- 编码方式采用 JSON，与 Python 原型一致。原则上：如果服务端拒绝 JSON（例如返回 415 或 422，并提示字段缺失），把错误信息展示给用户并记录下来，然后人工决定是否改为表单编码。不得自动用多种编码重复提交密码。
 - 登录只由用户主动触发，失败时不自动重试。
 - 密码以 `Zeroizing<String>` 保存在内存中，请求发出后立即清零，永不写入磁盘。
 - 请求体不得出现在日志、错误信息、panic 信息或 Debug 输出中。
@@ -274,7 +276,8 @@ DownloadDescriptor {
 | 情况 | AppErrorKind | 账号状态 | 重试 |
 | --- | --- | --- | --- |
 | DNS/连接/TLS 失败、超时 | `Network`/`Tls`/`Timeout` | 不变或 `NetworkUnavailable` | GET 请求：退避 1s、3s，最多 2 次 |
-| 登录：HTTP 4xx 且信封有 message（如密码错误） | `LoginRejected` | `LoggedOut` | 不自动重试 |
+| 登录：HTTP 4xx 或 500 且信封有 message（如密码错误；【已验证 M4】实际为 500 + “邮箱或密码错误”） | `LoginRejected` | `LoggedOut`（已有会话保留） | 不自动重试 |
+| 登录：HTTP 415/422 | `ProviderCompat`（“服务端不接受登录请求的格式”） | 不变 | 不重试，不改用其他编码 |
 | 登录：要求验证码或设备确认 | `NeedsUserAction` | `NeedsUserAction` | 等待用户操作 |
 | 账号 API：401/403 或明确的“未登录” | `AuthInvalid` | `ReauthRequired` | 不重试 |
 | 429 | `RateLimited{retry_after}` | 不变 | 按 `Retry-After` 等待（上限 60 秒），只等一次；登录不重试 |
@@ -350,12 +353,12 @@ fn decode_legacy(raw: &[u8]) -> Result<String, AppError> {
 
 ## 11. 仍需确认
 
-- 首次登录的实际编码方式、成功和失败时的响应结构。
+- 首次登录成功时的响应结构（编码与失败响应已在 M4 确认）。
 - 令牌的有效期、并发登录限制、设备绑定方式。
 - 是否有验证码或设备确认流程。
 - 订阅 URL 是否会轮换。
 - `expired_at` 为 null 以及流量字段的单位和含义。
-- 无现有代理（原客户端的 TUN 已关闭）时，bootstrap 和 API 能否直连访问。
+- 无现有代理（原客户端的 TUN 已关闭）时，bootstrap 和 API 能否直连访问（M4 测试时原客户端仍在运行，未能排除其 TUN 的影响）。
 - 服务端是否提供 sing-box 格式的订阅。未确认之前，不得编造 `flag=sing-box` 之类的参数。
 
 每确认一项，就把结果写回本文对应章节。

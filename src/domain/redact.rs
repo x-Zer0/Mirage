@@ -3,6 +3,7 @@
 use regex::Regex;
 use std::borrow::Cow;
 use std::sync::LazyLock;
+use zeroize::Zeroizing;
 
 struct Rule {
     pattern: Regex,
@@ -67,5 +68,25 @@ impl SecretString {
 impl std::fmt::Debug for SecretString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SecretString(***)")
+    }
+}
+
+/// A password typed by the user. Only lives in memory for one login call and
+/// is zeroed on drop (ZIYOUMAO.md §6.1); `Debug` never shows it.
+pub struct Password(Zeroizing<String>);
+
+impl Password {
+    pub fn new(value: String) -> Self {
+        Self(Zeroizing::new(value))
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Password(***)")
     }
 }

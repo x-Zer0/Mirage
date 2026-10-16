@@ -4,6 +4,7 @@
 //! Downloads run concurrently (at most 3); committing is a transaction: only
 //! one hot reload at a time, a newer candidate for the running profile waits.
 
+use super::accounts;
 use super::pipeline::{self, RemoteAdded, RemoteFetch, UpdateOutcome, UpdateResult};
 use super::runtime::{self, ReloadOutcome};
 use super::state::{Notice, RuntimeStatus};
@@ -15,6 +16,7 @@ use crate::domain::model::{
 };
 use crate::domain::redact::SecretString;
 use crate::net;
+use crate::subscriptions::fetch::Descriptor;
 use crate::subscriptions::revisions;
 use crate::subscriptions::userinfo::SubscriptionMeta;
 use std::sync::Arc;
@@ -50,8 +52,7 @@ impl AppCore {
         let req = RemoteFetch {
             binary,
             layout: self.layout.clone(),
-            url: parsed,
-            user_agent: DEFAULT_SUBSCRIPTION_UA.into(),
+            desc: Descriptor::plain(parsed, DEFAULT_SUBSCRIPTION_UA.into()),
             egress: UpdatePolicy::default().egress,
             core_port: self.core_port(),
             mixed_port: self.view.mixed_port,
@@ -91,14 +92,26 @@ impl AppCore {
             self.view.notice = Some(error_notice(&e));
             return;
         }
+        let source = SubscriptionSource::RemoteUrl {
+            url_secret,
+            host,
+            user_agent: None,
+        };
+        self.store_new_profile(outcome, name, source);
+    }
+
+    /// Stores the first revision of a downloaded profile and adds it.
+    /// Returns false (with a notice) when storing failed.
+    pub(super) fn store_new_profile(
+        &mut self,
+        outcome: RemoteAdded,
+        name: String,
+        source: SubscriptionSource,
+    ) -> bool {
         let mut profile = Profile {
             id: outcome.profile_id.clone(),
             name: name.clone(),
-            source: SubscriptionSource::RemoteUrl {
-                url_secret,
-                host,
-                user_agent: None,
-            },
+            source,
             active_revision: Some(outcome.revision.id.clone()),
             last_good_revision: Some(outcome.revision.id.clone()),
             updated_at: now(),
@@ -112,7 +125,7 @@ impl AppCore {
                 .and_then(|()| revisions::upsert(&self.layout, &profile, outcome.revision.clone()));
         if let Err(e) = stored {
             self.view.notice = Some(error_notice(&e));
-            return;
+            return false;
         }
         self.profiles.add(profile);
         self.save_profiles();
@@ -120,10 +133,11 @@ impl AppCore {
         self.view.check_lines = outcome.check_lines;
         let s = outcome.revision.summary;
         self.view.notice = Some(info_notice(format!(
-            "已添加订阅“{name}”：{} 个节点，{} 个组，{} 条规则",
+            "已添加“{name}”：{} 个节点，{} 个组，{} 条规则",
             s.proxies, s.groups, s.rules
         )));
         self.refresh_profiles_view();
+        true
     }
 
     pub(super) fn update_profile(&mut self, id: &str, manual: bool) {
@@ -133,48 +147,102 @@ impl AppCore {
         let Some(profile) = self.profiles.get(id).cloned() else {
             return;
         };
-        let SubscriptionSource::RemoteUrl {
-            url_secret,
-            user_agent,
-            ..
-        } = &profile.source
-        else {
-            if manual {
-                self.view.notice = Some(info_notice("本地文件配置无需更新"));
-            }
-            return;
-        };
         let Some(binary) = self.require_binary() else {
             return;
         };
-        let url = match self.load_url(url_secret) {
-            Ok(url) => url,
+        let source = match self.update_source(&profile) {
+            Ok(Some(source)) => source,
+            Ok(None) => {
+                if manual {
+                    self.view.notice = Some(info_notice("本地文件配置无需更新"));
+                }
+                return;
+            }
             Err(e) => {
-                self.view.notice = Some(error_notice(&e));
+                self.record_fetch_error(&profile.id, &e, manual);
                 return;
             }
         };
-        let req = RemoteFetch {
+        let layout = self.layout.clone();
+        let egress = profile.update_policy.egress;
+        let core_port = self.core_port();
+        let mixed_port = self.view.mixed_port;
+        let make_req = move |desc| RemoteFetch {
             binary,
-            layout: self.layout.clone(),
-            url,
-            user_agent: user_agent
-                .clone()
-                .unwrap_or_else(|| DEFAULT_SUBSCRIPTION_UA.into()),
-            egress: profile.update_policy.egress,
-            core_port: self.core_port(),
-            mixed_port: self.view.mixed_port,
+            layout,
+            desc,
+            egress,
+            core_port,
+            mixed_port,
         };
         tracing::info!(profile = %profile.id, manual, "subscription update started");
         self.updating.insert(profile.id.clone());
         let permits = self.fetch_permits.clone();
+        let tx = self.internal_tx.clone();
+        let provider_egress = self.provider_egress();
+        let layout = self.layout.clone();
         self.spawn(async move {
             let _permit = permits.acquire_owned().await;
-            Internal::Updated(
-                Box::new(pipeline::update_remote(req, profile).await),
-                manual,
-            )
+            let desc = match source {
+                UpdateSource::Url(desc) => Ok(desc),
+                UpdateSource::Provider(plan) => {
+                    accounts::resolve(*plan, &layout, provider_egress, &tx).await
+                }
+            };
+            let outcome = match desc {
+                Ok(desc) => pipeline::update_remote(make_req(desc), profile).await,
+                Err(e) => UpdateOutcome {
+                    profile_id: profile.id,
+                    meta: None,
+                    result: Err(e),
+                },
+            };
+            Internal::Updated(Box::new(outcome), manual)
         });
+        self.refresh_profiles_view();
+    }
+
+    /// Where an update downloads from; `None` for local files.
+    fn update_source(&self, profile: &Profile) -> AppResult<Option<UpdateSource>> {
+        match &profile.source {
+            SubscriptionSource::LocalFile { .. } => Ok(None),
+            SubscriptionSource::RemoteUrl {
+                url_secret,
+                user_agent,
+                ..
+            } => {
+                let url = self.load_url(url_secret)?;
+                let ua = user_agent
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_SUBSCRIPTION_UA.into());
+                Ok(Some(UpdateSource::Url(Descriptor::plain(url, ua))))
+            }
+            SubscriptionSource::ProviderAccount { account_id, .. } => self
+                .provider_plan(account_id)
+                .map(|plan| Some(UpdateSource::Provider(Box::new(plan)))),
+        }
+    }
+
+    /// An update that could not even start (e.g. the account needs a login).
+    fn record_fetch_error(&mut self, profile_id: &str, e: &AppError, manual: bool) {
+        let Some(profile) = self.profiles.get_mut(profile_id) else {
+            return;
+        };
+        let text = format!(
+            "更新失败（仍使用 {} 的版本）：{}",
+            profile_time(profile.updated_at),
+            e.user_message()
+        );
+        tracing::warn!(error = %e, profile = %profile_id, "subscription update not started");
+        profile.last_fetch = Some(FetchRecord {
+            at: now(),
+            error: Some(text.clone()),
+        });
+        let name = profile.name.clone();
+        if manual {
+            self.view.notice = Some(Notice::error(format!("“{name}” {text}")));
+        }
+        self.save_profiles();
         self.refresh_profiles_view();
     }
 
@@ -425,7 +493,7 @@ impl AppCore {
     }
 
     /// Mixed port of an up core, for the Auto/ViaLocalCore egress (§12.2).
-    fn core_port(&self) -> Option<u16> {
+    pub(super) fn core_port(&self) -> Option<u16> {
         self.running
             .as_ref()
             .filter(|_| self.view.runtime.is_up())
@@ -438,19 +506,30 @@ impl AppCore {
         }
     }
 
-    /// Removes the stored URL of a deleted profile (§14.1).
-    pub(super) fn forget_secrets(&self, profile: &Profile) {
-        if let SubscriptionSource::RemoteUrl { url_secret, .. } = &profile.source
-            && let Err(e) = self.secrets.delete(url_secret)
-        {
-            tracing::warn!(error = %e, "subscription secret not deleted");
+    /// Removes the stored URL of a deleted profile (§14.1). Account-backed
+    /// profiles keep the account; only the link to it goes.
+    pub(super) fn forget_secrets(&mut self, profile: &Profile) {
+        match &profile.source {
+            SubscriptionSource::RemoteUrl { url_secret, .. } => {
+                if let Err(e) = self.secrets.delete(url_secret) {
+                    tracing::warn!(error = %e, "subscription secret not deleted");
+                }
+            }
+            SubscriptionSource::ProviderAccount { .. } => self.unlink_profile(&profile.id),
+            SubscriptionSource::LocalFile { .. } => {}
         }
     }
 }
 
+enum UpdateSource {
+    Url(Descriptor),
+    Provider(Box<accounts::ProviderPlan>),
+}
+
 /// Usage and the server's update interval (unless the user chose one).
+/// Account-backed profiles take usage from the provider API instead (§15).
 fn apply_meta(profile: &mut Profile, meta: &SubscriptionMeta) {
-    if meta.usage.is_some() {
+    if meta.usage.is_some() && accounts::account_of(profile).is_none() {
         profile.usage = meta.usage;
     }
     if let Some(hours) = meta.update_interval

@@ -6,6 +6,7 @@ mod domain;
 mod logging;
 mod net;
 mod platform;
+mod providers;
 mod storage;
 mod subscriptions;
 mod ui_bridge;
