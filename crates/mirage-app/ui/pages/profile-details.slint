@@ -1,0 +1,122 @@
+import { Button, ComboBox, LineEdit } from "std-widgets.slint";
+import { ProfileRow } from "profiles.slint";
+import { AccountInfo, AccountRow } from "../components/account-info.slint";
+import { Theme } from "../components/theme.slint";
+
+component ProfileSummary inherits VerticalLayout {
+    in property <ProfileRow> profile;
+    in property <bool> show-name: true;
+    spacing: 6px;
+    if root.show-name: Text { text: root.profile.name; font-weight: 600; color: Theme.text; wrap: word-wrap; }
+    Text { text: "来源：" + root.profile.source; color: Theme.text-muted; wrap: word-wrap; }
+    Text { text: root.profile.detail; color: Theme.text-muted; wrap: word-wrap; }
+    Text { text: "更新于 " + root.profile.updated; color: Theme.text-muted; wrap: word-wrap; }
+    if root.profile.account-id == "" && root.profile.usage != "": Text {
+        text: root.profile.usage;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}
+
+export component ProfileDetails inherits VerticalLayout {
+    in property <ProfileRow> profile;
+    in property <[AccountRow]> accounts;
+    in property <[string]> egress-options;
+    in property <bool> busy;
+    in property <string> revealed-account-id;
+    in property <string> revealed-account-name;
+    private property <string> hours: root.profile.interval-hours;
+    private property <bool> valid-hours: root.hours.is-float() && root.hours.to-float() >= 0
+        && root.hours.to-float() <= 720 && root.hours.to-float() == floor(root.hours.to-float());
+    private property <int> egress: root.profile.egress;
+    callback set-policy(string, int, int);
+    callback copy-url(string);
+    callback refresh-account(string);
+    callback reveal-account(string, bool);
+    spacing: 20px;
+
+    if root.profile.account-id == "": ProfileSummary { profile: root.profile; }
+    if root.profile.account-id != "": VerticalLayout {
+        spacing: 8px;
+        for a in root.accounts: VerticalLayout {
+            if a.id == root.profile.account-id: AccountInfo {
+                account: a;
+                busy: root.busy;
+                revealed-name: root.revealed-account-id == a.id ? root.revealed-account-name : "";
+                refresh(id) => { root.refresh-account(id); }
+                reveal(id, visible) => { root.reveal-account(id, visible); }
+            }
+        }
+        if root.accounts.length == 0: Text {
+            text: "关联账号已移除，请重新添加对应账号以获取配置。";
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        ProfileSummary { profile: root.profile; show-name: false; }
+    }
+    if root.profile.remote: VerticalLayout {
+        spacing: 10px;
+        Rectangle { height: 1px; background: Theme.border; }
+        Text { text: "订阅设置"; font-weight: 600; color: Theme.text; }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "更新间隔（小时，0 = 手动）"; color: Theme.text; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; min-width: 0px; }
+            LineEdit {
+                text <=> root.hours;
+                input-type: InputType.number;
+                preferred-width: 100px;
+                min-width: 0px;
+                horizontal-stretch: 0;
+                enabled: !root.busy;
+                accessible-label: "自动更新间隔（小时）";
+            }
+        }
+        if !root.valid-hours: Text {
+            text: "请输入 0～720 的整数，0 表示手动更新。";
+            color: Theme.danger;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Text { text: "下载出站"; color: Theme.text; vertical-alignment: center; }
+            ComboBox {
+                model: root.egress-options;
+                current-index: root.profile.egress;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                accessible-label: "下载出站";
+                selected => { root.egress = self.current-index; }
+            }
+        }
+        Text {
+            text: "经本地内核下载时，请求会按订阅规则分流，可能经过某个节点。";
+            color: Theme.text-muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: end;
+            Button {
+                text: "保存";
+                enabled: !root.busy && root.valid-hours;
+                clicked => { root.set-policy(root.profile.id, root.hours.to-float(), root.egress); }
+            }
+        }
+    }
+    if root.profile.has-url: HorizontalLayout {
+        alignment: start;
+        Button {
+            text: "复制订阅链接";
+            icon: @image-url("../../assets/icons/lucide/link.svg");
+            colorize-icon: true;
+            clicked => { root.copy-url(root.profile.id); }
+        }
+    }
+    VerticalLayout {
+        spacing: 6px;
+        Rectangle { height: 1px; background: Theme.border; }
+        Text { text: root.profile.policy-notes.length == 0 ? "安全调整：无" : "安全调整"; color: Theme.text-muted; font-size: 12px; }
+        for note in root.profile.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+    }
+}

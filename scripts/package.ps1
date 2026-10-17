@@ -32,7 +32,7 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
 }
 
 function Copy-Core([string]$Stage) {
-    $shared = Get-Content -LiteralPath (Join-Path $Root 'ipc/src/binary.rs') -Raw
+    $shared = Get-Content -LiteralPath (Join-Path $Root 'crates/mirage-ipc/src/binary.rs') -Raw
     if (-not $shared.Contains($Pinned.MihomoExeSha256.ToLowerInvariant())) {
         throw 'Core pin differs from the application/service pin.'
     }
@@ -69,10 +69,10 @@ function Write-PayloadHashes([string]$Stage) {
 
 function Initialize-Payload([string]$Stage, [string]$Release, [string]$CargoAbout) {
     New-Item -ItemType Directory -Force -Path $stage, "$stage/core", "$stage/licenses" | Out-Null
-    foreach ($name in @('Mirage.exe', 'mirage-service.exe')) {
+    foreach ($name in @('Mirage.exe', 'mirage-svc.exe')) {
         Copy-Item -LiteralPath (Join-Path $release $name) -Destination $stage -Force
     }
-    $icon = Get-ChildItem -Path "$release/build/mirage-*/out/app.ico" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $icon = Get-ChildItem -Path "$release/build/mirage-app-*/out/app.ico" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
     if (-not $icon) { throw 'Build-generated application icon missing.' }
     Copy-Item -LiteralPath $icon.FullName -Destination "$stage/app.ico" -Force
     Copy-Core $stage
@@ -102,7 +102,7 @@ function Write-ArtifactHash([string]$Path) {
 function New-PortableArchive([string]$Stage, [string]$Output, [string]$Version) {
     $portable = Join-Path $Stage 'portable/Mirage'
     New-Item -ItemType Directory -Force -Path $portable | Out-Null
-    foreach ($name in @('Mirage.exe', 'mirage-service.exe', 'core', 'licenses', 'THIRD-PARTY-NOTICES.txt')) {
+    foreach ($name in @('Mirage.exe', 'mirage-svc.exe', 'core', 'licenses', 'THIRD-PARTY-NOTICES.txt')) {
         Copy-Item -LiteralPath (Join-Path $Stage $name) -Destination $portable -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $Root 'packaging/README-portable.txt') -Destination $portable -Force
@@ -119,8 +119,8 @@ Push-Location $Root
 try {
     $metadata = cargo metadata --locked --offline --no-deps --format-version 1 | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
-    $app = $metadata.packages | Where-Object name -EQ mirage
-    $helper = $metadata.packages | Where-Object name -EQ mirage-service
+    $app = $metadata.packages | Where-Object name -EQ mirage-app
+    $helper = $metadata.packages | Where-Object name -EQ mirage-svc
     if ($app.version -ne $helper.version -or $app.version -notmatch '^\d+\.\d+\.\d+$') {
         throw 'App and helper must have the same numeric release version.'
     }

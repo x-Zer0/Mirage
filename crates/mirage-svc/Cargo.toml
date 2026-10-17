@@ -1,0 +1,39 @@
+[package]
+name = "mirage-svc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mirage TUN helper service (DESIGN.md §11.7)"
+publish.workspace = true
+
+[[bin]]
+name = "mirage-svc"
+path = "src/main.rs"
+
+[dependencies]
+mirage-ipc.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util"] }
+reqwest = { workspace = true, features = ["json"] }
+
+[dependencies.windows]
+workspace = true
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+]

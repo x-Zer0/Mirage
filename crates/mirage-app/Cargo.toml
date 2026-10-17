@@ -1,0 +1,79 @@
+[package]
+name = "mirage-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Windows proxy client for the official Mihomo core"
+publish.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "Mirage"
+path = "src/main.rs"
+
+[dependencies]
+# Software renderer only (DESIGN.md §2, §22, decided in M5): no OpenGL driver
+# in the process, works over RDP/VMs, lower memory and CPU for this UI.
+slint = { workspace = true, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "system-tray", "unstable-winit-030"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "net", "fs"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "registry", "env-filter"] }
+tracing-appender.workspace = true
+regex.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+# rustls + rustls-platform-verifier (system store); the ring provider is installed in main.
+reqwest = { workspace = true, features = ["json", "rustls-no-provider"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12", "logging"] }
+percent-encoding.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+getrandom.workspace = true
+base64.workspace = true
+chrono = { workspace = true, features = ["clock", "std"] }
+rfd.workspace = true
+zeroize.workspace = true
+bytes.workspace = true
+# Shared with `mirage-svc`: one implementation of §9.3–§9.6 and the pipe
+# protocol, so the app and the SYSTEM service cannot drift apart (§11.7).
+mirage-ipc.workspace = true
+
+[dependencies.windows]
+workspace = true
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinInet",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_System_Pipes",
+    "Win32_System_Services",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+slint-build.workspace = true
+embed-manifest.workspace = true
+embed-resource.workspace = true
+# Reuse the SVG/image stack already used by Slint to generate Windows icon sizes.
+resvg.workspace = true
+image = { workspace = true, features = ["ico"] }

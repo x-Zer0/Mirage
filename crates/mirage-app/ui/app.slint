@@ -1,0 +1,496 @@
+// Main window, navigation shell and system tray (DESIGN.md §17).
+import { PageScroll, PageViewport } from "components/page-scroll.slint";
+import { Theme } from "components/theme.slint";
+import { NavItem } from "components/nav.slint";
+import { ErrorBar, Toast } from "components/error-bar.slint";
+import { OverviewPage } from "pages/overview.slint";
+import { ProfilesPage, ProfileRow } from "pages/profiles.slint";
+import { ProxiesPage, GroupRow, NodeRow } from "pages/proxies.slint";
+import { AccountRow } from "components/account-info.slint";
+import { AccountDialog } from "providers/ziyoumao.slint";
+import { ProfileDetails } from "pages/profile-details.slint";
+import { Overlay } from "components/overlay.slint";
+import { Button } from "std-widgets.slint";
+import { SettingsPage } from "pages/settings.slint";
+import { DiagnosticsPage, LogRow } from "pages/diagnostics.slint";
+
+export { ProfileRow, GroupRow, NodeRow, AccountRow, LogRow }
+
+export enum TrayState { idle, connected, restarting, error }
+
+export component MainWindow inherits Window {
+    title: "Mirage";
+    icon: @image-url("../assets/icons/app.svg");
+    preferred-width: 1000px;
+    preferred-height: 680px;
+    min-width: 760px;
+    min-height: 520px;
+    background: root.surface-refresh ? Theme.surface : #FFFFFE;
+
+    in property <string> version;
+    in property <string> data-dir;
+    in property <string> core-version;
+    in property <string> status-text;
+    in property <bool> running;
+    in property <bool> failed;
+    in property <bool> busy;
+    in property <string> busy-text;
+    in property <int> mixed-port;
+    in-out property <bool> system-proxy-wanted;
+    in property <bool> system-proxy-active;
+    in-out property <bool> tun-wanted;
+    in property <bool> tun-active;
+    in property <bool> service-installed;
+    in property <bool> service-busy;
+    in property <string> connectivity-text;
+    in property <int> connectivity-level;
+    in property <int> routing-mode: -1;
+    in property <string> exit-node;
+    in property <string> profile-name;
+    in property <string> account-plan;
+    in property <string> account-usage;
+    in property <[ProfileRow]> profiles;
+    in property <[GroupRow]> groups;
+    in property <string> testing-group;
+    in property <[string]> policy-notes;
+    in property <[string]> check-lines;
+    in property <string> error-stage;
+    in property <string> error-text;
+    in property <bool> error-retry;
+    in property <[AccountRow]> accounts;
+    in property <string> revealed-account-id;
+    in property <string> revealed-account-name;
+    in property <bool> login-busy;
+    in property <string> login-message;
+    in property <bool> probing-hosts;
+    in property <[string]> provider-hosts;
+    in property <[string]> egress-options;
+    in property <int> settings-port;
+    in property <string> settings-bypass;
+    in property <string> settings-user-agent;
+    in property <int> settings-provider-egress;
+    in property <bool> settings-auto-connect;
+    in property <bool> settings-close-to-tray;
+    in property <bool> settings-autostart;
+    in property <bool> settings-tun-disable-system-proxy;
+    in property <string> core-path;
+    in property <bool> geo-updating;
+    in property <bool> exporting;
+    // Live data: only fed while the window is visible (§17.4).
+    in property <string> up-rate: "0 B/s";
+    in property <string> down-rate: "0 B/s";
+    in property <string> up-path;
+    in property <string> down-path;
+    in property <[LogRow]> logs;
+    in-out property <int> page: 0;
+    in-out property <bool> sort-by-delay;
+    // Kept here so leaving the nodes page does not reset search or tab.
+    in-out property <string> node-filter;
+    in-out property <int> node-group;
+
+    private property <string> details-id;
+    private property <ProfileRow> delete-target;
+
+    public function close-account-login() {
+        account-dialog.close();
+    }
+    function confirm-delete(profile: ProfileRow) {
+        root.delete-target = profile;
+        delete-dialog.show();
+    }
+
+    // Toast: shown for a few seconds after `show-toast`.
+    property <string> toast-text;
+    property <bool> toast-visible;
+
+    callback connect();
+    callback disconnect();
+    callback import-file();
+    callback add-remote(string, string);
+    callback update-profile(string);
+    callback update-all();
+    callback select-profile(string);
+    callback remove-profile(string);
+    callback copy-profile-url(string);
+    callback set-update-policy(string, int, int);
+    callback select-node(string, string);
+    callback test-delay(string);
+    callback refresh-groups();
+    callback sort-nodes(bool);
+    callback set-system-proxy(bool);
+    callback set-tun(bool);
+    callback set-routing-mode(int);
+    callback check-connectivity();
+    callback dismiss-error();
+    callback retry-error();
+    callback provider-login(string, string, string);
+    callback revalidate-account(string);
+    callback reveal-account(string, bool);
+    callback import-legacy(string);
+    callback probe-hosts();
+    callback save-settings(string, string, string, int, bool, bool, bool, bool);
+    callback manage-service(bool);
+    callback update-geodata();
+    callback export-diagnostics();
+    callback clear-logs();
+    callback filter-nodes(string);
+
+    public function show-toast(text: string) {
+        root.toast-text = text;
+        root.toast-visible = true;
+        toast-timer.running = false;
+        toast-timer.running = true;
+    }
+
+    toast-timer := Timer {
+        interval: 3500ms;
+        running: false;
+        triggered => {
+            root.toast-visible = false;
+            self.running = false;
+        }
+    }
+
+    // A full-surface color change invalidates cached damage after restoration.
+    property <bool> surface-refresh;
+    public function refresh-surface() {
+        surface-timer.running = false;
+        surface-timer.running = true;
+    }
+    surface-timer := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            root.surface-refresh = !root.surface-refresh;
+            self.running = false;
+        }
+    }
+
+    HorizontalLayout {
+        Rectangle {
+            width: 200px;
+            background: Theme.sidebar;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Image {
+                        source: root.running ? @image-url("../assets/icons/tray/connected.svg")
+                        : root.failed ? @image-url("../assets/icons/tray/error.svg")
+                        : @image-url("../assets/icons/tray/idle.svg");
+                        width: 22px;
+                        height: 22px;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: "Mirage";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
+                }
+                Rectangle { height: 12px; }
+                NavItem { icon: @image-url("../assets/icons/lucide/layout-dashboard.svg"); label: "总览"; selected: root.page == 0; clicked => { root.page = 0; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/layers.svg"); label: "配置"; selected: root.page == 1; clicked => { root.page = 1; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/globe.svg"); label: "节点"; selected: root.page == 2; clicked => { root.page = 2; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/settings.svg"); label: "设置"; selected: root.page == 3; clicked => { root.page = 3; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/activity.svg"); label: "诊断"; selected: root.page == 4; clicked => { root.page = 4; } }
+                Rectangle { vertical-stretch: 1; }
+                Text {
+                    text: root.status-text;
+                    color: root.running ? Theme.ok : root.failed ? Theme.danger : Theme.text-muted;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+                if root.running: Text {
+                    text: "↑ " + root.up-rate + "  ↓ " + root.down-rate;
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                }
+            }
+        }
+
+        VerticalLayout {
+            padding: 24px;
+            min-width: 0px;
+            min-height: 0px;
+            spacing: 12px;
+
+            if root.error-text != "": ErrorBar {
+                stage: root.error-stage;
+                text: root.error-text;
+                can-retry: root.error-retry;
+                retry => { root.retry-error(); }
+                dismiss => { root.dismiss-error(); }
+            }
+
+            if root.page == 0: PageViewport {
+                vertical-stretch: 1;
+                OverviewPage {
+                    status-text: root.status-text;
+                    running: root.running;
+                    failed: root.failed;
+                    busy: root.busy;
+                    profile-name: root.profile-name;
+                    mixed-port: root.mixed-port;
+                    core-version: root.core-version;
+                    system-proxy-wanted <=> root.system-proxy-wanted;
+                    system-proxy-active: root.system-proxy-active;
+                    tun-wanted <=> root.tun-wanted;
+                    tun-active: root.tun-active;
+                    service-installed: root.service-installed;
+                    set-tun(on) => { root.set-tun(on); }
+                    connectivity-text: root.connectivity-text;
+                    connectivity-level: root.connectivity-level;
+                    routing-mode: root.routing-mode;
+                    exit-node: root.exit-node;
+                    up-rate: root.up-rate;
+                    down-rate: root.down-rate;
+                    up-path: root.up-path;
+                    down-path: root.down-path;
+                    plan: root.account-plan;
+                    usage: root.account-usage;
+                    connect => { root.connect(); }
+                    disconnect => { root.disconnect(); }
+                    set-system-proxy(on) => { root.set-system-proxy(on); }
+                    check-connectivity => { root.check-connectivity(); }
+                    set-routing-mode(m) => { root.set-routing-mode(m); }
+                }
+            }
+            if root.page == 1: ProfilesPage {
+                vertical-stretch: 1;
+                profiles: root.profiles;
+                busy: root.busy;
+                policy-notes: root.policy-notes;
+                import-file => { root.import-file(); }
+                add-remote(name, url) => { root.add-remote(name, url); }
+                update(id) => { root.update-profile(id); }
+                update-all => { root.update-all(); }
+                select(id) => { root.select-profile(id); }
+                remove(profile) => { root.confirm-delete(profile); }
+                show-details(id) => { root.reveal-account("", false); root.details-id = id; profile-drawer.show(); }
+                open-accounts => { account-dialog.show(); }
+            }
+            if root.page == 2: ProxiesPage {
+                vertical-stretch: 1;
+                groups: root.groups;
+                running: root.running;
+                testing-group: root.testing-group;
+                sort-by-delay <=> root.sort-by-delay;
+                filter <=> root.node-filter;
+                current-group <=> root.node-group;
+                select-node(g, n) => { root.select-node(g, n); }
+                test-delay(g) => { root.test-delay(g); }
+                refresh => { root.refresh-groups(); }
+                sort-changed(on) => { root.sort-nodes(on); }
+                filter-changed(text) => { root.filter-nodes(text); }
+            }
+            if root.page == 3: PageViewport {
+                vertical-stretch: 1;
+                SettingsPage {
+                    saved-port: root.settings-port;
+                    saved-bypass: root.settings-bypass;
+                    saved-user-agent: root.settings-user-agent;
+                    saved-provider-egress: root.settings-provider-egress;
+                    saved-auto-connect: root.settings-auto-connect;
+                    saved-close-to-tray: root.settings-close-to-tray;
+                    saved-autostart: root.settings-autostart;
+                    saved-tun-disable-system-proxy: root.settings-tun-disable-system-proxy;
+                    service-installed: root.service-installed;
+                    service-busy: root.service-busy;
+                    tun-active: root.tun-active;
+                    manage-service(install) => { root.manage-service(install); }
+                    egress-options: root.egress-options;
+                    core-version: root.core-version;
+                    core-path: root.core-path;
+                    running: root.running;
+                    geo-updating: root.geo-updating;
+                    busy: root.busy;
+                    save(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy); }
+                    update-geodata => { root.update-geodata(); }
+                }
+            }
+            if root.page == 4: diagnostics-scroll := PageViewport {
+                vertical-stretch: 1;
+                DiagnosticsPage {
+                    available-height: diagnostics-scroll.visible-height;
+                    vertical-stretch: 1;
+                    exporting: root.exporting;
+                    export-diagnostics => { root.export-diagnostics(); }
+                    version: root.version;
+                    core-version: root.core-version;
+                    status-text: root.status-text;
+                    data-dir: root.data-dir;
+                    busy: root.busy;
+                    connectivity-text: root.connectivity-text;
+                    running: root.running;
+                    check-lines: root.check-lines;
+                    policy-notes: root.policy-notes;
+                    logs: root.logs;
+                    probing-hosts: root.probing-hosts;
+                    provider-hosts: root.provider-hosts;
+                    check-connectivity => { root.check-connectivity(); }
+                    probe-hosts => { root.probe-hosts(); }
+                    clear-logs => { root.clear-logs(); }
+                }
+            }
+        }
+    }
+
+    account-dialog := AccountDialog {
+        width: root.width;
+        height: root.height;
+        login-busy: root.login-busy;
+        busy: root.busy;
+        login-message: root.login-message;
+        has-account: root.accounts.length > 0;
+        login(email, password) => { root.provider-login("ziyoumao", email, password); }
+        import-legacy => { root.import-legacy("ziyoumao"); }
+    }
+    profile-drawer := Overlay {
+        width: root.width;
+        height: root.height;
+        title: "配置设置";
+        drawer: true;
+        panel-width: 400px;
+        dismissed => { root.details-id = ""; root.reveal-account("", false); }
+        // Put the scrollbar in the outer gutter; align content with the header.
+        Rectangle {
+            min-height: 0px;
+            vertical-stretch: 1;
+            PageScroll {
+                width: parent.width + 16px;
+                height: parent.height;
+                content-padding: 0px;
+                for p in root.profiles: VerticalLayout {
+                    if p.id == root.details-id: ProfileDetails {
+                        profile: p;
+                        accounts: root.accounts;
+                        revealed-account-id: root.revealed-account-id;
+                        revealed-account-name: root.revealed-account-name;
+                        egress-options: root.egress-options;
+                        busy: root.busy || root.login-busy;
+                        set-policy(id, hours, egress) => { root.set-update-policy(id, hours, egress); }
+                        copy-url(id) => { root.copy-profile-url(id); }
+                        refresh-account(id) => { root.revalidate-account(id); }
+                        reveal-account(id, visible) => { root.reveal-account(id, visible); }
+                    }
+                }
+            }
+        }
+    }
+    delete-dialog := Overlay {
+        width: root.width;
+        height: root.height;
+        title: "删除配置";
+        init => { cancel-delete.focus(); }
+        Text {
+            text: "确定删除“" + root.delete-target.name + "”？";
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.delete-target.account-id != ""
+                ? "将同时清除本机保存的关联账号信息、登录会话、订阅地址和配置文件。后续需重新添加账号。"
+                : "将删除该配置及本机保存的相关文件。";
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        if root.delete-target.selected && root.running: Text {
+            text: "该配置正在使用，删除后将断开当前连接。";
+            color: Theme.danger;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            cancel-delete := Button { text: "取消"; clicked => { delete-dialog.close(); } }
+            Button {
+                text: "确认删除";
+                enabled: !root.busy && !root.login-busy;
+                clicked => {
+                    root.remove-profile(root.delete-target.id);
+                    delete-dialog.close();
+                }
+            }
+        }
+    }
+
+    if root.toast-visible || root.busy: Toast {
+        text: root.toast-visible ? root.toast-text : root.busy-text;
+        busy: !root.toast-visible && root.busy;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 24px;
+    }
+}
+
+export component AppTray inherits SystemTrayIcon {
+    in property <TrayState> state: TrayState.idle;
+    in property <string> detail;
+    in property <bool> window-visible: true;
+    in property <bool> running;
+    in property <bool> busy;
+    in property <int> routing-mode: -1;
+    in-out property <bool> system-proxy;
+    in property <bool> tun-wanted;
+
+    callback toggle-window();
+    callback toggle-connection();
+    callback set-system-proxy(bool);
+    callback set-tun(bool);
+    callback set-routing-mode(int);
+    callback quit-app();
+
+    icon: state == TrayState.connected ? @image-url("../assets/icons/tray/connected.svg")
+    : state == TrayState.error || state == TrayState.restarting ? @image-url("../assets/icons/tray/error.svg")
+    : @image-url("../assets/icons/tray/idle.svg");
+    tooltip: (state == TrayState.connected ? "Mirage - 已连接"
+    : state == TrayState.error ? "Mirage - 错误"
+    : state == TrayState.restarting ? "Mirage - 正在重启内核"
+    : "Mirage - 未连接") + (root.detail == "" ? "" : "\n" + root.detail);
+
+    clicked => { root.toggle-window(); }
+
+    Menu {
+        MenuItem {
+            title: root.window-visible ? "隐藏主窗口" : "显示主窗口";
+            activated => { root.toggle-window(); }
+        }
+        MenuItem {
+            title: root.busy ? "请稍候…" : root.running ? "断开" : "连接";
+            enabled: !root.busy;
+            activated => { root.toggle-connection(); }
+        }
+        MenuSeparator { }
+        MenuItem {
+            title: root.system-proxy ? "✓ 系统代理" : "系统代理";
+            activated => { root.set-system-proxy(!root.system-proxy); }
+        }
+        MenuItem {
+            title: root.tun-wanted ? "✓ TUN" : "TUN";
+            enabled: !root.busy;
+            activated => { root.set-tun(!root.tun-wanted); }
+        }
+        Menu {
+            title: "路由模式";
+            MenuItem {
+                title: root.routing-mode == 0 ? "✓ 规则" : "规则";
+                activated => { root.set-routing-mode(0); }
+            }
+            MenuItem {
+                title: root.routing-mode == 1 ? "✓ 全局" : "全局";
+                activated => { root.set-routing-mode(1); }
+            }
+            MenuItem {
+                title: root.routing-mode == 2 ? "✓ 直连" : "直连";
+                activated => { root.set-routing-mode(2); }
+            }
+        }
+        MenuSeparator { }
+        MenuItem {
+            title: "退出";
+            activated => { root.quit-app(); }
+        }
+    }
+}

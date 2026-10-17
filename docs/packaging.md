@@ -27,13 +27,13 @@ pwsh -File scripts/package.ps1 -Iscc 'D:\Tools\Inno Setup\ISCC.exe' -CargoAbout 
 - 两个产物分别附同名 `.exe.sha256` / `.zip.sha256` 校验文件。
 - `target/package/<版本>-<随机标识>/` 留存独立打包目录，包含安装版公共文件及 `payload-sha256.txt`；其下 `portable/Mirage/` 为便携版目录，独立清单还覆盖便携版说明，便于核对实际入包文件。用于安装器编译的 `app.ico` 不额外放入 ZIP。
 
-`-SkipBuild` 仅用于已完成本次 release 构建后的重新打包；`-StageOnly` 只准备公共目录、不调用安装器编译器，也不输出 EXE / ZIP；正常构建和 `-SkipBuild` 重打包均同时输出两种产物。`cargo build` 本身仅编译程序，分发统一使用上述打包入口。版本来自 Cargo metadata；主程序和服务版本必须一致，核心哈希必须与 `ipc/src/binary.rs` 一致。四份 geodata 和核心压缩包的固定值集中在 `scripts/core-assets.psd1`，下载和打包复用它，滚动数据变化时拒绝静默替换。
+`-SkipBuild` 仅用于已完成本次 release 构建后的重新打包；`-StageOnly` 只准备公共目录、不调用安装器编译器，也不输出 EXE / ZIP；正常构建和 `-SkipBuild` 重打包均同时输出两种产物。`cargo build` 本身仅编译程序，分发统一使用上述打包入口。版本来自 Cargo metadata；主程序和服务版本必须一致，核心哈希必须与 `crates/mirage-ipc/src/binary.rs` 一致。四份 geodata 和核心压缩包的固定值集中在 `scripts/core-assets.psd1`，下载和打包复用它，滚动数据变化时拒绝静默替换。
 
 ## 随包内容与首次使用
 
 ```text
 Mirage.exe
-mirage-service.exe
+mirage-svc.exe
 core/
   mihomo.exe
   GEOIP.metadb
@@ -53,9 +53,9 @@ THIRD-PARTY-NOTICES.txt
 payload-sha256.txt
 ```
 
-安装过程不创建、启动或升级 MirageService。TUN 每次启动默认关闭。首次开启 TUN，或者检测到服务归属路径 / 用户、应用版本、helper SHA256 不匹配时，先显示安装 / 更新说明，确认后再 UAC。只有授权及安装成功后才继续启用；取消保持原有模式。普通订阅、系统代理模式无需安装服务，离线安装后可导入本地 YAML。
+安装过程不创建、启动或升级 MirageSvc。TUN 每次启动默认关闭。首次开启 TUN，或者检测到服务归属路径 / 用户、应用版本、helper SHA256 不匹配时，先显示安装 / 更新说明，确认后再 UAC。只有授权及安装成功后才继续启用；取消保持原有模式。普通订阅、系统代理模式无需安装服务，离线安装后可导入本地 YAML。
 
-辅助服务经现有安装 helper 复制到 `%ProgramFiles%\Mirage\service`，核心和 geodata 同时进入受保护目录，服务保持 LocalSystem / Manual。升级后首次开启 TUN 再更新受保护副本；安装器不会为此预先提权。服务仍绑定单个安装用户和 Mirage.exe 的规范路径。
+辅助服务经现有安装 helper 复制到 `%ProgramFiles%\Mirage\mirage-svc`，核心和 geodata 同时进入受保护目录，服务保持 LocalSystem / Manual。升级后首次开启 TUN 再更新受保护副本；安装器不会为此预先提权。服务仍绑定单个安装用户和 Mirage.exe 的规范路径。
 
 ## 升级和卸载
 
@@ -67,7 +67,7 @@ payload-sha256.txt
 
 ## 便携版使用、更新与移除
 
-ZIP 内只有顶层 `Mirage/` 文件夹；完整解压后运行其中的 `Mirage.exe`，保留 `mirage-service.exe`、`core/` 和 `licenses/`。额外附带的 `README-portable.txt` 说明数据位置、TUN、更新和移除步骤。解压不创建快捷方式、Windows 应用卸载项或辅助服务。普通代理、订阅、节点、测速等运行逻辑与安装版一致；首次启用 TUN 仍提示安装 / 更新服务并请求 UAC。
+ZIP 内只有顶层 `Mirage/` 文件夹；完整解压后运行其中的 `Mirage.exe`，保留 `mirage-svc.exe`、`core/` 和 `licenses/`。额外附带的 `README-portable.txt` 说明数据位置、TUN、更新和移除步骤。解压不创建快捷方式、Windows 应用卸载项或辅助服务。普通代理、订阅、节点、测速等运行逻辑与安装版一致；首次启用 TUN 仍提示安装 / 更新服务并请求 UAC。
 
 这是主程序免安装分发。设置、订阅、缓存和日志仍在 `%LOCALAPPDATA%\Mirage`，与同一用户的安装版共用；同一用户仅运行一个 Mirage 实例。账号及订阅凭据使用 Windows 凭据管理器 / 当前用户 DPAPI，不随程序目录自动迁移到其他电脑或用户；不引入程序旁的 `data/` 模式。
 

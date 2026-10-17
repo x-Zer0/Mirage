@@ -1,4 +1,4 @@
-﻿#ifndef AppVersion
+#ifndef AppVersion
   #error AppVersion must be supplied by scripts/package.ps1
 #endif
 #ifndef StageDir
@@ -47,7 +47,7 @@ Name: desktopicon; Description: "创建桌面快捷方式"; Flags: unchecked
 
 [Files]
 Source: "{#StageDir}\Mirage.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageDir}\mirage-service.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\mirage-svc.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\core\*"; DestDir: "{app}\core"; Flags: ignoreversion
 Source: "{#StageDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageDir}\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion

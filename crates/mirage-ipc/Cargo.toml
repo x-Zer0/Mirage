@@ -1,0 +1,21 @@
+[package]
+name = "mirage-ipc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mirage app <-> MirageSvc protocol and the shared config policy"
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+chrono = { workspace = true, features = ["clock", "std"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[target.'cfg(windows)'.dependencies.windows]
+workspace = true
+features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell"]

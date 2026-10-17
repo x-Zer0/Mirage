@@ -1,6 +1,6 @@
 # Mirage 详细设计
 
-版本：v1.0（2026-10-15），最后更新：2026-10-18（M8 安装版与便携版同时分发）。来源：原《系统设计与开发路线》、《自由猫兼容规范》、分析报告，以及评审意见。本文是实现依据；与旧文档冲突时以本文为准。
+版本：v1.0（2026-10-15），最后更新：2026-10-18（workspace 目录整理与工程命名统一）。来源：原《系统设计与开发路线》、《自由猫兼容规范》、分析报告，以及评审意见。本文是实现依据；与旧文档冲突时以本文为准。
 
 自由猫协议细节见 [ZIYOUMAO.md](ZIYOUMAO.md)。
 
@@ -76,7 +76,7 @@
 └───────────────┬──────────────────────────────┬──────────────────┘
                 │ CreateProcess + Job Object    │ 命名管道 IPC（仅 TUN）
                 ▼                               ▼
-        mihomo.exe（普通权限）          MirageService（SYSTEM，可选安装）
+        mihomo.exe（普通权限）          MirageSvc（SYSTEM，可选安装）
         系统代理模式                     └─ 启动 mihomo.exe（TUN 模式）
 ```
 
@@ -90,7 +90,7 @@
 ```mermaid
 flowchart TB
     UI["ui_bridge / Slint"] -->|"Command"| CORE["app::AppCore actor"]
-    CORE -->|"Event"| UI
+    CORE -->|"状态快照 / LiveSink"| UI
     CORE --> PROF["subscriptions：来源 / 下载 / 识别 / 版本"]
     CORE --> PROV["providers：AccountProvider"]
     PROV --> ZYM["providers::ziyoumao"]
@@ -106,8 +106,8 @@ flowchart TB
 
 ### 3.3 依赖方向
 
-- `ui_bridge` 只发送 `Command`、接收 `Event`，不直接调用 providers/cores/platform。
-- `app` 依赖 `domain` 和各接口 trait；具体实现在 `main.rs` 中组装并注入。
+- `ui_bridge` 通过 `Command` 和应用状态快照连接业务；窗口、托盘等平台交互可在 UI 边界调用，不直接执行订阅或内核运行操作。当前节点视图复用 Mihomo 控制器 DTO，扩展第二种内核时收敛到应用层视图。
+- `app` 编排领域模型、存储、订阅、平台与 Mihomo 适配器；`main.rs` 负责组装和启动。当前单内核采用具体实现，实际出现第二种实现时再提取接口。
 - `providers::*` 只产出 `AccountSnapshot` 和 `DownloadDescriptor`，不得创建窗口、修改系统代理或启动内核。
 - `cores::*` 不知道配置来自哪个服务商。
 - 下载、响应限额、脱敏、原子写、进程管理这几项公共逻辑全工程只实现一份。
@@ -116,68 +116,79 @@ flowchart TB
 
 ## 4. 代码组织
 
-M0～M6 为单 crate；M7 拆成 workspace：主应用、`mirage-service` 和共享 `mirage-ipc`。配置策略、协议、内核哈希、原子写入、目录定位和日志轮转复用同一实现。
+仓库根目录是纯 Cargo workspace，包含 `mirage-app`、`mirage-ipc`、`mirage-svc` 三个 package。根 `Cargo.toml` 统一版本、edition、最低 Rust 版本、依赖版本和 release profile；成员只声明自身需要的依赖特性。三个 package 均为默认成员，根目录 `cargo build` / `cargo check` / `cargo clippy` 覆盖全部成员；运行界面使用 `cargo run -p mirage-app --bin Mirage`。
 
 ```text
 Mirage/
-  Cargo.toml
-  build.rs                 # slint-build 编译 ui/*.slint；嵌入图标与清单
-  assets/
-    icons/                 # app.svg、tray/*.svg（状态色）、lucide/*.svg（界面图标，ISC，lucide-static 1.57.0）
-    core/                  # 构建时复制：mihomo.exe、geodata（不入库，见 §10.1）
-  ui/                      # Slint 源文件
-    app.slint
-    pages/                 # 五个导航页；accounts 为账号信息组件，profile-details 为配置详情
-    providers/ziyoumao.slint # 自由猫登录弹窗与行内表单
-    components/            # 共享弹层/抽屉、问号提示、滚动容器等
-  src/
-    main.rs                # 单实例、日志初始化、组装依赖、启动运行时与 UI
-    app/
-      mod.rs               # AppCore actor、Command/Event 定义
-      state.rs             # AppState 与状态机
-      tasks.rs             # 更新/切换事务、generation 取消
-      recovery.rs          # 启动恢复流程
-    domain/                # Profile、ConfigRevision、AccountRef、CoreKind、状态枚举、AppError
-    net/                   # HttpClientFactory、有界读取、重定向策略、脱敏 URL
-    subscriptions/
-      source.rs            # SubscriptionSource 解析为 DownloadDescriptor
-      fetch.rs             # 通用下载器
-      detect.rs            # 内容格式识别
-      userinfo.rs          # subscription-userinfo 等响应头解析
-      revisions.rs         # 候选/活动版本管理
-    providers/
-      mod.rs               # AccountProvider 分发与公共登录/刷新结果
-      ziyoumao/            # bootstrap / api / auth / account / subscription / legacy_import
-    cores/
-      mod.rs               # CoreAdapter、CoreLauncher、CoreCapabilities
-      mihomo/
-        binary.rs          # 版本/哈希检查
-        compose.rs         # 管理字段覆盖与策略过滤
-        check.rs           # mihomo -t
-        controller.rs      # REST 客户端
-        supervisor.rs      # 进程监督与崩溃重启
-    platform/windows/
-      sysproxy.rs          # WinINet 系统代理读写
-      secret.rs            # Credential Manager / DPAPI
-      process.rs           # CreateProcessW + Job Object
-      single_instance.rs
-      autostart.rs
-      acl.rs               # 私有目录 ACL
-    storage/
-      layout.rs            # 目录布局
-      atomic.rs            # 原子写（临时文件 + ReplaceFileW/MoveFileExW）
-      meta.rs              # settings/profiles/accounts 的 JSON 元数据
-      journal.rs           # 恢复日志
-    ui_bridge/             # Slint 模型、回调 → Command、Event → 模型更新
-  ipc/                     # M7：共享配置策略、协议与基础设施
-  service/                 # M7：MirageService（TUN 辅助服务）
+  Cargo.toml / Cargo.lock   # workspace 配置与统一锁文件
+  README.md                 # 项目入口
+  .cargo/config.toml        # Windows x64 静态 CRT
+  crates/
+    mirage-app/
+      Cargo.toml            # package mirage-app，生成 Mirage.exe
+      build.rs              # Slint 编译、Windows 清单与图标嵌入
+      assets/icons/         # app、tray、Lucide 图标
+      ui/
+        app.slint           # 主窗口与托盘
+        pages/              # 总览、配置、节点、设置、诊断与配置详情
+        components/         # 账号信息、主题、共享弹层与控件
+        providers/          # 服务商表单
+      src/
+        main.rs             # 单实例、日志、运行时与 UI 组装
+        app/
+          mod.rs            # 模块声明、AppCore 状态及公开入口
+          messages.rs        # Command / Internal 消息
+          handle.rs          # 运行时线程、CoreHandle、退出等待
+          actor.rs           # actor 初始化、事件循环和启动/退出
+          handlers.rs        # 消息分发
+          session.rs         # 内核连接、切换与断开
+          nodes.rs           # 节点组、选择与测速
+          profile_actions.rs # 本地导入、配置选择与删除
+          profile_view.rs    # 配置列表视图转换
+          profiles.rs        # 配置元数据集合
+          accounts/          # 账号状态与凭据、登录、刷新、配置关联和主机诊断
+          updates.rs         # 订阅添加、下载和更新调度
+          reload.rs          # 版本提交、热重载和回退
+          runtime.rs         # 内核启动/重载任务
+          recovery.rs        # 启动恢复
+          supervise.rs       # 内核退出监督与重启
+          settings.rs        # 设置与相关操作
+          diagnostics.rs / diagnostics_actions.rs # 诊断包内容与交互流程
+          connectivity.rs / sysproxy.rs / tun.rs / live.rs
+          state.rs           # UI 状态快照与通知
+        domain/              # 数据模型、错误和敏感字符串
+        subscriptions/       # 下载、格式识别、导入、用量与版本管理
+        providers/ziyoumao/  # 服务发现、认证、账号、订阅、原客户端导入
+        cores/mihomo/        # 内核校验、配置、REST、Direct/Service 启动器
+        platform/windows/   # 系统代理、凭据、进程、服务、单实例、自启和 ACL
+        storage/             # 数据目录、元数据、原子写、恢复日志与 ZIP
+        net/ / logging/      # HTTP 公共逻辑与脱敏日志
+        ui_bridge/
+          mod.rs             # UI 构建与共享状态
+          callbacks.rs       # 按功能注册窗口回调
+          lifecycle.rs       # 托盘、关闭与窗口显隐
+          updates.rs         # 状态转发、通知和实时流量/日志
+          models.rs          # Slint 模型转换
+          window.rs          # Windows 窗口恢复
+    mirage-ipc/              # 协议、策略、哈希、原子写、目录、日志与服务标识
+    mirage-svc/              # SYSTEM TUN 辅助服务，生成 mirage-svc.exe
+  assets/core/               # 下载的 Mihomo / geodata，不入库
+  scripts/                   # 下载与打包入口
+  packaging/                 # 安装器和许可材料
+  docs/                      # 设计与验收
+  target/ / dist/            # 构建与分发产物，不入库
 ```
+
+主程序专属 Slint 源码、图标和构建脚本随 `mirage-app` 管理；根 `assets/core/` 供开发与打包共同使用。开发资源回退路径相对 package 指向 workspace 根。配置策略和 IPC 继续在 `mirage-ipc` 共用一份实现，避免应用与服务漂移。
+
+服务标识为 `MirageSvc`，命名管道为 `\\.\pipe\mirage-svc`，受保护程序目录为 `%ProgramFiles%\Mirage\mirage-svc`，安装记录为 `HKLM\SOFTWARE\Mirage\MirageSvc`。本次开发期调整不提供旧名称或旧数据的迁移兼容。
 
 编码约定：
 
-- 函数控制在 80 行以内。
-- 模块对外只暴露 trait 和 DTO。
+- 函数尽量控制在 80 行以内，按职责提取逻辑。
+- 模块只公开调用方需要的入口和 DTO，crate 内部实现限制可见范围。
 - 不为 sing-box 预先创建空壳代码。
+- 不编写或运行单元测试；执行 workspace 格式、编译、Clippy 和 release 构建检查，功能使用有记录的手工验收。
 
 ---
 
@@ -306,7 +317,7 @@ pub struct AppError {
 
 ### 6.1 服务商账号
 
-`src/providers/mod.rs` 的 `AccountProvider` 是当前账号订阅适配边界，`account_provider(provider_id)` 选择服务商模块，不引入异步 trait 或额外依赖。
+`crates/mirage-app/src/providers/mod.rs` 的 `AccountProvider` 是当前账号订阅适配边界，`account_provider(provider_id)` 选择服务商模块，不引入异步 trait 或额外依赖。
 
 | 入口 | 职责 / 返回值 |
 | --- | --- |
@@ -394,7 +405,7 @@ pub struct CoreCommand {
 ```
 
 - `DirectLauncher`：使用 `CreateProcessW`，进程以挂起状态创建，先加入 Job Object 再恢复执行（§10.4）。
-- `ServiceLauncher`：把合成后的配置内容（不是路径）、控制器端口和 secret 通过命名管道发给 MirageService。服务使用自己目录下的内核和工作目录启动内核，并返回进程标识，通过 Status 轮询报告退出（§11.7）。`CoreCommand` 中的路径字段只有 DirectLauncher 使用。
+- `ServiceLauncher`：把合成后的配置内容（不是路径）、控制器端口和 secret 通过命名管道发给 MirageSvc。服务使用自己目录下的内核和工作目录启动内核，并返回进程标识，通过 Status 轮询报告退出（§11.7）。`CoreCommand` 中的路径字段只有 DirectLauncher 使用。
 
 ### 6.5 应用核心（actor）
 
@@ -724,10 +735,10 @@ Base 为 `http://127.0.0.1:<port>`，请求头 `Authorization: Bearer <secret>`�
 
 TUN 在 Windows 上需要管理员权限，用来创建 wintun 网卡和写路由。设计如下：
 
-- MirageService 是一个可选安装的 Windows 服务（SYSTEM，手动启动类型），由独立 crate `mirage-service` 生成。用户第一次开启 TUN 时，UI 提示需要安装服务，通过 UAC 提权调用 `mirage-service.exe install`，完成安装和启动。卸载也通过同样的方式。
-- IPC 使用命名管道 `\\.\pipe\mirage-service`。管道的 DACL 只允许 SYSTEM 和安装时记录的用户 SID 连接。服务端还要用 `GetNamedPipeClientProcessId` 获取客户端进程，校验它的映像路径是安装目录下的 `Mirage.exe`，同时校验 Authenticode 签名（在签名发布后启用）。
+- MirageSvc 是一个可选安装的 Windows 服务（SYSTEM，手动启动类型），由独立 crate `mirage-svc` 生成。用户第一次开启 TUN 时，UI 提示需要安装服务，通过 UAC 提权调用 `mirage-svc.exe install`，完成安装和启动。卸载也通过同样的方式。
+- IPC 使用命名管道 `\\.\pipe\mirage-svc`。管道的 DACL 只允许 SYSTEM 和安装时记录的用户 SID 连接。服务端还要用 `GetNamedPipeClientProcessId` 获取客户端进程，校验它的映像路径是安装目录下的 `Mirage.exe`，同时校验 Authenticode 签名（在签名发布后启用）。
 - 防止本地提权：应用安装在用户可写目录，服务却以 SYSTEM 运行，所以服务绝不能执行或读取用户可写位置的文件。
-  - 安装服务时（已提权），把 `mirage-service.exe`、`mihomo.exe` 和 geodata 复制到 `%ProgramFiles%\Mirage\service\`，该目录只有管理员可写。
+  - 安装服务时（已提权），把 `mirage-svc.exe`、`mihomo.exe` 和 geodata 复制到 `%ProgramFiles%\Mirage\mirage-svc\`，该目录只有管理员可写。
   - 服务的工作目录是 `%ProgramData%\Mirage\tun-home\`，ACL 为 SYSTEM 和 Administrators 完全控制，安装用户只读。
 - 服务只接受固定的几条命令，没有执行任意命令的入口：
   - `StartCore { profile_id, config_yaml: String, ext_ctl_port: u16, secret }`：配置内容通过管道传入，不传路径。服务收到后重新执行一遍 §9.3/§9.4 的策略检查，强制环回监听、拒绝 file provider，并把 provider 路径限制在 tun-home 内。检查通过后写入 tun-home，执行 `-t` 校验，最后用 `%ProgramFiles%` 下、SHA256 校验通过的 `mihomo.exe` 启动内核。
@@ -1021,7 +1032,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | --- | --- | --- |
 | UI | `slint`、`slint-build` | 1.x；许可证见 §21 |
 | 托盘 | Slint 内置 `SystemTrayIcon` | 不需要额外 crate |
-| 图标 | Lucide（lucide-static 1.57.0，ISC） | SVG 放在 `assets/icons/lucide/`，新增图标从同一版本获取 |
+| 图标 | Lucide（lucide-static 1.57.0，ISC） | SVG 放在 `crates/mirage-app/assets/icons/lucide/`，新增图标从同一版本获取 |
 | 异步 | `tokio`、`tokio-util`、`futures`、`async-trait` | |
 | HTTP | `reqwest` =0.13.5（`rustls-no-provider`、`json`）、`rustls` =0.23.45（`ring`）；平台校验器由 reqwest 引入 | 已锁定（M3） |
 | 序列化 | `serde`、`serde_json`、`serde_yaml_ng`（或备选） | §9.1 |
@@ -1047,7 +1058,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | M4 自由猫 | ZIYOUMAO.md 全部内容 | 见 ZIYOUMAO.md §10；首次真实登录要记录请求编码与响应结构 |
 | M5 UI 完整 | 六个页面、错误条、Toast、托盘状态、节流 | 后台更新时 UI 不卡顿；隐藏窗口后 CPU 接近 0 |
 | M6 可靠性收尾 | 诊断包、日志轮转、schema 迁移、冲突检测（§11.8）、开机启动 | 原自由猫运行时能检测并提示；诊断包中搜不到 token 和密码 |
-| M7 TUN | mirage-service、IPC 校验、TUN 覆盖、开关流程 | 默认关闭；手动开启后非浏览器程序也走代理；关闭后路由恢复；强制结束服务或 UI 后可恢复；非安装用户无法连接管道 |
+| M7 TUN | mirage-svc、IPC 校验、TUN 覆盖、开关流程 | 默认关闭；手动开启后非浏览器程序也走代理；关闭后路由恢复；强制结束服务或 UI 后可恢复；非安装用户无法连接管道 |
 | M8 分发 | 同次构建产出安装 EXE / 免安装 ZIP、安装向导、完整核心 / helper、许可证清单、SHA256；当前未签名 | 安装包构建及本机验收见 [M8.md](acceptance/M8.md)；干净 Windows 10/11 的 M1～M4 全流程仍需实机验收 |
 
 必须覆盖的端到端场景：
@@ -1072,7 +1083,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 - Slint：可选 GPLv3、免版税许可证（Royalty-free 2.0）或商业许可证。免版税许可证允许闭源桌面应用免费使用，但要求公开声明使用了 Slint，例如在“关于”页加入 `AboutSlint` 组件，或在下载页展示 Slint 徽章。不适用于嵌入式设备。具体条款以开工时 Slint 仓库 `LICENSES/` 中的原文为准。
 - 默认方案：采用 Royalty-free 2.0，在“关于”页放 `AboutSlint`。如果 Mirage 本身以 GPL 开源，也可以直接选 GPLv3。
 - 第三方依赖的许可证清单由 cargo-about 0.9.2 按 Cargo.lock 的 Windows x64 workspace 生成，随安装版和便携版附带；Slint 自定义许可证以固定 SHA256 的独立原文附带，Lucide、geodata、Inno Setup 也保留声明。当前未签名。
-- M8 入口是 `scripts/package.ps1`，安装器定义在 `packaging/Mirage.iss`，具体构建与分发规则见 [packaging.md](packaging.md)。同次构建产出安装版 EXE 和免安装 ZIP，两者使用相同的 `Mirage.exe`、`mirage-service.exe`、官方内核、四份 geodata 和许可材料，但不注册服务；首次启用 TUN 再说明并 UAC。开启前核对服务用户 / 客户端路径、版本和 helper SHA256，不匹配即要求更新。
+- M8 入口是 `scripts/package.ps1`，安装器定义在 `packaging/Mirage.iss`，具体构建与分发规则见 [packaging.md](packaging.md)。同次构建产出安装版 EXE 和免安装 ZIP，两者使用相同的 `Mirage.exe`、`mirage-svc.exe`、官方内核、四份 geodata 和许可材料，但不注册服务；首次启用 TUN 再说明并 UAC。开启前核对服务用户 / 客户端路径、版本和 helper SHA256，不匹配即要求更新。
 - 便携 ZIP 采用顶层 `Mirage/` 文件夹，附独立使用说明和文件哈希；数据继续使用 `%LOCALAPPDATA%\Mirage` 及 Windows 凭据管理器 / 当前用户 DPAPI，与同用户安装版共用。移动路径后开机启动需修复，TUN 服务可能需 UAC 更新归属；删除前关闭自启并按需卸载服务。
 - 升级前以 `Mirage.exe --quit` 正常退出并恢复 Mirage 设置的系统代理；卸载前以 `--prepare-uninstall` 清理属于本路径 / 用户的服务与自启项，服务操作取消或失败则中断卸载。卸载保留当前用户数据，安装流程不强制结束进程。
 

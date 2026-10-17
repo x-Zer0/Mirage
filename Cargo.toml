@@ -1,86 +1,45 @@
 [workspace]
 resolver = "3"
-members = ["ipc", "service"]
+members = ["crates/mirage-app", "crates/mirage-ipc", "crates/mirage-svc"]
+default-members = ["crates/mirage-app", "crates/mirage-ipc", "crates/mirage-svc"]
 
-[package]
-name = "mirage"
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
-description = "Windows proxy client for the official Mihomo core"
 publish = false
-build = "build.rs"
 
-[[bin]]
-name = "Mirage"
-path = "src/main.rs"
-
-[dependencies]
-# Software renderer only (DESIGN.md §2, §22, decided in M5): no OpenGL driver
-# in the process, works over RDP/VMs, lower memory and CPU for this UI.
-slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "system-tray", "unstable-winit-030"] }
-tokio = { version = "=1.53.3", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "net", "fs"] }
+[workspace.dependencies]
+mirage-ipc = { path = "crates/mirage-ipc" }
+slint = { version = "=1.18.1", default-features = false }
+tokio = "=1.53.3"
 tracing = "=0.1.44"
-tracing-subscriber = { version = "=0.3.23", features = ["fmt", "registry", "env-filter"] }
+tracing-subscriber = "=0.3.23"
 tracing-appender = "=0.2.5"
 regex = "=1.13.1"
 sha2 = "=0.11.1"
 hex = "=0.4.3"
 thiserror = "=2.0.21"
 anyhow = "=1.0.104"
-# rustls + rustls-platform-verifier (system store); the ring provider is installed in main.
-reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
-rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+reqwest = { version = "=0.13.5", default-features = false }
+rustls = { version = "=0.23.45", default-features = false }
 percent-encoding = "=2.3.2"
-serde = { version = "=1.0.229", features = ["derive"] }
+serde = "=1.0.229"
 serde_json = "=1.0.154"
 serde_yaml_ng = "=0.10.0"
-uuid = { version = "=1.28.0", features = ["v4"] }
+uuid = "=1.28.0"
 getrandom = "=0.4.3"
 base64 = "=0.23.1"
-chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
+chrono = { version = "=0.4.45", default-features = false }
 rfd = "=0.17.2"
 zeroize = "=1.9.1"
 bytes = "=1.12.1"
-# Shared with `mirage-service`: one implementation of §9.3–§9.6 and the pipe
-# protocol, so the app and the SYSTEM service cannot drift apart (§11.7).
-mirage-ipc = { path = "ipc" }
-
-[dependencies.windows]
-version = "=0.62.2"
-features = [
-    "Win32_Foundation",
-    "Win32_Graphics_Gdi",
-    "Win32_NetworkManagement_IpHelper",
-    "Win32_NetworkManagement_Ndis",
-    "Win32_Networking_WinInet",
-    "Win32_Networking_WinSock",
-    "Win32_Security",
-    "Win32_Security_Authorization",
-    "Win32_Security_Credentials",
-    "Win32_Security_Cryptography",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Com",
-    "Win32_System_DataExchange",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_JobObjects",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Memory",
-    "Win32_System_Registry",
-    "Win32_System_Threading",
-    "Win32_System_Pipes",
-    "Win32_System_Services",
-    "Win32_UI_Shell",
-    "Win32_UI_WindowsAndMessaging",
-]
-
-[build-dependencies]
 slint-build = "=1.18.1"
 embed-manifest = "=1.5.1"
 embed-resource = "=3.0.12"
-# Reuse the SVG/image stack already used by Slint to generate Windows icon sizes.
 resvg = { version = "=0.48.1", default-features = false }
-image = { version = "=0.25.10", default-features = false, features = ["ico"] }
+image = { version = "=0.25.10", default-features = false }
+windows = "=0.62.2"
 
 [profile.release]
 lto = "thin"

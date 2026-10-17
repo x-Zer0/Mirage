@@ -2,9 +2,9 @@
 
 > **2026-10-16 订阅结论修正：** 本文的 `clash-verge` 明文订阅仅验证了格式，当前样本的入口实际不可用。原客户端使用 `freecatencua/v` 获取 AES 加密订阅，解密后入口不同，官方核心已实连成功。订阅下载与解密实现请以 [节点超时与加密订阅分析](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md) 为准；当前契约已按此修正；下文证据表与 M4 登录记录保留当时的明文 UA 观察。
 
-> **2026-10-17 实现：** 在线订阅已改用 `freecatencua/v`，由 `src/providers/ziyoumao/subscription.rs` 严格解码 Base64 → AES-128-CBC/PKCS#7 → Base64 → UTF-8 YAML，再进入现有 compose、官方核心校验和原子应用流程。复用 Windows CNG，无新增加密依赖。`DownloadFormat::ZiyoumaoAes` 标识下载封装；持久化的 raw 仍是解密后的 YAML，并在 revision 中记录 `download_format`。旧 revision 缺省为 `Auto`，启动或连接后会自动刷新账号来源的旧配置，包括设置为手动更新的配置；下载、解密或应用失败时保留旧版本，不降级下载明文订阅。账号登录、双令牌隔离和原客户端本地导入逻辑保留。
+> **2026-10-17 实现：** 在线订阅已改用 `freecatencua/v`，由 `crates/mirage-app/src/providers/ziyoumao/subscription.rs` 严格解码 Base64 → AES-128-CBC/PKCS#7 → Base64 → UTF-8 YAML，再进入现有 compose、官方核心校验和原子应用流程。复用 Windows CNG，无新增加密依赖。`DownloadFormat::ZiyoumaoAes` 标识下载封装；持久化的 raw 仍是解密后的 YAML，并在 revision 中记录 `download_format`。旧 revision 缺省为 `Auto`，启动或连接后会自动刷新账号来源的旧配置，包括设置为手动更新的配置；下载、解密或应用失败时保留旧版本，不降级下载明文订阅。账号登录、双令牌隔离和原客户端本地导入逻辑保留。
 
-版本 v1.0（2026-10-15），最后更新：2026-10-17（账号订阅交互定稿）。本文是 `src/providers/ziyoumao/` 的实现依据，自包含：实现时无需再查阅逆向材料。通用边界（`AccountProvider`、`subscriptions::fetch::Descriptor`、`SecretStore`、`net` 出站策略、错误类型）定义见 [DESIGN.md](DESIGN.md) §5、§6、§12、§14。
+版本 v1.0（2026-10-15），最后更新：2026-10-17（账号订阅交互定稿）。本文是 `crates/mirage-app/src/providers/ziyoumao/` 的实现依据，自包含：实现时无需再查阅逆向材料。通用边界（`AccountProvider`、`subscriptions::fetch::Descriptor`、`SecretStore`、`net` 出站策略、错误类型）定义见 [DESIGN.md](DESIGN.md) §5、§6、§12、§14。
 
 本文不是官方 API 文档。接口来自原客户端静态分析、公开 Web 客户端源码和授权账号的只读实测，服务端行为可能变化。证据标记：
 
@@ -49,7 +49,7 @@ bootstrap（公开 Base64 JSON）→ 候选主机 → GET /guest/comm/config 验
 ## 3. 模块划分
 
 ```text
-src/providers/ziyoumao/
+crates/mirage-app/src/providers/ziyoumao/
   mod.rs            # 自由猫协议适配，由通用 AccountProvider 分发
   bootstrap.rs      # 入口下载、解码、主机候选、缓存
   api.rs            # 请求构造、响应信封解析、错误映射、DTO
@@ -260,7 +260,7 @@ Valid ──validate──▶ Validating ──▶ Valid / ReauthRequired / Netw
 
 ### 7.2 生成下载描述
 
-当前实现使用通用下载描述（`src/subscriptions/fetch.rs`），由 `AccountProvider::descriptor()` 分发到自由猫模块：
+当前实现使用通用下载描述（`crates/mirage-app/src/subscriptions/fetch.rs`），由 `AccountProvider::descriptor()` 分发到自由猫模块：
 
 ```rust
 Descriptor {

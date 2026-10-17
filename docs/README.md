@@ -2,7 +2,7 @@
 
 Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：标准官方 Mihomo 内核，普通订阅可直接使用，自由猫（ziyoumao）作为独立账号来源模块接入，后续可扩展 sing-box。
 
-后续开发只依赖本目录文档。逆向分析目录（`ziyoumao-analysis/`、`rea-main/`）仅作为取证存档，非必要不再查阅。
+项目介绍与快速开始见 [根 README](../README.md)。本目录保留详细设计、服务商接入说明与验收记录。
 
 | 文档 | 内容 | 何时阅读 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 - “必须 / 不得”是实现约束；“建议 / 默认”是可调整的工程决定，调整时同步修改文档。
 - 标注【已验证】的结论来自实测；【推测】【待核验】的内容只能作为实现起点，必须在真实环境中确认后再改为【已验证】。
 - 文档、示例和日志不得包含真实账号、密码、会话令牌、完整订阅地址或节点凭据。
-- 项目要求：不编写单元测试；代码改动以 `cargo fmt --check`、`cargo check`、`cargo clippy`、release 构建通过为准，功能以有记录的手工端到端验收为准。
+- 项目要求：不编写单元测试；代码改动以 `cargo fmt --all --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、release 构建通过为准，功能以有记录的手工端到端验收为准。
 
 ## 当前状态
 
@@ -26,7 +26,7 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 
 ## Windows 安装版与便携版（M8）
 
-执行 `pwsh -File scripts/package.ps1` 一次构建同时生成 `dist/Mirage-0.1.0-windows-x64-setup.exe` 和 `dist/Mirage-0.1.0-windows-x64-portable.zip`，分别附 SHA256 文件。两种包均自带 Mihomo、四份 geodata、`mirage-service.exe` 和许可材料；安装 / 解压不创建服务，第一次启用 TUN 时单独提示安装并请求 UAC。
+执行 `pwsh -File scripts/package.ps1` 一次构建同时生成 `dist/Mirage-0.1.0-windows-x64-setup.exe` 和 `dist/Mirage-0.1.0-windows-x64-portable.zip`，分别附 SHA256 文件。两种包均自带 Mihomo、四份 geodata、`mirage-svc.exe` 和许可材料；安装 / 解压不创建服务，第一次启用 TUN 时单独提示安装并请求 UAC。
 
 便携版完整解压后运行 `Mirage/Mirage.exe`；数据仍在 `%LOCALAPPDATA%\Mirage`，与安装版共用。更新前正常退出；删除前先关闭开机启动、按需卸载 TUN 服务，详见包内 `README-portable.txt`。
 
@@ -40,4 +40,13 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 cargo build --workspace --release -j 1
 ```
 
-`target/release/Mirage.exe` 与 `target/release/mirage-service.exe` 必须配套放置；分发时还需同目录的 `core/`（官方内核与四份 geodata）。开发环境可复用 `assets/core/`。在设置页安装 / 更新服务时才请求 UAC；TUN 默认关闭。
+`target/release/Mirage.exe` 与 `target/release/mirage-svc.exe` 必须配套放置；分发时还需同目录的 `core/`（官方内核与四份 geodata）。开发环境可复用 `assets/core/`。在设置页安装 / 更新服务时才请求 UAC；TUN 默认关闭。
+
+
+## 工程组织
+
+三个 package 位于 `crates/`：`mirage-app`、`mirage-ipc`、`mirage-svc`。根目录仅管理 workspace，版本和依赖集中声明；默认构建与检查覆盖三个成员。主程序仍为 `Mirage.exe`，辅助程序为 `mirage-svc.exe`，Windows 服务名为 `MirageSvc`。目录和模块职责见 [DESIGN.md §4](DESIGN.md#4-代码组织)。
+
+`acceptance/` 为各阶段验收记录，命名与路径已随目录整理更新；历史构建时间、文件大小和结论不代表本次重构的重新验收。
+
+本次目录调整与静态验证见 [workspace 整理记录](acceptance/workspace-reorganization.md)。

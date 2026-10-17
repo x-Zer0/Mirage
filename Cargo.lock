@@ -2773,7 +2773,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mirage"
+name = "mirage-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2824,7 +2824,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mirage-service"
+name = "mirage-svc"
 version = "0.1.0"
 dependencies = [
  "anyhow",

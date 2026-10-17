@@ -1,9 +1,9 @@
-﻿Mirage 便携版（免安装 ZIP）
+Mirage 便携版（免安装 ZIP）
 适用系统：Windows 10 1809+ / Windows 11 x64。
 
 开始使用
 1. 将 ZIP 完整解压到固定目录，再运行 Mirage.exe。不要直接在压缩包内运行。
-2. 保留同目录的 mirage-service.exe、core 和 licenses 文件夹。
+2. 保留同目录的 mirage-svc.exe、core 和 licenses 文件夹。
 3. 普通订阅、节点切换、测速、HTTP / SOCKS 和系统代理均可使用，无需安装主程序。
 
 用户数据与凭据
@@ -14,7 +14,7 @@
 
 TUN 与开机启动
 首次开启 TUN 时仍会提示安装辅助服务，确认后请求 Windows 管理员授权。
-服务安装到 %ProgramFiles%\Mirage\service，TUN 工作数据保存到 %ProgramData%\Mirage\tun-home。
+服务安装到 %ProgramFiles%\Mirage\mirage-svc，TUN 工作数据保存到 %ProgramData%\Mirage\tun-home。
 解压或普通运行不会安装服务；取消授权则保持原有连接方式。
 启用开机启动会写入当前用户启动项，路径应保持固定。
 移动目录后手动启动一次可修复已启用的启动项；下次开启 TUN 时可能需要重新授权更新服务归属路径。
