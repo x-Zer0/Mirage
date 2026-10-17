@@ -77,6 +77,10 @@ features = [
 [build-dependencies]
 slint-build = "=1.18.1"
 embed-manifest = "=1.5.1"
+embed-resource = "=3.0.12"
+# Reuse the SVG/image stack already used by Slint to generate Windows icon sizes.
+resvg = { version = "=0.48.1", default-features = false }
+image = { version = "=0.25.10", default-features = false, features = ["ico"] }
 
 [profile.release]
 lto = "thin"

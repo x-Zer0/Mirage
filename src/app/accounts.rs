@@ -486,6 +486,49 @@ impl AppCore {
         }
     }
 
+    /// Refresh pre-AES account revisions on startup/connect, even for manual-only profiles.
+    /// Success uses the normal checked/atomic commit; failures keep the old revision.
+    pub(super) fn migrate_provider_profiles(&mut self) {
+        if self.binary.is_none()
+            || matches!(
+                self.view.runtime,
+                super::state::RuntimeStatus::Starting
+                    | super::state::RuntimeStatus::Restarting
+                    | super::state::RuntimeStatus::Reloading
+            )
+        {
+            return;
+        }
+        let ids: Vec<_> = self
+            .profiles
+            .all()
+            .iter()
+            .filter(|p| {
+                matches!(&p.source, SubscriptionSource::ProviderAccount { provider_id, .. }
+                if provider_id == ziyoumao::PROVIDER_ID)
+            })
+            .map(|p| p.id.clone())
+            .collect();
+        for id in ids {
+            let Some(profile) = self.profiles.get(&id) else {
+                continue;
+            };
+            let revision = profile
+                .active_revision
+                .as_ref()
+                .map(|rev| crate::subscriptions::revisions::find(&self.layout, profile, rev))
+                .transpose();
+            match revision {
+                Ok(revision)
+                    if revision.as_ref().and_then(|r| r.as_ref()).is_some_and(|r| {
+                        r.download_format == crate::domain::model::DownloadFormat::ZiyoumaoAes
+                    }) => {}
+                Ok(_) => self.update_profile(&id, true),
+                Err(e) => self.view.notice = Some(error_notice(&e)),
+            }
+        }
+    }
+
     /// Background session check of every saved account (§16.1, §6.4).
     pub(super) fn validate_accounts_on_start(&mut self) {
         let ids: Vec<AccountId> = self

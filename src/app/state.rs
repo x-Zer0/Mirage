@@ -201,6 +201,7 @@ pub fn stage_label(stage: &str) -> &'static str {
         "mihomo.check" | "mihomo.compose" | "subscriptions.detect" => "配置校验",
         "mihomo.controller" => "内核控制",
         "subscriptions.fetch" | "net" => "订阅下载",
+        "ziyoumao.subscription" => "自由猫订阅解密",
         "subscriptions.import" => "导入文件",
         "subscriptions.revisions" | "storage.journal" | "app.profiles" => "保存数据",
         "ziyoumao" | "app.accounts" => "自由猫账号",

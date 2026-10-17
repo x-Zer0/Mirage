@@ -5,14 +5,12 @@
 
 use super::STAGE;
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
+use crate::subscriptions::detect::is_mihomo_yaml;
 use crate::subscriptions::import::MAX_CONFIG_BYTES;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use serde_yaml_ng::Value;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-
-const MIHOMO_KEYS: [&str; 4] = ["proxies", "proxy-providers", "proxy-groups", "rules"];
 
 /// `%APPDATA%\ziyoumao\ziyoumao\config.yaml`.
 pub fn default_path() -> AppResult<PathBuf> {
@@ -51,19 +49,19 @@ pub fn read(path: &Path) -> AppResult<Vec<u8>> {
 fn decode(raw: &[u8]) -> AppResult<String> {
     let text = std::str::from_utf8(raw).map_err(|_| unsupported("配置文件不是文本"))?;
     let text = text.trim_start_matches('\u{feff}').trim();
-    if looks_like_mihomo_yaml(text) {
+    if is_mihomo_yaml(text) {
         return Ok(text.to_owned());
     }
     let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     if let Some(s) = b64_utf8(&compact)
-        && looks_like_mihomo_yaml(&s)
+        && is_mihomo_yaml(&s)
     {
         return Ok(s);
     }
     let mapped: String = compact.chars().map(map_char).collect();
     match b64_utf8(&mapped) {
-        Some(s) if looks_like_mihomo_yaml(&s) => Ok(s),
-        // Includes the unsampled DecodeAESBase64 / DecryptConfig variants.
+        Some(s) if is_mihomo_yaml(&s) => Ok(s),
+        // Other local storage envelopes remain unsupported; online AES is separate.
         _ => Err(unsupported(
             "无法解码原客户端配置（可能是不支持的加密格式）",
         )),
@@ -85,13 +83,6 @@ fn map_char(c: char) -> char {
 
 fn b64_utf8(text: &str) -> Option<String> {
     String::from_utf8(STANDARD.decode(text).ok()?).ok()
-}
-
-fn looks_like_mihomo_yaml(text: &str) -> bool {
-    matches!(
-        serde_yaml_ng::from_str::<Value>(text),
-        Ok(Value::Mapping(map)) if MIHOMO_KEYS.iter().any(|k| map.contains_key(*k))
-    )
 }
 
 fn unsupported(detail: &str) -> AppError {

@@ -11,11 +11,12 @@ mod api;
 mod auth;
 pub mod bootstrap;
 pub mod legacy_import;
+pub mod subscription;
 
 pub use api::Egress;
 
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::AccountSnapshot;
+use crate::domain::model::{AccountSnapshot, DownloadFormat};
 use crate::domain::redact::{Password, SecretString};
 use crate::storage::layout::Layout;
 use crate::subscriptions::fetch::Descriptor;
@@ -23,8 +24,8 @@ use reqwest::Url;
 
 pub const PROVIDER_ID: &str = "ziyoumao";
 const STAGE: &str = "ziyoumao";
-/// §7.2: exactly this UA (no version suffix); `Clash.Meta` gets HTTP 567.
-pub const SUBSCRIPTION_UA: &str = "clash-verge";
+/// Verified encrypted subscription UA; use this literal without a version suffix.
+pub const SUBSCRIPTION_UA: &str = "freecatencua/v";
 
 pub struct LoggedIn {
     pub session: SecretString,
@@ -128,13 +129,14 @@ pub async fn refresh(
     Err(moved_hint(layout, trusted_hosts, egress, err).await)
 }
 
-/// Download descriptor for a subscription URL (§7.2): UA `clash-verge`, no
+/// Download descriptor for the AES subscription: UA `freecatencua/v`, no
 /// redirects, no account Authorization.
 pub fn descriptor(url: &SecretString) -> AppResult<Descriptor> {
     Ok(Descriptor {
         url: account::check_subscribe_url(url.expose())?,
         user_agent: SUBSCRIPTION_UA.into(),
         follow_redirects: false,
+        format: DownloadFormat::ZiyoumaoAes,
     })
 }
 

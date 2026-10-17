@@ -30,7 +30,7 @@ pub struct Controller {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeView {
     pub name: String,
-    /// Latest delay in ms; `Some(0)` means the last test timed out.
+    /// Latest delay in ms; `Some(0)` means the last test failed (not necessarily a timeout).
     pub delay: Option<u32>,
 }
 
@@ -165,14 +165,24 @@ impl Controller {
             .send()
             .await
             .map_err(map_reqwest)?;
-        // 504/503 here only means every node timed out; history is still updated.
-        if resp.status().is_success() || resp.status().is_server_error() {
+        // History can still update on failure; preserve the HTTP error for the UI.
+        if resp.status().is_success() {
             Ok(())
         } else {
+            let code = resp.status().as_u16();
+            let detail = crate::net::read_bounded(resp, 16 * 1024)
+                .await
+                .map(|body| {
+                    String::from_utf8_lossy(&body)
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
+                })
+                .unwrap_or_else(|e| format!("无法读取错误详情：{}", e.kind.label()));
             Err(AppError::new(
-                AppErrorKind::Http(resp.status().as_u16()),
+                AppErrorKind::Http(code),
                 STAGE,
-                "测速请求失败",
+                format!("节点测速失败（HTTP {code}）：{detail}"),
             ))
         }
     }

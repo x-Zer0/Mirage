@@ -76,7 +76,7 @@ fn looks_like_html(text: &str) -> bool {
         .any(|p| head.starts_with(p))
 }
 
-fn is_mihomo_yaml(text: &str) -> bool {
+pub(crate) fn is_mihomo_yaml(text: &str) -> bool {
     match serde_yaml_ng::from_str::<Value>(text) {
         Ok(Value::Mapping(map)) => MIHOMO_KEYS.iter().any(|k| map.contains_key(*k)),
         _ => false,

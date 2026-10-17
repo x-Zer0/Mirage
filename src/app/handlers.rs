@@ -84,11 +84,12 @@ impl AppCore {
                     self.view.testing_group = None;
                 }
                 match result {
-                    Ok(()) => self.refresh_groups(),
+                    Ok(()) if generation == self.generation => self.refresh_groups(),
                     Err(e) if generation == self.generation => {
+                        self.refresh_groups();
                         self.view.notice = Some(error_notice(&e));
                     }
-                    Err(_) => {}
+                    _ => {}
                 }
             }
             Internal::RestartDue(generation) => self.on_restart_due(generation),
@@ -147,6 +148,7 @@ impl AppCore {
             tracing::info!("auto-connect on startup");
             self.connect();
         }
+        self.migrate_provider_profiles();
     }
 
     pub(super) fn require_binary(&mut self) -> Option<crate::cores::mihomo::binary::CoreBinary> {
@@ -403,6 +405,10 @@ impl AppCore {
                 }
             }
             Err(_) => {}
+        }
+        if generation == self.generation {
+            self.commit_queued_revision();
+            self.migrate_provider_profiles();
         }
     }
 

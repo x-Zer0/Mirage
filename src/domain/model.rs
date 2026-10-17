@@ -157,6 +157,15 @@ pub struct FetchRecord {
     pub error: Option<String>,
 }
 
+/// Transport envelope, separate from the normalized configuration format.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadFormat {
+    #[default]
+    Auto,
+    ZiyoumaoAes,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigFormat {
@@ -185,6 +194,9 @@ pub struct ConfigRevision {
     pub id: RevisionId,
     pub raw_sha256: String,
     pub format: ConfigFormat,
+    /// Envelope used to obtain the normalized raw YAML; old revisions default to Auto.
+    #[serde(default)]
+    pub download_format: DownloadFormat,
     pub fetched_at: Timestamp,
     pub checked_with: Option<String>,
     pub overlay_version: u32,

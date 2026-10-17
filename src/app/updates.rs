@@ -343,6 +343,14 @@ impl AppCore {
     /// §8 step 7: a profile that is not running just switches its active
     /// revision; the running one goes through a hot reload first.
     fn commit_candidate(&mut self, profile_id: &ProfileId, rev: RevisionId, manual: bool) {
+        if matches!(
+            self.view.runtime,
+            RuntimeStatus::Starting | RuntimeStatus::Restarting
+        ) && self.profiles.selected_id() == Some(profile_id)
+        {
+            self.queued_reload = Some((profile_id.clone(), rev));
+            return;
+        }
         let running_this = self
             .running
             .as_ref()
@@ -442,6 +450,10 @@ impl AppCore {
         }
         self.save_profiles();
         self.refresh_profiles_view();
+        self.commit_queued_revision();
+    }
+
+    pub(super) fn commit_queued_revision(&mut self) {
         if let Some((id, rev)) = self.queued_reload.take() {
             self.commit_candidate(&id, rev, false);
         }

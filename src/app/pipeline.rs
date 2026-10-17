@@ -5,8 +5,8 @@ use crate::cores::mihomo::check::{self, CheckReport};
 use crate::cores::mihomo::compose::{self, Composed, ManagedOverlay, OVERLAY_VERSION};
 use crate::domain::error::AppResult;
 use crate::domain::model::{
-    ConfigFormat, ConfigRevision, EgressPolicy, Profile, ProfileId, RevisionId, Validity, new_id,
-    now,
+    ConfigFormat, ConfigRevision, DownloadFormat, EgressPolicy, Profile, ProfileId, RevisionId,
+    Validity, new_id, now,
 };
 use crate::storage::layout::Layout;
 use crate::subscriptions::fetch::{self, Descriptor};
@@ -103,6 +103,7 @@ async fn check_candidate(
         id: rev_id.clone(),
         raw_sha256: revisions::sha256_hex(raw),
         format: prepared.format,
+        download_format: DownloadFormat::Auto,
         fetched_at: now(),
         checked_with: Some(binary.short_version()),
         overlay_version: OVERLAY_VERSION,
@@ -136,10 +137,10 @@ pub struct RemoteAdded {
 /// fetch → detect → compose → check for a new subscription. Nothing is
 /// stored unless every step passed, so a broken URL never becomes a profile.
 pub async fn add_remote(req: RemoteFetch) -> AppResult<RemoteAdded> {
-    let downloaded = fetch::download(&req.desc, req.egress, req.core_port).await?;
+    let downloaded = download(&req).await?;
     let profile_id = new_id();
     let rev_id = new_id();
-    let (revision, check_lines) = check_candidate(
+    let (mut revision, check_lines) = check_candidate(
         &req.binary,
         &req.layout,
         &profile_id,
@@ -148,6 +149,7 @@ pub async fn add_remote(req: RemoteFetch) -> AppResult<RemoteAdded> {
         req.mixed_port,
     )
     .await?;
+    revision.download_format = req.desc.format;
     Ok(RemoteAdded {
         profile_id,
         raw: downloaded.raw,
@@ -177,7 +179,7 @@ pub struct UpdateOutcome {
 /// as Unchecked; a failed check marks it Invalid. The active revision is never
 /// touched here — committing is the actor's job.
 pub async fn update_remote(req: RemoteFetch, profile: Profile) -> UpdateOutcome {
-    let downloaded = match fetch::download(&req.desc, req.egress, req.core_port).await {
+    let downloaded = match download(&req).await {
         Ok(d) => d,
         Err(e) => {
             return UpdateOutcome {
@@ -202,11 +204,11 @@ async fn store_and_check(
     raw: &[u8],
 ) -> AppResult<UpdateResult> {
     let sha = revisions::sha256_hex(raw);
-    let active_sha = match &profile.active_revision {
-        Some(rev) => revisions::find(&req.layout, profile, rev)?.map(|r| r.raw_sha256),
+    let active = match &profile.active_revision {
+        Some(rev) => revisions::find(&req.layout, profile, rev)?,
         None => None,
     };
-    if active_sha.as_deref() == Some(sha.as_str()) {
+    if active.is_some_and(|r| r.raw_sha256 == sha && r.download_format == req.desc.format) {
         return Ok(UpdateResult::Unchanged);
     }
     // Content detection before anything is stored: HTML pages, empty bodies
@@ -217,6 +219,7 @@ async fn store_and_check(
         id: rev_id.clone(),
         raw_sha256: sha,
         format,
+        download_format: req.desc.format,
         fetched_at: now(),
         checked_with: None,
         overlay_version: OVERLAY_VERSION,
@@ -236,7 +239,8 @@ async fn store_and_check(
     )
     .await
     {
-        Ok((checked, check_lines)) => {
+        Ok((mut checked, check_lines)) => {
+            checked.download_format = req.desc.format;
             revisions::upsert(&req.layout, profile, checked.clone())?;
             Ok(UpdateResult::Candidate {
                 revision: checked,
@@ -250,4 +254,13 @@ async fn store_and_check(
             Err(e)
         }
     }
+}
+
+/// Provider envelopes are decoded before generic detection and persistence.
+async fn download(req: &RemoteFetch) -> AppResult<fetch::Downloaded> {
+    let mut downloaded = fetch::download(&req.desc, req.egress, req.core_port).await?;
+    if req.desc.format == DownloadFormat::ZiyoumaoAes {
+        downloaded.raw = crate::providers::ziyoumao::subscription::decode(&downloaded.raw)?;
+    }
+    Ok(downloaded)
 }

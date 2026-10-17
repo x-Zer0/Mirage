@@ -3,7 +3,7 @@
 
 use super::userinfo::{self, SubscriptionMeta};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::EgressPolicy;
+use crate::domain::model::{DownloadFormat, EgressPolicy};
 use crate::net::{self, EgressRoute, Purpose};
 use reqwest::Url;
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -30,6 +30,7 @@ pub struct Descriptor {
     pub url: Url,
     pub user_agent: String,
     pub follow_redirects: bool,
+    pub format: DownloadFormat,
 }
 
 impl Descriptor {
@@ -38,6 +39,7 @@ impl Descriptor {
             url,
             user_agent,
             follow_redirects: true,
+            format: DownloadFormat::Auto,
         }
     }
 }

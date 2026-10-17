@@ -244,7 +244,7 @@ struct AppCore {
     /// Profiles with a download/check in flight.
     updating: HashSet<ProfileId>,
     fetch_permits: Arc<Semaphore>,
-    /// Candidate that arrived while a hot reload was running (§6.5).
+    /// Candidate that arrived during startup or a hot reload (§6.5).
     queued_reload: Option<(ProfileId, RevisionId)>,
     accounts: accounts::Accounts,
     /// Status before a running session check, restored on inconclusive errors.

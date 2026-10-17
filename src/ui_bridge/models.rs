@@ -306,7 +306,7 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
         nodes: rc(nodes.into_iter().map(|n| {
             let (delay, level) = match n.delay {
                 None => (SharedString::new(), 0),
-                Some(0) => ("超时".into(), 3),
+                Some(0) => ("失败".into(), 3),
                 Some(ms) => (format!("{ms} ms").into(), if ms <= SLOW_MS { 1 } else { 2 }),
             };
             NodeRow {
