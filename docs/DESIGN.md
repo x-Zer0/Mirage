@@ -116,7 +116,7 @@ flowchart TB
 
 ## 4. 代码组织
 
-单 crate 起步。等编译时间或边界确实需要时，再拆成 workspace（预计最先拆出 `mirage-service`）。
+M0～M6 为单 crate；M7 拆成 workspace：主应用、`mirage-service` 和共享 `mirage-ipc`。配置策略、协议、内核哈希、原子写入、目录定位和日志轮转复用同一实现。
 
 ```text
 Mirage/
@@ -168,7 +168,8 @@ Mirage/
       meta.rs              # settings/profiles/accounts 的 JSON 元数据
       journal.rs           # 恢复日志
     ui_bridge/             # Slint 模型、回调 → Command、Event → 模型更新
-  service/                 # 后续：MirageService（TUN 辅助服务），首发 TUN 时再建
+  ipc/                     # M7：共享配置策略、协议与基础设施
+  service/                 # M7：MirageService（TUN 辅助服务）
 ```
 
 编码约定：
@@ -407,7 +408,7 @@ pub struct CoreCommand {
 ```
 
 - `DirectLauncher`：使用 `CreateProcessW`，进程以挂起状态创建，先加入 Job Object 再恢复执行（§10.4）。
-- `ServiceLauncher`：把合成后的配置内容（不是路径）、控制器端口和 secret 通过命名管道发给 MirageService。服务使用自己目录下的内核和工作目录启动内核，并返回进程标识和退出通知（§11.7）。`CoreCommand` 中的路径字段只有 DirectLauncher 使用。
+- `ServiceLauncher`：把合成后的配置内容（不是路径）、控制器端口和 secret 通过命名管道发给 MirageService。服务使用自己目录下的内核和工作目录启动内核，并返回进程标识，通过 Status 轮询报告退出（§11.7）。`CoreCommand` 中的路径字段只有 DirectLauncher 使用。
 
 ### 6.5 应用核心（actor）
 
@@ -544,7 +545,7 @@ pub struct ManagedOverlay {
 
 其余字段原样保留，包括 `proxies`、`proxy-groups`、`proxy-providers`、`rule-providers`、`rules`、`sub-rules`、`dns`、`hosts`、`sniffer`、`ipv6`、`unified-delay`、`tcp-concurrent`、`find-process-mode`、`geodata-mode`、`experimental`、`keep-alive-*`、`interface-name`。
 
-上表对应 `overlay_version = 1`。规则变更时 `overlay_version` 加 1，下一次启动时自动重新合成所有 Valid 版本。
+上表对应 `overlay_version = 2`（M7：TUN 覆盖、DNS 环回约束与 provider 路径复检）。规则变更时 `overlay_version` 加 1，下一次启动时自动重新合成所有 Valid 版本。
 
 ### 9.4 Provider 路径隔离
 
@@ -573,7 +574,8 @@ tun:
 ```
 
 - 如果订阅中 `dns` 缺失或 `dns.enable` 不为 true，开启 TUN 时注入一个最小 DNS 块（`enable: true`、`enhanced-mode: fake-ip`、`listen: 127.0.0.1:1053`、默认 nameserver 列表），并在 `policy_notes` 中注明。具体取值在实现 TUN 的里程碑（M7）中实测确定，标记为【待核验】。
-- 只要订阅本身启用了 DNS，就不修改它的 DNS 策略。
+- 只要订阅本身启用了 DNS，就不修改它的上游、增强模式、过滤等 DNS 策略；存在 DNS 监听地址时只将监听地址约束到 `127.0.0.1`，端口保留，满足 §9.5。DNS 未启用时整体替换为最小块，避免保留空 nameserver 或非环回 listen。
+- M7 最小块使用 `nameserver: ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"]`。mixed/system/gvisor 和上述 DNS 配置均已通过官方 v1.19.32 的 `-t` 校验；真实 TUN 接管、DNS 劫持、UDP、IPv6 与 stack 稳定性仍【待核验】，不把语法检查当作联网验收。
 
 ---
 
@@ -741,13 +743,18 @@ TUN 在 Windows 上需要管理员权限，用来创建 wintun 网卡和写路�
   - 安装服务时（已提权），把 `mirage-service.exe`、`mihomo.exe` 和 geodata 复制到 `%ProgramFiles%\Mirage\service\`，该目录只有管理员可写。
   - 服务的工作目录是 `%ProgramData%\Mirage\tun-home\`，ACL 为 SYSTEM 和 Administrators 完全控制，安装用户只读。
 - 服务只接受固定的几条命令，没有执行任意命令的入口：
-  - `StartCore { config_yaml: String, ext_ctl_port: u16, secret }`：配置内容通过管道传入，不传路径。服务收到后重新执行一遍 §9.3/§9.4 的策略检查，强制环回监听、拒绝 file provider，并把 provider 路径限制在 tun-home 内。检查通过后写入 tun-home，执行 `-t` 校验，最后用 `%ProgramFiles%` 下、SHA256 校验通过的 `mihomo.exe` 启动内核。
+  - `StartCore { profile_id, config_yaml: String, ext_ctl_port: u16, secret }`：配置内容通过管道传入，不传路径。服务收到后重新执行一遍 §9.3/§9.4 的策略检查，强制环回监听、拒绝 file provider，并把 provider 路径限制在 tun-home 内。检查通过后写入 tun-home，执行 `-t` 校验，最后用 `%ProgramFiles%` 下、SHA256 校验通过的 `mihomo.exe` 启动内核。
   - `StopCore`、`Status`、`Cleanup`。
-- 服务以 SYSTEM 身份启动内核，并把它放入服务自己的 Job Object。UI 通过控制器 REST 接口管理内核，与直连模式一致。服务通过 `Status` 推送退出事件。
+- M7 增加固定的 `ReloadCore { config_yaml }` 命令：重用当前会话的 profile_id、控制器和 secret，重新执行策略与 `-t` 后写入服务目录，再从该受保护文件发起 REST 热重载；UI 不向 SYSTEM 内核传入用户目录路径。失败沿用应用已有的 last_good 回退流程。
+- IPC 协议版本为 2，长度前缀 JSON 帧限制为 32 MiB。Hello 同时核对协议版本与应用版本；不兼容时拒绝 StartCore/ReloadCore，保留 StopCore/Cleanup。profile_id 限制为不超过 64 字符的 ASCII 字母、数字和连字符。
+- 服务采用单个所有者管道连接，拒绝远程管道客户端。UI 反向校验管道服务进程来自受保护安装目录；状态每秒轮询，15 秒没有请求或管道断开时停止所属内核。正在执行的配置校验有 60 秒上限，重载 REST 有 30 秒上限。停止服务不依赖新客户端连接来唤醒。
+- 服务以 SYSTEM 身份启动内核，并把它放入服务自己的 Job Object。UI 通过控制器 REST 接口管理内核，与直连模式一致。服务通过 `Status` 响应报告退出，应用转换为原有监督重启事件。
 - 节点选择记忆和测速等功能都由 UI 端通过 REST 接口完成，与内核是否在服务中运行无关。
 - 升级应用时，如果服务已安装，需要再次提权更新 `%ProgramFiles%` 下的副本。服务发现自己的版本与 UI 不一致时，拒绝 `StartCore` 并提示用户更新。
 - 开启 TUN = 停止直连模式的内核 → 合成带 TUN 覆盖的配置（§9.6）→ 校验 → 通过 ServiceLauncher 启动。关闭 TUN 走相反的流程。只要有一步失败，就回到直连模式并显示原因。
-- 服务启动时会清理残留的 TUN 内核。
+- 服务启动时会清理残留的 TUN 内核。恢复记录包含 PID、创建时间和映像路径，在同一个进程句柄上核对后才终止，避免 PID 复用误杀。
+- 安装目录和数据目录通过 Windows Known Folder API 定位；复制前设置受保护 ACL，拒绝重解析点，复制后的官方内核再核对固定 SHA256。geodata 同时进入 tun-home，校验进程也放入 Job Object；普通安装用户仅获 SCM 启动与查询权限，安装、升级、卸载仍走 UAC。
+- TUN 开关是本次应用会话的选择，新启动默认关闭；“开启 TUN 时自动关闭系统代理”是持久化设置，默认关闭。此自动动作不阻止随后手动开启系统代理，关闭 TUN 时恢复进入前的代理偏好。
 - TUN 与 IPv6、UDP、DNS 劫持的组合，只有在 M7 实测通过后才能在 UI 上标记为“支持”。
 
 ### 11.8 与原自由猫客户端的冲突
@@ -971,7 +978,7 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 ### 17.2 托盘
 
 - 托盘图标有三种状态：未连接（灰色）、已连接（彩色）、错误（带角标）。【M5】错误状态只由内核状态决定（连接失败、重启中、重启超过上限），普通操作错误只进错误条，不改托盘图标。
-- 托盘菜单：显示主窗口 / 连接·断开 / 系统代理 ✓ / TUN ✓ / 路由模式 ▸ / 退出。【M5】Slint 1.18 的 Windows 托盘不渲染 `MenuItem.checked`，勾选状态用标题前缀“✓ ”表示；TUN 在 M7 之前为禁用项。
+- 托盘菜单：显示主窗口 / 连接·断开 / 系统代理 ✓ / TUN ✓ / 路由模式 ▸ / 退出。【M5】Slint 1.18 的 Windows 托盘不渲染 `MenuItem.checked`，勾选状态用标题前缀“✓ ”表示；M7 已接入 TUN 开关，连接切换或服务操作进行中禁用。
 - 左键单击显示主窗口。
 - 关闭窗口时默认最小化到托盘，第一次关闭时弹通知提示一次。也可以在设置中改为“关闭即退出”。
 - 【M5】托盘通知：Slint 的 `SystemTrayIcon` 没有通知接口，`platform::windows::tray_balloon` 对 Slint 注册的图标（本进程的消息窗口 `SlintSystemTrayWindow`，图标 id 1）追加 `NIM_MODIFY + NIF_INFO`。这依赖 Slint 1.18 的内部实现，升级 Slint 时必须复核；找不到窗口或被外壳拒绝时只记 warn 日志，不影响功能。只在窗口隐藏时对需要用户知道的事件（内核停止并已恢复网络设置、系统代理被外部修改、登录失效）弹通知。

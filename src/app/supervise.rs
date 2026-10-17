@@ -48,6 +48,7 @@ impl AppCore {
         }
         tracing::warn!(%detail, attempts = self.restart_attempts, "core exited unexpectedly");
         runtime::forget_exited(&self.layout);
+        self.view.tun_active = false;
         self.view.groups.clear();
         self.view.testing_group = None;
         self.view.connectivity = Connectivity::Unknown;
@@ -90,6 +91,7 @@ impl AppCore {
     }
 
     fn give_up(&mut self, detail: String) {
+        self.update_tun_state(false);
         self.restart_attempts = 0;
         self.release_sysproxy();
         let e = AppError::new(AppErrorKind::CoreExited, STAGE, detail);
@@ -148,6 +150,9 @@ impl AppCore {
     }
 
     pub(super) fn set_system_proxy(&mut self, on: bool) {
+        if self.proxy_before_tun.is_some() {
+            self.proxy_before_tun = Some(on);
+        }
         self.settings.system_proxy = on;
         if let Err(e) = meta::save(&self.layout.settings_file(), &mut self.settings, STAGE) {
             self.view.notice = Some(error_notice(&e));

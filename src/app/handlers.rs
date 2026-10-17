@@ -38,6 +38,8 @@ impl AppCore {
             Command::TestGroupDelay(group) => self.test_delay(group),
             Command::RefreshGroups => self.refresh_groups(),
             Command::SetSystemProxy(on) => self.set_system_proxy(on),
+            Command::SetTun(on) => self.set_tun(on),
+            Command::ManageService(install) => self.manage_service(install, false),
             Command::CheckConnectivity => self.check_connectivity(),
             Command::DismissNotice => self.view.error = None,
             Command::RetryNotice => self.retry(),
@@ -61,6 +63,12 @@ impl AppCore {
 
     pub(super) fn handle_internal(&mut self, msg: Internal) {
         match msg {
+            Internal::ServiceManaged {
+                generation,
+                install,
+                enable,
+                result,
+            } => self.on_service_managed(generation, install, enable, result),
             Internal::CoreVerified(result) => self.on_core_verified(result),
             Internal::Imported(result) => self.on_imported(result),
             Internal::Started(generation, result) => self.on_started(generation, result),
@@ -277,6 +285,9 @@ impl AppCore {
     }
 
     fn connect(&mut self) {
+        if self.view.service_busy {
+            return;
+        }
         if matches!(
             self.view.runtime,
             RuntimeStatus::Starting
@@ -331,6 +342,7 @@ impl AppCore {
             profile,
             mixed_port: self.view.mixed_port,
             mode: self.settings.routing_mode,
+            tun: self.view.tun_wanted,
         };
         self.spawn(async move {
             if let Some(previous) = previous {
@@ -349,6 +361,8 @@ impl AppCore {
                 }
                 self.view.runtime = RuntimeStatus::Running;
                 self.view.check_lines = running.check_lines.clone();
+                self.view.policy_notes = running.policy_notes.clone();
+                self.update_tun_state(running.process.service().is_some());
                 self.watch_exit(&running);
                 self.running = Some(running);
                 self.ensure_sysproxy();
@@ -364,6 +378,13 @@ impl AppCore {
                 tokio::spawn(async move { runtime::stop(stale, &layout).await });
             }
             Err(e) if generation == self.generation => {
+                if self.view.tun_wanted && self.view.runtime != RuntimeStatus::Restarting {
+                    self.view.tun_wanted = false;
+                    self.update_tun_state(false);
+                    self.start_after(None);
+                    self.view.notice = Some(error_notice(&e.append("；正在恢复普通代理模式")));
+                    return;
+                }
                 if self.view.runtime == RuntimeStatus::Restarting {
                     self.schedule_restart(e.user_message());
                 } else {
@@ -372,7 +393,12 @@ impl AppCore {
                     self.release_sysproxy();
                     // The status names the failure; the error bar carries the
                     // detail (which may include the core's log tail).
-                    self.view.runtime = RuntimeStatus::Failed(e.kind.label().to_owned());
+                    let reason = if e.kind == AppErrorKind::ServiceUnavailable {
+                        e.user_message()
+                    } else {
+                        e.kind.label().to_owned()
+                    };
+                    self.view.runtime = RuntimeStatus::Failed(reason);
                     self.view.notice = Some(error_notice(&e).with_retry(Retry::Connect));
                 }
             }
@@ -385,6 +411,7 @@ impl AppCore {
         self.generation += 1;
         self.restart_attempts = 0;
         self.release_sysproxy();
+        self.update_tun_state(false);
         self.view.groups.clear();
         self.view.testing_group = None;
         self.view.connectivity = Connectivity::Unknown;

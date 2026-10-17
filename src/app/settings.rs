@@ -30,6 +30,7 @@ pub struct SettingsInput {
     pub close_to_tray: bool,
     /// Start with Windows (§11.6); applied to the Run key, not to the config.
     pub autostart: bool,
+    pub tun_disable_system_proxy: bool,
 }
 
 impl AppCore {
@@ -47,6 +48,7 @@ impl AppCore {
             close_to_tray: s.close_to_tray,
             close_hint_shown: s.close_hint_shown,
             autostart: s.autostart,
+            tun_disable_system_proxy: s.tun_disable_system_proxy,
             core_path: self
                 .layout
                 .bundled_core
@@ -79,11 +81,24 @@ impl AppCore {
         self.settings.auto_connect = input.auto_connect;
         self.settings.close_to_tray = input.close_to_tray;
         self.settings.autostart = input.autostart;
+        let tun_proxy_changed =
+            self.settings.tun_disable_system_proxy != input.tun_disable_system_proxy;
+        self.settings.tun_disable_system_proxy = input.tun_disable_system_proxy;
         if let Err(e) = self.save_settings_file() {
             self.view.notice = Some(error_notice(&e));
             return;
         }
         self.refresh_settings_view();
+        if tun_proxy_changed && self.view.tun_active {
+            self.view.system_proxy_wanted = !input.tun_disable_system_proxy
+                && self.proxy_before_tun.unwrap_or(self.settings.system_proxy);
+            if !self.view.system_proxy_wanted {
+                self.release_sysproxy();
+            }
+        }
+        if self.view.runtime.is_up() {
+            self.ensure_sysproxy();
+        }
         // The one notice that is shown: a restart, the bypass list, the
         // autostart entry, or a plain confirmation. The earlier branches win
         // because they describe work the user has to wait for.
@@ -162,7 +177,7 @@ impl AppCore {
                 .set_title("导出诊断包")
                 .set_description(
                     "诊断包包含脱敏后的应用与内核日志、settings.json、配置摘要\
-                     （不含订阅地址）、最近一次校验输出、系统代理与内核信息。\n\
+                     （不含订阅地址）、最近一次校验输出、系统代理与内核信息；已安装时也包含 TUN 服务日志。\n\
                      原始订阅和运行配置不会包含在内。确定继续？",
                 )
                 .set_buttons(rfd::MessageButtons::OkCancel)

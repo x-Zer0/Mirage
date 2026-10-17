@@ -2769,6 +2769,7 @@ dependencies = [
  "embed-manifest",
  "getrandom 0.4.3",
  "hex",
+ "mirage-ipc",
  "percent-encoding",
  "regex",
  "reqwest",
@@ -2788,6 +2789,38 @@ dependencies = [
  "uuid",
  "windows",
  "zeroize",
+]
+
+[[package]]
+name = "mirage-ipc"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hex",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "tokio",
+ "tracing",
+ "windows",
+]
+
+[[package]]
+name = "mirage-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "mirage-ipc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "tokio",
+ "tracing",
+ "windows",
 ]
 
 [[package]]

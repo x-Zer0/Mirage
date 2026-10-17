@@ -3,14 +3,12 @@
 use super::process::NO_WINDOW;
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::storage::layout::Layout;
-use sha2::{Digest, Sha256};
-use std::io::Read;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const STAGE: &str = "mihomo.binary";
-pub const EXPECTED_SHA256: &str =
-    "beb9878924d7bd38c67176b441ab5e668cc378bfe751c8dc8fef3eb5aaf566d5";
+pub use mirage_ipc::binary::EXPECTED_SHA256;
 pub const EXPECTED_VERSION: &str = "v1.19.32";
 const GEODATA: [&str; 4] = ["GEOIP.metadb", "GEOSITE.dat", "GEOIP.dat", "ASN.mmdb"];
 
@@ -73,27 +71,9 @@ pub fn seed_core_home(layout: &Layout) -> AppResult<()> {
 }
 
 fn hash_file(path: &Path) -> AppResult<String> {
-    let mut file = std::fs::File::open(path).map_err(|e| {
-        AppError::new(
-            AppErrorKind::CoreBinaryInvalid,
-            STAGE,
-            format!("找不到内核 {}：{e}", path.display()),
-        )
-    })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| AppError::storage(STAGE, e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    mirage_ipc::binary::hash_file(path)
+        .map_err(|e| AppError::new(AppErrorKind::CoreBinaryInvalid, STAGE, e.to_string()))
 }
-
 async fn run_version(exe: &Path) -> AppResult<String> {
     let output = tokio::time::timeout(
         Duration::from_secs(10),

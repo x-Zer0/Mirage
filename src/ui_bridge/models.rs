@@ -55,8 +55,15 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     w.set_status_text(status_text(&s.runtime).into());
     w.set_running(s.runtime.is_up());
     w.set_failed(matches!(s.runtime, RuntimeStatus::Failed(_)));
-    let busy =
-        s.busy.is_some() || matches!(s.runtime, RuntimeStatus::Starting | RuntimeStatus::Stopping);
+    let busy = s.busy.is_some()
+        || s.service_busy
+        || matches!(
+            s.runtime,
+            RuntimeStatus::Starting
+                | RuntimeStatus::Stopping
+                | RuntimeStatus::Reloading
+                | RuntimeStatus::Restarting
+        );
     w.set_busy(busy);
     w.set_busy_text(
         s.busy
@@ -68,6 +75,10 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     w.set_mixed_port(i32::from(s.mixed_port));
     w.set_system_proxy_wanted(s.system_proxy_wanted);
     w.set_system_proxy_active(s.system_proxy_active);
+    w.set_tun_wanted(s.tun_wanted);
+    w.set_tun_active(s.tun_active);
+    w.set_service_installed(s.service_installed);
+    w.set_service_busy(s.service_busy);
     let (text, level) = connectivity_text(s);
     w.set_connectivity_text(text.into());
     w.set_connectivity_level(level);
@@ -144,6 +155,7 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     w.set_settings_auto_connect(st.auto_connect);
     w.set_settings_close_to_tray(st.close_to_tray);
     w.set_settings_autostart(st.autostart);
+    w.set_settings_tun_disable_system_proxy(st.tun_disable_system_proxy);
     w.set_core_path(st.core_path.clone().into());
     w.set_geo_updating(s.geo_updating);
     w.set_exporting(s.exporting);
@@ -202,11 +214,18 @@ pub fn apply_tray(t: &AppTray, s: &AppStateView) {
     };
     t.set_detail(detail.into());
     t.set_system_proxy(s.system_proxy_wanted);
+    t.set_tun_wanted(s.tun_wanted);
     t.set_running(s.runtime.is_up());
-    t.set_busy(matches!(
-        s.runtime,
-        RuntimeStatus::Starting | RuntimeStatus::Stopping
-    ));
+    t.set_busy(
+        s.service_busy
+            || matches!(
+                s.runtime,
+                RuntimeStatus::Starting
+                    | RuntimeStatus::Stopping
+                    | RuntimeStatus::Reloading
+                    | RuntimeStatus::Restarting
+            ),
+    );
     t.set_routing_mode(mode_index(s.routing_mode));
 }
 

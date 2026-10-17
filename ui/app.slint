@@ -34,6 +34,10 @@ export component MainWindow inherits Window {
     in property <int> mixed-port;
     in-out property <bool> system-proxy-wanted;
     in property <bool> system-proxy-active;
+    in-out property <bool> tun-wanted;
+    in property <bool> tun-active;
+    in property <bool> service-installed;
+    in property <bool> service-busy;
     in property <string> connectivity-text;
     in property <int> connectivity-level;
     in property <int> routing-mode: -1;
@@ -62,6 +66,7 @@ export component MainWindow inherits Window {
     in property <bool> settings-auto-connect;
     in property <bool> settings-close-to-tray;
     in property <bool> settings-autostart;
+    in property <bool> settings-tun-disable-system-proxy;
     in property <string> core-path;
     in property <bool> geo-updating;
     in property <bool> exporting;
@@ -96,6 +101,7 @@ export component MainWindow inherits Window {
     callback refresh-groups();
     callback sort-nodes(bool);
     callback set-system-proxy(bool);
+    callback set-tun(bool);
     callback set-routing-mode(int);
     callback check-connectivity();
     callback dismiss-error();
@@ -105,7 +111,8 @@ export component MainWindow inherits Window {
     callback remove-account(string, bool);
     callback import-legacy();
     callback probe-hosts();
-    callback save-settings(string, string, string, int, bool, bool, bool);
+    callback save-settings(string, string, string, int, bool, bool, bool, bool);
+    callback manage-service(bool);
     callback update-geodata();
     callback export-diagnostics();
     callback clear-logs();
@@ -213,6 +220,10 @@ export component MainWindow inherits Window {
                     core-version: root.core-version;
                     system-proxy-wanted <=> root.system-proxy-wanted;
                     system-proxy-active: root.system-proxy-active;
+                    tun-wanted <=> root.tun-wanted;
+                    tun-active: root.tun-active;
+                    service-installed: root.service-installed;
+                    set-tun(on) => { root.set-tun(on); }
                     connectivity-text: root.connectivity-text;
                     connectivity-level: root.connectivity-level;
                     routing-mode: root.routing-mode;
@@ -283,13 +294,18 @@ export component MainWindow inherits Window {
                     saved-auto-connect: root.settings-auto-connect;
                     saved-close-to-tray: root.settings-close-to-tray;
                     saved-autostart: root.settings-autostart;
+                    saved-tun-disable-system-proxy: root.settings-tun-disable-system-proxy;
+                    service-installed: root.service-installed;
+                    service-busy: root.service-busy;
+                    tun-active: root.tun-active;
+                    manage-service(install) => { root.manage-service(install); }
                     egress-options: root.egress-options;
                     core-version: root.core-version;
                     core-path: root.core-path;
                     running: root.running;
                     geo-updating: root.geo-updating;
                     busy: root.busy;
-                    save(port, bypass, ua, egress, auto, tray, autostart) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart); }
+                    save(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy); }
                     update-geodata => { root.update-geodata(); }
                 }
             }
@@ -328,10 +344,12 @@ export component AppTray inherits SystemTrayIcon {
     in property <bool> busy;
     in property <int> routing-mode: -1;
     in-out property <bool> system-proxy;
+    in property <bool> tun-wanted;
 
     callback toggle-window();
     callback toggle-connection();
     callback set-system-proxy(bool);
+    callback set-tun(bool);
     callback set-routing-mode(int);
     callback quit-app();
 
@@ -361,8 +379,9 @@ export component AppTray inherits SystemTrayIcon {
             activated => { root.set-system-proxy(!root.system-proxy); }
         }
         MenuItem {
-            title: "TUN（后续版本）";
-            enabled: false;
+            title: root.tun-wanted ? "✓ TUN" : "TUN";
+            enabled: !root.busy;
+            activated => { root.set-tun(!root.tun-wanted); }
         }
         Menu {
             title: "路由模式";

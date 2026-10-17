@@ -14,6 +14,7 @@ pub mod settings;
 pub mod state;
 mod supervise;
 pub mod sysproxy;
+mod tun;
 mod updates;
 
 use crate::cores::mihomo::binary::{self, CoreBinary};
@@ -75,6 +76,8 @@ pub enum Command {
     TestGroupDelay(String),
     RefreshGroups,
     SetSystemProxy(bool),
+    SetTun(bool),
+    ManageService(bool),
     CheckConnectivity,
     DismissNotice,
     /// Error bar retry button: re-sends the failed operation (§17.3).
@@ -103,6 +106,12 @@ pub enum Command {
 }
 
 enum Internal {
+    ServiceManaged {
+        generation: u64,
+        install: bool,
+        enable: bool,
+        result: Result<(), AppError>,
+    },
     CoreVerified(Result<CoreBinary, AppError>),
     Imported(Result<pipeline::ImportOutcome, AppError>),
     Started(u64, Result<Running, AppError>),
@@ -207,7 +216,8 @@ pub fn spawn(layout: Layout, startup_notice: Option<String>) -> std::io::Result<
             if let Some(text) = startup_notice {
                 core.view.notice = Some(Notice::error(text).with_stage("启动恢复"));
             }
-            runtime.block_on(core.run(rx))
+            runtime.block_on(core.run(rx));
+            runtime.shutdown_timeout(Duration::from_secs(2));
         })?;
     Ok(CoreHandle {
         tx,
@@ -227,6 +237,7 @@ struct AppCore {
     settings: SettingsFile,
     /// Consecutive supervised restarts since the core last ran stably (§5.2).
     restart_attempts: u32,
+    proxy_before_tun: Option<bool>,
     /// Commands that need a verified core, held until verification finishes.
     deferred: Vec<Command>,
     secrets: SecretStore,
@@ -261,6 +272,7 @@ impl AppCore {
                 SettingsFile::default()
             });
         view.system_proxy_wanted = settings.system_proxy;
+        view.service_installed = crate::platform::windows::service::installed();
         view.routing_mode = settings.routing_mode;
         let accounts = accounts::Accounts::load(&layout).unwrap_or_else(|e| {
             view.notice = Some(error_notice(&e));
@@ -277,6 +289,7 @@ impl AppCore {
             generation: 0,
             settings,
             restart_attempts: 0,
+            proxy_before_tun: None,
             deferred: Vec::new(),
             secrets,
             updating: HashSet::new(),

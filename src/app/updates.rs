@@ -376,6 +376,8 @@ impl AppCore {
             mode: self.settings.routing_mode,
             fallback: profile.last_good_revision.clone(),
             candidate: candidate.clone(),
+            tun: running.process.service().is_some(),
+            service: running.process.service(),
         };
         let generation = self.generation;
         let profile_id = profile_id.clone();

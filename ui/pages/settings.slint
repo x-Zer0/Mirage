@@ -12,6 +12,11 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> saved-auto-connect;
     in property <bool> saved-close-to-tray;
     in property <bool> saved-autostart;
+    in property <bool> saved-tun-disable-system-proxy;
+    in property <bool> service-installed;
+    in property <bool> service-busy;
+    in property <bool> tun-active;
+    callback manage-service(bool);
     in property <[string]> egress-options;
     in property <string> core-version;
     in property <string> core-path;
@@ -19,7 +24,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> geo-updating;
     // A start/stop is in flight; saving could restart the core again.
     in property <bool> busy;
-    callback save(string, string, string, int, bool, bool, bool);
+    callback save(string, string, string, int, bool, bool, bool, bool);
     callback update-geodata();
 
     // Working copies, reset from the saved values whenever the page opens.
@@ -30,6 +35,7 @@ export component SettingsPage inherits VerticalLayout {
     property <bool> auto-connect: root.saved-auto-connect;
     property <bool> close-to-tray: root.saved-close-to-tray;
     property <bool> autostart: root.saved-autostart;
+    property <bool> tun-disable-system-proxy: root.saved-tun-disable-system-proxy;
 
     spacing: 16px;
     alignment: start;
@@ -107,7 +113,7 @@ export component SettingsPage inherits VerticalLayout {
             icon: @image-url("../../assets/icons/lucide/check.svg");
             colorize-icon: true;
             clicked => {
-                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray, root.autostart);
+                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray, root.autostart, root.tun-disable-system-proxy);
             }
         }
         Button {
@@ -120,6 +126,7 @@ export component SettingsPage inherits VerticalLayout {
                 root.auto-connect = root.saved-auto-connect;
                 root.close-to-tray = root.saved-close-to-tray;
                 root.autostart = root.saved-autostart;
+                root.tun-disable-system-proxy = root.saved-tun-disable-system-proxy;
             }
         }
     }
@@ -147,7 +154,26 @@ export component SettingsPage inherits VerticalLayout {
                     vertical-alignment: center;
                 }
             }
-            Text { text: "TUN 模式与辅助服务将在后续版本提供。"; color: Theme.text-muted; font-size: 12px; }
+            Text { text: root.service-installed ? "TUN 辅助服务：已安装" : "TUN 辅助服务：未安装"; color: Theme.text; }
+            CheckBox { text: "开启 TUN 时自动关闭系统代理"; checked <=> root.tun-disable-system-proxy; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 8px;
+                Button {
+                    text: root.service-busy ? "正在处理…" : "安装 / 更新服务";
+                    enabled: !root.busy && !root.tun-active;
+                    clicked => { root.manage-service(true); }
+                }
+                Button {
+                    text: "卸载服务";
+                    enabled: root.service-installed && !root.busy && !root.tun-active;
+                    clicked => { root.manage-service(false); }
+                }
+            }
+            Text {
+                text: "安装、更新和卸载需要管理员授权。TUN 开关会重启内核；更改服务前请关闭 TUN。";
+                color: Theme.text-muted; font-size: 12px; wrap: word-wrap;
+            }
         }
     }
 }

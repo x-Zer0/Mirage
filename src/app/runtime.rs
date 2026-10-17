@@ -4,7 +4,9 @@ use super::pipeline;
 use crate::cores::mihomo::binary::CoreBinary;
 use crate::cores::mihomo::compose::{self, ManagedOverlay};
 use crate::cores::mihomo::controller::{Controller, GLOBAL_GROUP};
-use crate::cores::mihomo::process::{self, CoreCommand, CoreProcess};
+use crate::cores::mihomo::launcher::Process;
+use crate::cores::mihomo::process::{self, CoreCommand};
+use crate::cores::mihomo::service::{ServiceClient, ServiceProcess};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{Profile, ProfileId, RevisionId, RoutingMode};
 use crate::platform::windows::process as win_process;
@@ -23,12 +25,12 @@ pub const PLACEHOLDER_CONTROLLER: SocketAddr =
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 9));
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 const READY_POLL: Duration = Duration::from_millis(200);
-const STOP_GRACE: Duration = Duration::from_secs(3);
+const STOP_GRACE: Duration = Duration::from_secs(4);
 
 pub struct Running {
     pub generation: u64,
     pub profile_id: ProfileId,
-    pub process: CoreProcess,
+    pub process: Process,
     pub controller: Controller,
     pub controller_addr: SocketAddr,
     /// Controller secret; memory only (the run config holds it under a private ACL).
@@ -36,6 +38,7 @@ pub struct Running {
     pub mixed_port: u16,
     pub log_file: PathBuf,
     pub check_lines: Vec<String>,
+    pub policy_notes: Vec<String>,
     pub started_at: Instant,
 }
 
@@ -46,6 +49,7 @@ pub struct StartRequest {
     pub profile: Profile,
     pub mixed_port: u16,
     pub mode: Option<RoutingMode>,
+    pub tun: bool,
 }
 
 pub async fn start(req: StartRequest) -> AppResult<Running> {
@@ -54,6 +58,13 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         .active_revision
         .clone()
         .ok_or_else(|| AppError::new(AppErrorKind::NotAConfig, STAGE, "该配置没有可用版本"))?;
+    if !req.tun
+        && req.layout.recovery.join("tun.json").exists()
+        && crate::platform::windows::service::installed()
+    {
+        crate::cores::mihomo::service::cleanup().await?;
+        journal::remove(&req.layout.recovery.join("tun.json"));
+    }
     ensure_port_free(req.mixed_port)?;
     let controller_addr = free_loopback_addr()?;
     let secret = random_secret()?;
@@ -66,6 +77,7 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         log_level: CORE_LOG_LEVEL,
         profile_id: &req.profile.id,
         mode: req.mode,
+        tun: req.tun,
     };
     let prepared = pipeline::prepare(&req.binary, &req.layout, &rev_id, &raw, &overlay).await?;
     let run_config = req.layout.run_config();
@@ -74,21 +86,29 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
 
     // §18: the core log uses the same bounded rolling scheme as the app log;
     // this is the stem, and the writer stamps the dated file names itself.
-    let log_file = req.layout.core_log_stem();
-    let process = process::spawn(CoreCommand {
-        exe: req.binary.exe.clone(),
-        home_dir: req.layout.core_home.clone(),
-        config_file: run_config,
-        controller: controller_addr,
-        secret: secret.clone(),
-        log_file: log_file.clone(),
-    })?;
-    tracing::info!(pid = process.pid, %controller_addr, "core spawned");
-    record_core(&req.layout, process.pid);
-
+    let log_file = if req.tun {
+        mirage_ipc::known_folder::service_data()
+            .map_err(|e| AppError::storage(STAGE, e))?
+            .join("tun-home")
+            .join("logs")
+            .join("core.log")
+    } else {
+        req.layout.core_log_stem()
+    };
     let controller = Controller::new(controller_addr, &secret)?;
+    let process = launch(
+        &req,
+        &prepared.composed.yaml,
+        controller_addr,
+        &secret,
+        &log_file,
+    )
+    .await?;
+    tracing::info!(pid = process.pid(), %controller_addr, "core spawned");
     if let Err(e) = wait_ready(&process, &controller, req.mixed_port, &log_file).await {
-        process.terminate(STOP_GRACE).await;
+        if process.terminate(STOP_GRACE).await {
+            journal::remove(&req.layout.recovery.join("tun.json"));
+        }
         journal::remove(&journal::core_path(&req.layout));
         remove_run_config(&req.layout);
         return Err(e);
@@ -104,10 +124,50 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         mixed_port: req.mixed_port,
         log_file,
         check_lines: prepared.report.lines,
+        policy_notes: prepared.composed.policy_notes,
         started_at: Instant::now(),
     })
 }
 
+async fn launch(
+    req: &StartRequest,
+    yaml: &str,
+    controller: SocketAddr,
+    secret: &str,
+    log_file: &std::path::Path,
+) -> AppResult<Process> {
+    if req.tun {
+        let path = req.layout.recovery.join("tun.json");
+        match ServiceProcess::start(
+            yaml.to_owned(),
+            req.profile.id.clone(),
+            controller.port(),
+            secret.to_owned(),
+            &path,
+        )
+        .await
+        {
+            Ok(process) => return Ok(Process::Service(process)),
+            Err(e) => {
+                // Wait for the service to finish disposing any partial start.
+                if path.exists() && crate::cores::mihomo::service::cleanup().await.is_ok() {
+                    journal::remove(&path);
+                }
+                return Err(e);
+            }
+        }
+    }
+    let process = process::spawn(CoreCommand {
+        exe: req.binary.exe.clone(),
+        home_dir: req.layout.core_home.clone(),
+        config_file: req.layout.run_config(),
+        controller,
+        secret: secret.to_owned(),
+        log_file: log_file.to_path_buf(),
+    })?;
+    record_core(&req.layout, process.pid);
+    Ok(Process::Direct(process))
+}
 pub struct ReloadRequest {
     pub layout: Layout,
     pub profile: Profile,
@@ -116,7 +176,9 @@ pub struct ReloadRequest {
     pub secret: String,
     pub mixed_port: u16,
     pub mode: Option<RoutingMode>,
+    pub tun: bool,
     pub candidate: RevisionId,
+    pub service: Option<ServiceClient>,
     /// last_good, written back when the candidate fails (§8 step 9).
     pub fallback: Option<RevisionId>,
 }
@@ -163,12 +225,17 @@ async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> 
         log_level: CORE_LOG_LEVEL,
         profile_id: &req.profile.id,
         mode: req.mode,
+        tun: req.tun,
     };
     let composed = compose::compose(&detected.text, &overlay)?;
     let run_config = req.layout.run_config();
     atomic::write(&run_config, composed.yaml.as_bytes())
         .map_err(|e| AppError::storage(STAGE, e))?;
-    req.controller.reload(&run_config).await?;
+    if let Some(service) = &req.service {
+        service.reload(composed.yaml).await?;
+    } else {
+        req.controller.reload(&run_config).await?;
+    }
     let groups = req.controller.groups().await?;
     let declared = groups.iter().filter(|g| g.name != GLOBAL_GROUP).count();
     if declared == 0 && composed.summary.groups > 0 {
@@ -191,7 +258,9 @@ pub async fn stop(running: Running, layout: &Layout) {
     {
         tracing::debug!("close connections timed out");
     }
-    running.process.terminate(STOP_GRACE).await;
+    if running.process.terminate(STOP_GRACE).await {
+        journal::remove(&layout.recovery.join("tun.json"));
+    }
     forget_exited(layout);
     tracing::info!("core stopped");
 }
@@ -229,7 +298,7 @@ pub fn remove_run_config(layout: &Layout) {
 }
 
 async fn wait_ready(
-    process: &CoreProcess,
+    process: &Process,
     controller: &Controller,
     mixed_port: u16,
     log_file: &std::path::Path,

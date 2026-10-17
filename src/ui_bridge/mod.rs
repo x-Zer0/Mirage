@@ -164,6 +164,10 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     let c = commands.clone();
     window.on_set_system_proxy(move |on| send(&c, Command::SetSystemProxy(on)));
     let c = commands.clone();
+    window.on_set_tun(move |on| send(&c, Command::SetTun(on)));
+    let c = commands.clone();
+    window.on_manage_service(move |install| send(&c, Command::ManageService(install)));
+    let c = commands.clone();
     window.on_set_routing_mode(move |i| send_mode(&c, i));
     let c = commands.clone();
     window.on_check_connectivity(move || send(&c, Command::CheckConnectivity));
@@ -190,7 +194,14 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     window.on_probe_hosts(move || send(&c, Command::ProbeProviderHosts));
     let c = commands.clone();
     window.on_save_settings(
-        move |port, bypass, ua, egress, auto_connect, close_to_tray, autostart| {
+        move |port,
+              bypass,
+              ua,
+              egress,
+              auto_connect,
+              close_to_tray,
+              autostart,
+              tun_disable_system_proxy| {
             send(
                 &c,
                 Command::SaveSettings(SettingsInput {
@@ -201,6 +212,7 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
                     auto_connect,
                     close_to_tray,
                     autostart,
+                    tun_disable_system_proxy,
                 }),
             )
         },
@@ -268,6 +280,8 @@ fn wire_tray(window: &MainWindow, tray: &AppTray, commands: mpsc::Sender<Command
 
     let c = commands.clone();
     tray.on_set_system_proxy(move |on| send(&c, Command::SetSystemProxy(on)));
+    let c = commands.clone();
+    tray.on_set_tun(move |on| send(&c, Command::SetTun(on)));
     let c = commands.clone();
     tray.on_set_routing_mode(move |i| send_mode(&c, i));
 

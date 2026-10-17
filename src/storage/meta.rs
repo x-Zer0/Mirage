@@ -54,6 +54,8 @@ pub struct SettingsFile {
     pub schema_version: u32,
     #[serde(default = "default_true")]
     pub system_proxy: bool,
+    #[serde(default)]
+    pub tun_disable_system_proxy: bool,
     /// Connect with the active revision once the core is verified (§16.1).
     #[serde(default)]
     pub auto_connect: bool,
@@ -87,6 +89,7 @@ impl Default for SettingsFile {
         Self {
             schema_version: SCHEMA_VERSION,
             system_proxy: true,
+            tun_disable_system_proxy: false,
             auto_connect: false,
             mixed_port: default_mixed_port(),
             bypass: default_bypass(),

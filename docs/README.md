@@ -19,6 +19,16 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 
 ## 当前状态
 
-- 里程碑：M0～M5 已完成，手工验收记录见 [acceptance/](acceptance/)；下一步 M6（可靠性收尾）。
+- 里程碑：M0～M6 已完成；M7 已补齐代码并完成基础验收，管理员权限下的 TUN 实机验收仍待完成。详见 [acceptance/M7.md](acceptance/M7.md)，其余阶段见 [acceptance/](acceptance/)。
 - 已验证：自由猫账号密码登录（真实账号，2026-10-16）、会话恢复与订阅下载；`clash-verge` 可取得合法 YAML，但本次节点入口不可达；`freecatencua/v` 的 AES 订阅解密后，官方 Mihomo v1.19.32 四节点测速和 HTTPS 204 成功，详见新增分析文档。
 - 未验证：令牌有效期、验证码/设备要求、TUN/UDP/IPv6、原客户端退出后的完整独立运行。
+
+## M7 构建
+
+同时生成主程序和辅助服务：
+
+```powershell
+cargo build --workspace --release -j 1
+```
+
+`target/release/Mirage.exe` 与 `target/release/mirage-service.exe` 必须配套放置；分发时还需同目录的 `core/`（官方内核与四份 geodata）。开发环境可复用 `assets/core/`。在设置页安装 / 更新服务时才请求 UAC；TUN 默认关闭。

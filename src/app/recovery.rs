@@ -9,10 +9,11 @@ use crate::storage::layout::Layout;
 /// Undoes what a previous run left behind. Returns a notice for the user, if any.
 pub fn run(layout: &Layout) -> Option<String> {
     let notice = restore_sysproxy(layout);
+    let tun_notice = recover_tun(layout);
     kill_leftover_core(layout);
     clean_check_dir(layout);
     super::runtime::remove_run_config(layout);
-    notice
+    tun_notice.or(notice)
 }
 
 fn restore_sysproxy(layout: &Layout) -> Option<String> {
@@ -65,5 +66,38 @@ pub fn clean_check_dir(layout: &Layout) {
     };
     for entry in entries.flatten() {
         let _ = std::fs::remove_file(entry.path());
+    }
+}
+
+fn recover_tun(layout: &Layout) -> Option<String> {
+    let path = layout.recovery.join("tun.json");
+    if !path.exists() {
+        return None;
+    }
+    if !crate::platform::windows::service::installed() {
+        journal::remove(&path);
+        return None;
+    }
+    let result = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())
+        .and_then(|rt| {
+            rt.block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    crate::cores::mihomo::service::cleanup(),
+                )
+                .await
+                .map_err(|_| "TUN 恢复超时".to_owned())?
+                .map_err(|e| e.user_message())
+            })
+        });
+    match result {
+        Ok(()) => {
+            journal::remove(&path);
+            Some("已清理上次遗留的 TUN 内核".into())
+        }
+        Err(e) => Some(format!("TUN 恢复未完成，已保留恢复记录：{e}")),
     }
 }

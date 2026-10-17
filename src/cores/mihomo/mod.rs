@@ -8,4 +8,6 @@ pub mod binary;
 pub mod check;
 pub mod compose;
 pub mod controller;
+pub mod launcher;
 pub mod process;
+pub mod service;

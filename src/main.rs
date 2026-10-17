@@ -19,10 +19,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> anyhow::Result<()> {
     let autostart = std::env::args().any(|a| a == "--autostart");
+    let check_service = std::env::args().any(|a| a == "--check-service");
 
     // §11.6: a second instance only wakes the first one up and exits.
     let instance = match SingleInstance::acquire().context("single-instance check")? {
         Acquire::Primary(instance) => instance,
+        Acquire::AlreadyRunning if check_service => anyhow::bail!("请先退出 Mirage 再检查服务"),
         Acquire::AlreadyRunning => return Ok(()),
     };
 
@@ -30,6 +32,9 @@ fn main() -> anyhow::Result<()> {
     layout.prepare().context("prepare data directory")?;
     let _log_guard = logging::init(&layout.logs).context("init logging")?;
     tracing::info!(version = VERSION, autostart, "Mirage starting");
+    if check_service {
+        return check_service_connections();
+    }
     // ring keeps the build free of the aws-lc C/NASM toolchain (§12.1).
     if rustls::crypto::ring::default_provider()
         .install_default()
@@ -66,4 +71,20 @@ fn import_arg() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+/// Reconnects to expose stale async pipe state after an earlier disconnect.
+fn check_service_connections() -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        for attempt in 1..=3 {
+            cores::mihomo::service::check()
+                .await
+                .with_context(|| format!("辅助服务第 {attempt} 次连接检查失败"))?;
+            tracing::info!(attempt, "service connection check passed");
+        }
+        Ok(())
+    })
 }

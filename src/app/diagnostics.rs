@@ -66,6 +66,8 @@ pub fn export(layout: &Layout, path: &Path, inputs: &Inputs<'_>) -> AppResult<Bu
         entries.push(name);
     }
 
+    add_service_logs(&mut zip, &mut entries);
+
     // 3. settings.json, as saved (no secrets: §14.1 keeps them in the
     //    Credential Manager, and the file holds only references).
     let settings = std::fs::read_to_string(layout.settings_file()).unwrap_or_default();
@@ -269,4 +271,19 @@ fn conflict_text(mixed_port: u16) -> String {
         let _ = writeln!(out, "· {}", c.text());
     }
     out
+}
+
+fn add_service_logs(zip: &mut ZipWriter, entries: &mut Vec<String>) {
+    let Ok(root) = mirage_ipc::known_folder::service_data() else {
+        return;
+    };
+    for (dir, prefix) in [
+        (root.join("logs"), "logs/service"),
+        (root.join("tun-home").join("logs"), "logs/tun-core"),
+    ] {
+        for (name, text) in log_entries(&dir, prefix) {
+            zip.add_text(&name, &redact_text(&text));
+            entries.push(name);
+        }
+    }
 }

@@ -13,6 +13,10 @@ export component OverviewPage inherits VerticalLayout {
     // in-out: the Switch writes it on toggle; a one-way binding would break.
     in-out property <bool> system-proxy-wanted;
     in property <bool> system-proxy-active;
+    in-out property <bool> tun-wanted;
+    in property <bool> tun-active;
+    in property <bool> service-installed;
+    callback set-tun(bool);
     in property <string> connectivity-text;
     in property <int> connectivity-level; // 0 unknown/checking, 1 ok, 2 failed
     in property <int> routing-mode; // -1 unknown, 0 rule, 1 global, 2 direct
@@ -105,12 +109,13 @@ export component OverviewPage inherits VerticalLayout {
                         spacing: 2px;
                         horizontal-stretch: 1;
                         Text { text: "TUN 模式"; color: Theme.text; font-weight: 600; }
-                        Text { text: "需要辅助服务，将在后续版本提供"; color: Theme.text-muted; }
+                        Text { text: root.tun-active ? "已开启" : root.tun-wanted ? "连接后开启" : root.service-installed ? "未开启" : "首次开启需要安装辅助服务"; color: Theme.text-muted; }
                     }
                     Switch {
-                        checked: false;
-                        enabled: false;
-                        accessible-label: "TUN 模式（暂不可用）";
+                        checked <=> root.tun-wanted;
+                        enabled: !root.busy;
+                        accessible-label: "TUN 模式";
+                        toggled => { root.set-tun(self.checked); }
                     }
                 }
                 Text {

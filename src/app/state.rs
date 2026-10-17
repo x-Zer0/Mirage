@@ -227,6 +227,7 @@ pub struct SettingsView {
     pub close_hint_shown: bool,
     /// Start with Windows (§11.6); reflects the saved preference.
     pub autostart: bool,
+    pub tun_disable_system_proxy: bool,
     pub core_path: String,
 }
 
@@ -247,6 +248,10 @@ pub struct AppStateView {
     pub system_proxy_wanted: bool,
     /// The system proxy currently points at the core (journal says so).
     pub system_proxy_active: bool,
+    pub tun_wanted: bool,
+    pub tun_active: bool,
+    pub service_installed: bool,
+    pub service_busy: bool,
     pub connectivity: Connectivity,
     /// Effective mode: the user's choice, else what the running core reports.
     pub routing_mode: Option<RoutingMode>,
