@@ -1,0 +1,19 @@
+Geodata sources and attribution
+
+Packaged through MetaCubeX/meta-rules-dat (2026-10-15 pinned release):
+https://github.com/MetaCubeX/meta-rules-dat
+https://github.com/MetaCubeX/meta-rules-dat/blob/master/README.md
+Project license: GNU GPL v3, bundled as Mihomo-GPL-3.0.txt.
+The project README and its build workflows list the upstream rule sources.
+
+GeoLite2-ASN.mmdb (installed as ASN.mmdb):
+This product includes GeoLite2 data created by MaxMind, available from
+https://www.maxmind.com/ . GeoLite2 databases are distributed under CC BY-SA 4.0:
+https://creativecommons.org/licenses/by-sa/4.0/
+The file is redistributed without modification. See CC-BY-SA-4.0.txt.
+
+Country/IP/domain rule data sources include:
+https://github.com/Loyalsoldier/v2ray-rules-dat
+https://github.com/blackmatrix7/ios_rule_script
+https://github.com/v2fly/domain-list-community
+See the upstream source/build repository for the complete list and per-source terms.

@@ -35,7 +35,7 @@ impl AppCore {
         if on == self.view.tun_wanted {
             return;
         }
-        if on && !service::installed() {
+        if on && !service::ready() {
             self.manage_service(true, true);
             return;
         }
@@ -78,7 +78,11 @@ impl AppCore {
             };
             let answer = rfd::AsyncMessageDialog::new()
                 .set_title(action)
-                .set_description("此操作需要 Windows 管理员授权，主界面继续以普通用户运行。")
+                .set_description(if enable {
+                    "首次使用 TUN 或服务需要更新，请安装 / 更新 TUN 辅助服务。接下来需要 Windows 管理员授权；取消后保持当前连接方式。"
+                } else {
+                    "此操作需要 Windows 管理员授权，主界面继续以普通用户运行。"
+                })
                 .set_buttons(rfd::MessageButtons::OkCancel)
                 .show()
                 .await;
@@ -88,7 +92,11 @@ impl AppCore {
                     .map_err(|e| AppError::internal("app.tun", e))
                     .and_then(|r| {
                         r.map_err(|e| {
-                            AppError::new(AppErrorKind::Internal, "app.tun", e.to_string())
+                            AppError::new(
+                                if e.raw_os_error() == Some(1223) { AppErrorKind::Cancelled }
+                                else { AppErrorKind::Internal },
+                                "app.tun", e.to_string(),
+                            )
                         })
                     })
             } else {

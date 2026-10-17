@@ -1,0 +1,33 @@
+Mirage — Third-party notices
+
+Mihomo Meta v1.19.32 (windows-amd64, with_gvisor), unmodified upstream executable.
+License: GNU GPL version 3. See licenses/Mihomo-GPL-3.0.txt.
+Source and build instructions: https://github.com/MetaCubeX/mihomo/tree/v1.19.32
+Source archive: https://github.com/MetaCubeX/mihomo/archive/refs/tags/v1.19.32.tar.gz
+Release: https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.32
+The binary SHA256 is pinned and checked when packaging and before launch.
+Redistributors must keep the GPL license and provide access to the corresponding
+source, including applicable dependency sources, alongside their download.
+
+Slint 1.18.1 is used under the Slint Royalty-free License 2.0.
+See licenses/Slint-Royalty-free-2.0.md, licenses/Slint-components.txt and the AboutSlint widget in Diagnostics.
+Source: https://github.com/slint-ui/slint/tree/v1.18.1
+Rust dependency license texts, attribution and source links are generated from the
+locked Windows x64 dependency graph into licenses/rust-dependencies.html.
+
+Lucide icons (lucide-static 1.57.0): ISC; see licenses/Lucide-LICENSE.txt.
+Source: https://github.com/lucide-icons/lucide/tree/1.57.0
+
+Bundled geodata: MetaCubeX/meta-rules-dat publication from 2026-10-15;
+GEOIP.metadb, GEOSITE.dat, GEOIP.dat and ASN.mmdb, unmodified.
+Project license: GPL-3.0; see licenses/Mihomo-GPL-3.0.txt.
+Source/builds and upstream attribution: https://github.com/MetaCubeX/meta-rules-dat
+This product includes GeoLite2 ASN data created by MaxMind, available from
+https://www.maxmind.com/ . See licenses/geodata-notices.txt for data sources.
+
+The installer does not install the optional SYSTEM TUN service. The first TUN
+activation asks for installation and Windows administrator consent separately.
+
+Installer built with Inno Setup 6.4.3. https://jrsoftware.org/
+See licenses/Inno-Setup.txt. Simplified Chinese translation attribution is
+retained in packaging/ChineseSimplified.isl in the project source.

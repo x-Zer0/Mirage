@@ -18,6 +18,14 @@ use storage::layout::Layout;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> anyhow::Result<()> {
+    if std::env::args().any(|a| a == "--quit" || a == "--prepare-uninstall") {
+        platform::windows::single_instance::request_shutdown()?;
+        app::recovery::prepare_install(&Layout::resolve()?)?;
+        if std::env::args().any(|a| a == "--prepare-uninstall") {
+            platform::windows::service::prepare_uninstall()?;
+        }
+        return Ok(());
+    }
     let autostart = std::env::args().any(|a| a == "--autostart");
     let check_service = std::env::args().any(|a| a == "--check-service");
 
@@ -53,6 +61,9 @@ fn main() -> anyhow::Result<()> {
     }
     let ui = ui_bridge::Ui::build(&layout, VERSION, &core, autostart).context("build UI")?;
     instance.on_activate(ui.activator(core.sender()));
+    instance.on_quit(|| {
+        let _ = slint::quit_event_loop();
+    });
 
     slint::run_event_loop_until_quit().context("run event loop")?;
 

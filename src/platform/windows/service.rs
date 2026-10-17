@@ -1,5 +1,9 @@
 //! SCM start and the only UAC boundary: installing/updating/removing the helper.
-use super::token;
+use super::{
+    autostart,
+    registry::{self, Root},
+    token,
+};
 use std::{io, path::Path};
 use windows::{
     Win32::{
@@ -116,7 +120,8 @@ fn elevate(helper: &Path, args: &str) -> io::Result<()> {
     };
     // SAFETY: buffers live through ShellExecute; returned process handle is closed.
     unsafe {
-        ShellExecuteExW(&mut info).map_err(io::Error::other)?;
+        ShellExecuteExW(&mut info)
+            .map_err(|e| io::Error::from_raw_os_error((e.code().0 as u32 & 0xffff) as i32))?;
         WaitForSingleObject(info.hProcess, INFINITE);
         let mut code = 1;
         let result = GetExitCodeProcess(info.hProcess, &mut code);
@@ -127,6 +132,47 @@ fn elevate(helper: &Path, args: &str) -> io::Result<()> {
                 "服务操作失败，请检查安装包完整性和管理员权限",
             ));
         }
+    }
+    Ok(())
+}
+
+/// An installed service belongs to one user and one application path.
+fn matches_client() -> io::Result<bool> {
+    let client =
+        registry::read_string(Root::LocalMachine, r"SOFTWARE\Mirage\Service", "ClientExe")?;
+    let sid = registry::read_string(Root::LocalMachine, r"SOFTWARE\Mirage\Service", "UserSid")?;
+    let current = std::fs::canonicalize(std::env::current_exe()?)?;
+    Ok(
+        client.is_some_and(|p| p.eq_ignore_ascii_case(&current.to_string_lossy()))
+            && sid.as_deref() == Some(token::current_user_sid()?.as_str()),
+    )
+}
+
+/// Also catches replacement builds with the same application version number.
+pub fn ready() -> bool {
+    let check = || -> io::Result<bool> {
+        if !installed() || !matches_client()? {
+            return Ok(false);
+        }
+        let version =
+            registry::read_string(Root::LocalMachine, r"SOFTWARE\Mirage\Service", "Version")?;
+        if version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
+            return Ok(false);
+        }
+        let installed = mirage_ipc::known_folder::service_dir()?.join("mirage-service.exe");
+        let bundled = std::env::current_exe()?.with_file_name("mirage-service.exe");
+        Ok(mirage_ipc::binary::hash_file(&installed)? == mirage_ipc::binary::hash_file(&bundled)?)
+    };
+    check().unwrap_or(false)
+}
+
+/// Called before Inno removes files. Cancellation/failure aborts uninstallation.
+pub fn prepare_uninstall() -> io::Result<()> {
+    if installed() && matches_client()? {
+        manage(false, Path::new(""))?;
+    }
+    if autostart::is_current() {
+        autostart::disable()?;
     }
     Ok(())
 }

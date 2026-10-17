@@ -1,0 +1,3 @@
+# Keep app and SYSTEM helper self-contained on clean Windows installations.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

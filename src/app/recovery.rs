@@ -101,3 +101,13 @@ fn recover_tun(layout: &Layout) -> Option<String> {
         Err(e) => Some(format!("TUN 恢复未完成，已保留恢复记录：{e}")),
     }
 }
+
+/// Installer path after the UI has exited, also handles a previous crash.
+/// A failed proxy restore aborts file removal so recovery remains possible.
+pub fn prepare_install(layout: &Layout) -> crate::domain::error::AppResult<()> {
+    sysproxy::restore(layout)?;
+    kill_leftover_core(layout);
+    clean_check_dir(layout);
+    super::runtime::remove_run_config(layout);
+    Ok(())
+}

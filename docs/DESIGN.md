@@ -1,6 +1,6 @@
 # Mirage 详细设计
 
-版本：v1.0（2026-10-15），最后更新：2026-10-17（账号订阅并入配置及交互定稿）。来源：原《系统设计与开发路线》、《自由猫兼容规范》、分析报告，以及评审意见。本文是实现依据；与旧文档冲突时以本文为准。
+版本：v1.0（2026-10-15），最后更新：2026-10-17（M8 Windows 安装包与分发）。来源：原《系统设计与开发路线》、《自由猫兼容规范》、分析报告，以及评审意见。本文是实现依据；与旧文档冲突时以本文为准。
 
 自由猫协议细节见 [ZIYOUMAO.md](ZIYOUMAO.md)。
 
@@ -589,7 +589,7 @@ tun:
 ```
 
 - 规则中出现 GEOIP/GEOSITE 时，`-t` 校验也会加载 geodata，文件缺失时内核会尝试联网下载。首次启动时网络可能不通，会导致校验失败。因此 geodata 随安装包附带，并且合成时强制 `geo-auto-update: false`。设置页提供“更新 geodata”按钮，通过控制器 `POST /upgrade/geo` 触发，由用户主动执行。
-- 随包附带 `GEOIP.metadb`、`GEOSITE.dat`、`GEOIP.dat`、`ASN.mmdb` 四个文件，来源为 MetaCubeX/meta-rules-dat 的 `latest` release（2026-10-15 发布版，对应 `geoip.metadb`/`geosite.dat`/`geoip.dat`/`GeoLite2-ASN.mmdb`）。SHA256 固定在 `scripts/fetch-core.ps1` 中；该 release 会滚动更新，更新 geodata 时需要有意识地修改脚本里的哈希。
+- 随包附带 `GEOIP.metadb`、`GEOSITE.dat`、`GEOIP.dat`、`ASN.mmdb` 四个文件，来源为 MetaCubeX/meta-rules-dat 的 `latest` release（2026-10-15 发布版，对应 `geoip.metadb`/`geosite.dat`/`geoip.dat`/`GeoLite2-ASN.mmdb`）。SHA256 固定在 `scripts/core-assets.psd1` 中，下载和打包共用；该 release 会滚动更新，更新 geodata 时需要有意识地修改脚本里的哈希。
 - Mihomo 只允许 provider、external-ui 等路径位于 `-d` 指定的 home 目录或 `SAFE_PATHS` 列表内。本设计把所有路径都放在 core-home 下，因此不需要设置 `SAFE_PATHS`。
 - core-home 目录的 ACL 只授予当前用户和 SYSTEM（§14.2）。
 
@@ -1028,7 +1028,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | Windows | `windows`（Win32_System_Threading、JobObjects、Networking_WinInet、Security_Credentials、Security_Cryptography、Storage_FileSystem、Security_Authorization、NetworkManagement_IpHelper 等 feature） | |
 | 日志 | `tracing`、`tracing-subscriber`、`tracing-appender` | |
 | 其他 | `uuid`、`time` 或 `chrono`、`sha2`、`hex`、`base64`、`rand`、`zeroize`、`secrecy`、`percent-encoding`、`thiserror`、`anyhow`（仅 main） | |
-| 打包 | `cargo-wix` 或 Inno Setup | M8 决定；安装到 `%LOCALAPPDATA%\Programs\Mirage`（用户级，无需 UAC） |
+| 打包 | Inno Setup 6.4.3、cargo-about 0.9.2 | M8 已实现；安装到 `%LOCALAPPDATA%\Programs\Mirage`（用户级，无需 UAC），Windows x64 静态 CRT |
 
 依赖必须固定精确版本（`=x.y.z`），并提交 `Cargo.lock`。新增依赖前要确认它在维护中、许可证兼容。
 
@@ -1048,7 +1048,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | M5 UI 完整 | 六个页面、错误条、Toast、托盘状态、节流 | 后台更新时 UI 不卡顿；隐藏窗口后 CPU 接近 0 |
 | M6 可靠性收尾 | 诊断包、日志轮转、schema 迁移、冲突检测（§11.8）、开机启动 | 原自由猫运行时能检测并提示；诊断包中搜不到 token 和密码 |
 | M7 TUN | mirage-service、IPC 校验、TUN 覆盖、开关流程 | 默认关闭；手动开启后非浏览器程序也走代理；关闭后路由恢复；强制结束服务或 UI 后可恢复；非安装用户无法连接管道 |
-| M8 分发 | 安装包、许可证文本、签名（如有） | 在干净的 Windows 10/11 上安装后能从零完成 M1～M4 的流程 |
+| M8 分发 | 安装向导、完整核心 / helper、许可证清单、SHA256；当前未签名 | 安装包构建及本机验收见 [M8.md](acceptance/M8.md)；干净 Windows 10/11 的 M1～M4 全流程仍需实机验收 |
 
 必须覆盖的端到端场景：
 
@@ -1071,7 +1071,9 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 - Mihomo：GPL-3.0。以独立进程方式分发它的二进制，需要附带许可证文本和源码获取方式（指向对应版本的 tag）。
 - Slint：可选 GPLv3、免版税许可证（Royalty-free 2.0）或商业许可证。免版税许可证允许闭源桌面应用免费使用，但要求公开声明使用了 Slint，例如在“关于”页加入 `AboutSlint` 组件，或在下载页展示 Slint 徽章。不适用于嵌入式设备。具体条款以开工时 Slint 仓库 `LICENSES/` 中的原文为准。
 - 默认方案：采用 Royalty-free 2.0，在“关于”页放 `AboutSlint`。如果 Mirage 本身以 GPL 开源，也可以直接选 GPLv3。
-- 第三方依赖的许可证清单用 `cargo about` 或 `cargo deny` 生成，随安装包附带。
+- 第三方依赖的许可证清单由 cargo-about 0.9.2 按 Cargo.lock 的 Windows x64 workspace 生成，随安装包附带；Slint 自定义许可证以固定 SHA256 的独立原文附带，Lucide、geodata、Inno Setup 也保留声明。当前未签名。
+- M8 入口是 `scripts/package.ps1`，安装器定义在 `packaging/Mirage.iss`，具体构建与分发规则见 [packaging.md](packaging.md)。安装包同时带 `Mirage.exe`、`mirage-service.exe`、官方内核和四份 geodata，但不注册服务；首次启用 TUN 再说明并 UAC。开启前核对服务用户 / 客户端路径、版本和 helper SHA256，不匹配即要求更新。
+- 升级前以 `Mirage.exe --quit` 正常退出并恢复 Mirage 设置的系统代理；卸载前以 `--prepare-uninstall` 清理属于本路径 / 用户的服务与自启项，服务操作取消或失败则中断卸载。卸载保留当前用户数据，安装流程不强制结束进程。
 
 ---
 
@@ -1086,6 +1088,6 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | 自由猫首次登录编码与响应 | M4 | 【已验证】JSON 被接受，密码错误为 HTTP 500 + 信封 message；成功为 HTTP 200，`data` 字段 `auth_data`/`is_admin`/`token`（2026-10-16 真实账号） |
 | 无代理环境下自由猫 API 是否可达 | M4 | Auto 出站策略 |
 | TUN stack 与 DNS 默认值 | M7 | mixed + 注入最小 DNS |
-| 安装包工具与代码签名 | M8 | Inno Setup，未签名 |
+| 安装包工具与代码签名 | M8 | 【已决定】Inno Setup 6.4.3，当前未签名；流程见 [packaging.md](packaging.md) |
 
 确认结果要写回本文对应章节。不能把未经确认的猜测固化为产品行为。

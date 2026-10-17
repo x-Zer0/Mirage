@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mirage third-party licenses</title>
+<style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:0 24px}pre{white-space:pre-wrap;overflow-wrap:anywhere}section{border-top:1px solid #aaa;margin-top:32px}</style>
+</head><body><h1>Mirage third-party licenses</h1>
+<p>Generated from Cargo.lock for Windows x64 using cargo-about. Slint is used under its Royalty-free 2.0 license; the app includes AboutSlint in Diagnostics. Mihomo, geodata and icon notices are distributed separately in this folder.</p>
+{{#each licenses}}<section><h2>{{name}}</h2><ul>{{#each used_by}}<li>{{crate.name}} {{crate.version}}{{#if crate.repository}} — <a href="{{crate.repository}}">source</a>{{/if}}</li>{{/each}}</ul><pre>{{text}}</pre></section>{{/each}}
+</body></html>
