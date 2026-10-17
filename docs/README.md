@@ -7,6 +7,7 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 | 文档 | 内容 | 何时阅读 |
 | --- | --- | --- |
 | [DESIGN.md](DESIGN.md) | 产品范围、默认决策、架构、模块接口、配置管线、Mihomo 运行、Windows 集成、持久化、UI、里程碑与验收 | 开工前通读；每个里程碑开始前重读对应章节 |
+| [ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md) | 刷新后节点差异、AES 订阅解密、标准核心联网对照、旧订阅结论修正 | 排查节点超时、修改自由猫订阅实现前优先阅读 |
 | [ZIYOUMAO.md](ZIYOUMAO.md) | 自由猫主机发现、登录、令牌隔离、订阅下载、旧配置解码、错误映射、已验证证据 | 实现 `providers/ziyoumao` 时 |
 
 ## 文档约定
@@ -19,5 +20,5 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 ## 当前状态
 
 - 里程碑：M0～M5 已完成，手工验收记录见 [acceptance/](acceptance/)；下一步 M6（可靠性收尾）。
-- 已验证：自由猫账号密码登录（真实账号，2026-10-16）、会话恢复与订阅下载；`User-Agent: clash-verge` 可取得标准 Mihomo YAML；官方 Mihomo v1.19.32 校验通过且联网成功。
+- 已验证：自由猫账号密码登录（真实账号，2026-10-16）、会话恢复与订阅下载；`clash-verge` 可取得合法 YAML，但本次节点入口不可达；`freecatencua/v` 的 AES 订阅解密后，官方 Mihomo v1.19.32 四节点测速和 HTTPS 204 成功，详见新增分析文档。
 - 未验证：令牌有效期、验证码/设备要求、TUN/UDP/IPv6、原客户端退出后的完整独立运行。

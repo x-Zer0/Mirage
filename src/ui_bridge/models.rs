@@ -143,8 +143,10 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     w.set_settings_provider_egress(i32::try_from(st.provider_egress).unwrap_or(0));
     w.set_settings_auto_connect(st.auto_connect);
     w.set_settings_close_to_tray(st.close_to_tray);
+    w.set_settings_autostart(st.autostart);
     w.set_core_path(st.core_path.clone().into());
     w.set_geo_updating(s.geo_updating);
+    w.set_exporting(s.exporting);
 
     applied.last = Some(s.clone());
 }

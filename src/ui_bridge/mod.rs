@@ -190,7 +190,7 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     window.on_probe_hosts(move || send(&c, Command::ProbeProviderHosts));
     let c = commands.clone();
     window.on_save_settings(
-        move |port, bypass, ua, egress, auto_connect, close_to_tray| {
+        move |port, bypass, ua, egress, auto_connect, close_to_tray, autostart| {
             send(
                 &c,
                 Command::SaveSettings(SettingsInput {
@@ -200,12 +200,15 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
                     provider_egress: usize::try_from(egress).unwrap_or(0),
                     auto_connect,
                     close_to_tray,
+                    autostart,
                 }),
             )
         },
     );
     let c = commands.clone();
     window.on_update_geodata(move || send(&c, Command::UpdateGeodata));
+    let c = commands.clone();
+    window.on_export_diagnostics(move || send(&c, Command::ExportDiagnostics));
     let c = commands.clone();
     window.on_retry_error(move || send(&c, Command::RetryNotice));
     window.on_dismiss_error(move || send(&commands, Command::DismissNotice));

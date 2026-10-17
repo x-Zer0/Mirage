@@ -1,5 +1,7 @@
 # 自由猫（ziyoumao）接入规范
 
+> **2026-10-16 订阅结论修正：** 本文的 `clash-verge` 明文订阅仅验证了格式，当前样本的入口实际不可用。原客户端使用 `freecatencua/v` 获取 AES 加密订阅，解密后入口不同，官方核心已实连成功。订阅下载与解密实现请以 [节点超时与加密订阅分析](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md) 为准；下文旧 UA 契约及无需解密的说法已被此次证据修正。
+
 版本 v1.0（2026-10-15）。本文是 `src/providers/ziyoumao/` 的实现依据，自包含：实现时无需再查阅逆向材料。通用接口（`ProviderAccountAdapter`、`DownloadDescriptor`、`SecretStore`、`HttpClientFactory`、错误类型）定义见 [DESIGN.md](DESIGN.md) §5、§6、§12、§14。
 
 本文不是官方 API 文档。接口来自原客户端静态分析、公开 Web 客户端源码和授权账号的只读实测，服务端行为可能变化。证据标记：
@@ -368,4 +370,3 @@ fn decode_legacy(raw: &[u8]) -> Result<String, AppError> {
 - 数据目录：`%APPDATA%\ziyoumao\ziyoumao\`，包含 `config.yaml`、`shared_preferences.json`、`profiles/`。
 - 进程：`ziyoumao.exe`（Flutter UI）、`ziyoumaoCore.exe`（定制内核）。用于冲突检测，见 DESIGN.md §11.8。
 - 公开 Web 客户端：https://us.freecat.cloud/ 。其中资源文件名带内容哈希，会随版本发布而变化，需要核对协议细节时可再次查看。
-

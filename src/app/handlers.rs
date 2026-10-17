@@ -4,6 +4,7 @@ use super::state::{Connectivity, ProfileView, Retry, RuntimeStatus};
 use super::{AppCore, Command, Internal, error_notice, info_notice, pipeline, runtime, updates};
 use crate::domain::error::{AppError, AppErrorKind};
 use crate::domain::model::{EgressPolicy, Profile, SubscriptionSource, Validity, now};
+use crate::platform::windows::conflict::{self, Conflict};
 use crate::storage::meta;
 use crate::subscriptions::revisions;
 
@@ -51,6 +52,7 @@ impl AppCore {
             Command::UpdateGeodata => self.update_geodata(),
             Command::WindowVisible(visible) => self.set_window_visible(visible),
             Command::CloseHintShown => self.close_hint_shown(),
+            Command::ExportDiagnostics => self.export_diagnostics(),
             Command::SetLiveSink(sink) => self.live.set_sink(sink),
             // Both end the actor loop before reaching here (app::AppCore::run).
             Command::SessionEnding(_) | Command::Quit => {}
@@ -104,6 +106,7 @@ impl AppCore {
             Internal::ModeApplied(generation, result) => self.on_mode_applied(generation, result),
             Internal::CoreMode(generation, result) => self.on_core_mode(generation, result),
             Internal::GeoUpdated(result) => self.on_geo_updated(result),
+            Internal::DiagnosticsExported(result) => self.on_diagnostics_exported(result),
         }
     }
 
@@ -282,6 +285,24 @@ impl AppCore {
                 | RuntimeStatus::Stopping
         ) {
             return;
+        }
+        // §11.8: warn about the original client before starting. This never
+        // blocks the connect: the user may be running it deliberately, and the
+        // check exists to explain a failure, not to prevent an attempt.
+        let conflicts = conflict::detect(self.view.mixed_port);
+        if !conflicts.is_empty() {
+            tracing::warn!(
+                count = conflicts.len(),
+                "conflicts with the original client"
+            );
+            let text = conflicts
+                .iter()
+                .map(Conflict::text)
+                .collect::<Vec<_>>()
+                .join("；");
+            self.view.notice = Some(
+                info_notice(format!("提示：{text}。若连接失败请先完全退出原客户端。")).notifying(),
+            );
         }
         // An explicit connect starts a fresh restart budget and re-reads the
         // saved switch (an external change may have turned it off for this run).

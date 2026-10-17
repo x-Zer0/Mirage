@@ -21,9 +21,11 @@ export component DiagnosticsPage inherits VerticalLayout {
     in property <[LogRow]> logs;
     in property <bool> probing-hosts;
     in property <[string]> provider-hosts;
+    in property <bool> exporting;
     callback check-connectivity();
     callback probe-hosts();
     callback clear-logs();
+    callback export-diagnostics();
 
     spacing: 12px;
 
@@ -134,11 +136,21 @@ export component DiagnosticsPage inherits VerticalLayout {
         vertical-stretch: 0;
         alignment: start;
         Button {
-            text: "导出诊断包";
-            enabled: false;
-            accessible-label: "导出诊断包（后续版本提供）";
+            text: root.exporting ? "正在导出…" : "导出诊断包";
+            icon: @image-url("../../assets/icons/lucide/file-plus.svg");
+            colorize-icon: true;
+            enabled: !root.exporting;
+            accessible-label: "导出诊断包";
+            clicked => { root.export-diagnostics(); }
         }
-        Text { text: "诊断包将在后续版本提供 · 图标：Lucide (ISC)"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
+        Text {
+            text: "含脱敏日志、设置与内核信息；不含订阅地址与令牌 · 图标：Lucide (ISC)";
+            color: Theme.text-muted;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            wrap: word-wrap;
+        }
         AboutSlint { max-height: 80px; max-width: 260px; }
     }
 }

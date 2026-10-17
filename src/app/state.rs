@@ -225,6 +225,8 @@ pub struct SettingsView {
     pub auto_connect: bool,
     pub close_to_tray: bool,
     pub close_hint_shown: bool,
+    /// Start with Windows (§11.6); reflects the saved preference.
+    pub autostart: bool,
     pub core_path: String,
 }
 
@@ -270,4 +272,6 @@ pub struct AppStateView {
     pub provider_hosts: Vec<String>,
     pub settings: SettingsView,
     pub geo_updating: bool,
+    /// A diagnostics bundle is being collected or saved (§18).
+    pub exporting: bool,
 }

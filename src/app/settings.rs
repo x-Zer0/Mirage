@@ -2,13 +2,16 @@
 //! default UA, provider egress, startup behaviour, routing mode, geodata.
 
 use super::state::{Retry, RuntimeStatus, SettingsView};
-use super::{AppCore, Command, Internal, error_notice, info_notice};
+use super::{AppCore, Command, Internal, diagnostics, error_notice, info_notice};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{EgressPolicy, RoutingMode, SubscriptionSource};
+use crate::platform::windows::autostart;
 use crate::platform::windows::clipboard;
 use crate::storage::meta;
 
 const STAGE: &str = "app.settings";
+/// Shown in the diagnostics bundle (§18) and in the help text.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Ports below this are reserved or need elevation on some systems.
 const MIN_PORT: u16 = 1024;
 const MAX_BYPASS: usize = 4096;
@@ -25,6 +28,8 @@ pub struct SettingsInput {
     pub provider_egress: usize,
     pub auto_connect: bool,
     pub close_to_tray: bool,
+    /// Start with Windows (§11.6); applied to the Run key, not to the config.
+    pub autostart: bool,
 }
 
 impl AppCore {
@@ -41,6 +46,7 @@ impl AppCore {
             auto_connect: s.auto_connect,
             close_to_tray: s.close_to_tray,
             close_hint_shown: s.close_hint_shown,
+            autostart: s.autostart,
             core_path: self
                 .layout
                 .bundled_core
@@ -65,17 +71,22 @@ impl AppCore {
         };
         let port_changed = parsed.mixed_port != self.settings.mixed_port;
         let bypass_changed = parsed.bypass != self.settings.bypass;
+        let autostart_changed = input.autostart != self.settings.autostart;
         self.settings.mixed_port = parsed.mixed_port;
         self.settings.bypass = parsed.bypass;
         self.settings.default_user_agent = parsed.default_user_agent;
         self.settings.provider_egress = parsed.provider_egress;
         self.settings.auto_connect = input.auto_connect;
         self.settings.close_to_tray = input.close_to_tray;
+        self.settings.autostart = input.autostart;
         if let Err(e) = self.save_settings_file() {
             self.view.notice = Some(error_notice(&e));
             return;
         }
         self.refresh_settings_view();
+        // The one notice that is shown: a restart, the bypass list, the
+        // autostart entry, or a plain confirmation. The earlier branches win
+        // because they describe work the user has to wait for.
         let up = self.view.runtime.is_up();
         if port_changed && up {
             // §10.6: a new mixed-port needs a process restart. The system
@@ -90,6 +101,8 @@ impl AppCore {
             self.release_sysproxy();
             self.ensure_sysproxy();
             self.view.notice = Some(info_notice("设置已保存，系统代理例外列表已更新"));
+        } else if autostart_changed {
+            self.apply_autostart(input.autostart);
         } else {
             self.view.notice = Some(info_notice("设置已保存"));
         }
@@ -105,6 +118,113 @@ impl AppCore {
             tracing::warn!(error = %e, "settings not saved");
         }
         self.refresh_settings_view();
+    }
+
+    /// Writes or removes the Run entry (§11.6). The saved preference is the
+    /// source of truth, so the registry is repaired whenever it disagrees.
+    pub(super) fn apply_autostart(&mut self, wanted: bool) {
+        let result = autostart::apply(wanted);
+        if let Err(e) = result.as_ref() {
+            tracing::warn!(error = %e, "autostart entry not updated");
+        }
+        self.view.notice = Some(match result {
+            Ok(true) if wanted => info_notice("已设置为开机启动"),
+            Ok(true) => info_notice("已取消开机启动"),
+            Ok(false) => info_notice("开机启动设置无需更改"),
+            Err(e) => error_notice(&AppError::internal(STAGE, e)),
+        });
+    }
+
+    /// Bundle export (§18): the user picks the file, then everything is
+    /// collected on a blocking thread (the log files may be large).
+    pub(super) fn export_diagnostics(&mut self) {
+        if self.view.exporting {
+            return;
+        }
+        self.view.exporting = true;
+        let layout = self.layout.clone();
+        let version = VERSION.to_owned();
+        let profiles = self.profiles.all().to_vec();
+        let check_lines = self.view.check_lines.clone();
+        let policy_notes = self
+            .view
+            .profiles
+            .iter()
+            .find(|p| p.selected)
+            .map(|p| p.policy_notes.clone())
+            .unwrap_or_default();
+        let core = self.binary.clone();
+        let port = self.view.mixed_port;
+        tokio::spawn(async move {
+            // §14.2: the user is told what the bundle may contain before it
+            // is written, and the default name carries the date.
+            let confirmed = rfd::AsyncMessageDialog::new()
+                .set_title("导出诊断包")
+                .set_description(
+                    "诊断包包含脱敏后的应用与内核日志、settings.json、配置摘要\
+                     （不含订阅地址）、最近一次校验输出、系统代理与内核信息。\n\
+                     原始订阅和运行配置不会包含在内。确定继续？",
+                )
+                .set_buttons(rfd::MessageButtons::OkCancel)
+                .show()
+                .await;
+            if !matches!(confirmed, rfd::MessageDialogResult::Ok) {
+                return Internal::DiagnosticsExported(Ok(None));
+            }
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("保存诊断包")
+                .set_file_name(format!(
+                    "mirage-diagnostics-{}.zip",
+                    chrono::Local::now().format("%Y%m%d-%H%M%S")
+                ))
+                .add_filter("ZIP", &["zip"])
+                .save_file()
+                .await
+            else {
+                return Internal::DiagnosticsExported(Ok(None));
+            };
+            let path = file.path().to_path_buf();
+            // The blocking pool: zipping log tails is file I/O.
+            let built = tokio::task::spawn_blocking(move || {
+                diagnostics::export(
+                    &layout,
+                    &path,
+                    &diagnostics::Inputs {
+                        version: &version,
+                        profiles: &profiles,
+                        check_lines: &check_lines,
+                        policy_notes: &policy_notes,
+                        core: core.as_ref(),
+                        mixed_port: port,
+                    },
+                )
+            })
+            .await;
+            let result = match built {
+                Ok(r) => r,
+                Err(e) => Err(AppError::internal(STAGE, e)),
+            };
+            Internal::DiagnosticsExported(result.map(Some))
+        });
+    }
+
+    pub(super) fn on_diagnostics_exported(
+        &mut self,
+        result: AppResult<Option<diagnostics::Bundle>>,
+    ) {
+        self.view.exporting = false;
+        match result {
+            // Cancelled in the dialog: no toast, nothing happened.
+            Ok(None) => {}
+            Ok(Some(bundle)) => {
+                self.view.notice = Some(info_notice(format!(
+                    "诊断包已导出：{} 个文件，{:.1} KiB",
+                    bundle.entries.len(),
+                    bundle.bytes as f64 / 1024.0
+                )));
+            }
+            Err(e) => self.view.notice = Some(error_notice(&e)),
+        }
     }
 
     /// User-chosen mode: saved, applied at runtime via `PATCH /configs`, and
@@ -227,6 +347,9 @@ impl AppCore {
         });
     }
 
+    /// Autostart is applied from [`Self::save_settings`] when the switch
+    /// changes, and reconciled at startup (§11.6).
+    ///
     /// Error bar retry button (§17.3).
     pub(super) fn retry(&mut self) {
         let Some(retry) = self.view.error.take().and_then(|n| n.retry) else {

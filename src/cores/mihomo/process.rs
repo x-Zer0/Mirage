@@ -3,10 +3,13 @@
 //! unowned. Closing the job (or Mirage exiting) terminates the core.
 
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
+use crate::logging::{MAX_FILE_BYTES, RollingWriter};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -23,7 +26,6 @@ use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND
 const STAGE: &str = "mihomo.process";
 pub const NO_WINDOW: u32 = 0x0800_0000; // CREATE_NO_WINDOW
 const SUSPENDED: u32 = 0x0000_0004; // CREATE_SUSPENDED
-const MAX_CORE_LOG: u64 = 10 * 1024 * 1024;
 
 pub struct CoreCommand {
     pub exe: PathBuf,
@@ -70,8 +72,9 @@ impl CoreProcess {
 }
 
 pub fn spawn(cmd: CoreCommand) -> AppResult<CoreProcess> {
-    let log = open_log(&cmd.log_file)?;
-    let log_err = log.try_clone().map_err(|e| AppError::storage(STAGE, e))?;
+    // §18: the core log is bounded exactly like the application log (10 MiB
+    // per file, 7 days kept), so a chatty core cannot fill the disk.
+    let writer = log_writer(&cmd.log_file)?;
 
     let mut child = tokio::process::Command::new(&cmd.exe)
         .arg("-d")
@@ -84,12 +87,22 @@ pub fn spawn(cmd: CoreCommand) -> AppResult<CoreProcess> {
         .arg(&cmd.secret)
         .current_dir(&cmd.home_dir)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(log_err))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .creation_flags(NO_WINDOW | SUSPENDED)
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| AppError::new(AppErrorKind::CoreBinaryInvalid, STAGE, e.to_string()))?;
+
+    // Both streams converge on one writer, which is why it is shared.
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    if let Some(stream) = stdout.take() {
+        pump(stream, writer.clone());
+    }
+    if let Some(stream) = stderr.take() {
+        pump(stream, writer.clone());
+    }
 
     let pid = child.id().unwrap_or_default();
     let raw = child.raw_handle().unwrap_or(std::ptr::null_mut());
@@ -128,23 +141,55 @@ pub fn spawn(cmd: CoreCommand) -> AppResult<CoreProcess> {
     })
 }
 
-/// Last lines of the core log, used to explain an early exit.
-pub fn log_tail(path: &std::path::Path, lines: usize) -> String {
+/// Last lines of the core log, used to explain an early exit. `stem` is the
+/// rolling writer's base path; the newest segment is read.
+pub fn log_tail(stem: &std::path::Path, lines: usize) -> String {
+    let path = crate::logging::newest_segment(stem);
     let text = std::fs::read(path).unwrap_or_default();
     let text = String::from_utf8_lossy(&text);
     let all: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     all[all.len().saturating_sub(lines)..].join(" | ")
 }
 
-fn open_log(path: &std::path::Path) -> AppResult<std::fs::File> {
-    let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > MAX_CORE_LOG);
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(!too_big)
-        .write(true)
-        .truncate(too_big)
-        .open(path)
-        .map_err(|e| AppError::storage(STAGE, e))
+/// One rolling writer per core-log stem, so a restart keeps appending to the
+/// same bounded file set instead of opening a new one each time.
+fn log_writer(stem: &std::path::Path) -> AppResult<Arc<RollingWriter>> {
+    let mut writers = LOG_WRITERS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing) = writers.get(stem) {
+        return Ok(existing.clone());
+    }
+    let writer = Arc::new(
+        RollingWriter::open(stem.to_path_buf(), MAX_FILE_BYTES)
+            .map_err(|e| AppError::storage(STAGE, e))?,
+    );
+    writers.insert(stem.to_path_buf(), writer.clone());
+    Ok(writer)
+}
+
+static LOG_WRITERS: OnceLock<Mutex<HashMap<PathBuf, Arc<RollingWriter>>>> = OnceLock::new();
+
+/// Copies one core stream into the rolling log until the pipe closes.
+fn pump(
+    mut stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    writer: Arc<RollingWriter>,
+) {
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 16 * 1024];
+        loop {
+            match tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if let Err(e) = writer.append(&buf[..n]) {
+                        tracing::debug!(error = %e, "core log write failed");
+                        break;
+                    }
+                }
+            }
+        }
+    });
 }
 
 struct JobHandle(HANDLE);

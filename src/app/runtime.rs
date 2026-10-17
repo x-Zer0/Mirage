@@ -72,10 +72,9 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
     atomic::write(&run_config, prepared.composed.yaml.as_bytes())
         .map_err(|e| AppError::storage(STAGE, e))?;
 
-    let log_file = req.layout.core_home.join("logs").join(format!(
-        "core-{}.log",
-        chrono::Local::now().format("%Y-%m-%d")
-    ));
+    // §18: the core log uses the same bounded rolling scheme as the app log;
+    // this is the stem, and the writer stamps the dated file names itself.
+    let log_file = req.layout.core_log_stem();
     let process = process::spawn(CoreCommand {
         exe: req.binary.exe.clone(),
         home_dir: req.layout.core_home.clone(),
@@ -297,10 +296,16 @@ fn ensure_port_free(port: u16) -> AppResult<()> {
     TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .map(drop)
         .map_err(|_| {
+            // §11.8: name the process holding the port, so the user can act.
+            let owner = crate::platform::windows::conflict::port_owner(port);
+            let hint = match owner {
+                Some(name) => format!("，占用进程：{name}"),
+                None => String::new(),
+            };
             AppError::new(
                 AppErrorKind::PortInUse,
                 STAGE,
-                format!("127.0.0.1:{port} 已被其他程序占用（例如原自由猫客户端）"),
+                format!("127.0.0.1:{port} 已被其他程序占用{hint}；可在设置中修改本地代理端口"),
             )
         })
 }

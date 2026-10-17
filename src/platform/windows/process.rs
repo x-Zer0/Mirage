@@ -3,6 +3,9 @@
 
 use std::io;
 use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+};
 use windows::Win32::System::Threading::{
     GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_TERMINATE, QueryFullProcessImageNameW, TerminateProcess,
@@ -51,6 +54,45 @@ pub fn terminate(pid: u32) -> io::Result<()> {
     let handle = Handle::open(pid, PROCESS_TERMINATE.0)?;
     // SAFETY: handle opened with PROCESS_TERMINATE for exactly this PID.
     unsafe { TerminateProcess(handle.0, 1) }.map_err(io::Error::other)
+}
+
+/// Every running process image name, without directory (DESIGN.md §11.8).
+/// Unreadable entries are skipped: a conflict check must never fail a start.
+pub fn image_names() -> Vec<String> {
+    // SAFETY: snapshot iteration with a correctly sized PROCESSENTRY32W; the
+    // snapshot handle is closed before returning.
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return Vec::new();
+        };
+        let mut entry = PROCESSENTRY32W {
+            dwSize: size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut out = Vec::new();
+        let mut more = Process32FirstW(snap, &mut entry).is_ok();
+        while more {
+            let name = String::from_utf16_lossy(&entry.szExeFile);
+            let trimmed = name.trim_end_matches('\0');
+            if !trimmed.is_empty() {
+                out.push(trimmed.to_owned());
+            }
+            more = Process32NextW(snap, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snap);
+        out
+    }
+}
+
+/// Image file name (no directory) of one PID; `None` when it is gone or denied.
+pub fn image_name(pid: u32) -> Option<String> {
+    let identity = identity(pid)?;
+    Some(
+        std::path::Path::new(&identity.image)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or(identity.image),
+    )
 }
 
 struct Handle(HANDLE);

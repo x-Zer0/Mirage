@@ -95,6 +95,11 @@ impl Layout {
         self.core_home.join("check")
     }
 
+    /// Base path of the rolling core log; the writer appends `-<date>.log`.
+    pub fn core_log_stem(&self) -> PathBuf {
+        self.core_home.join("logs").join("core.log")
+    }
+
     pub fn core_run_dir(&self) -> PathBuf {
         self.core_home.join("run")
     }

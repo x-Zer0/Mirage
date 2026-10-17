@@ -46,18 +46,12 @@ impl CoreJournal {
 }
 
 impl Versioned for SysProxyJournal {
-    fn schema_version(&self) -> u32 {
-        self.schema_version
-    }
     fn set_schema_version(&mut self, v: u32) {
         self.schema_version = v;
     }
 }
 
 impl Versioned for CoreJournal {
-    fn schema_version(&self) -> u32 {
-        self.schema_version
-    }
     fn set_schema_version(&mut self, v: u32) {
         self.schema_version = v;
     }

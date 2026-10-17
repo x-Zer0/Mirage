@@ -11,6 +11,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <int> saved-provider-egress;
     in property <bool> saved-auto-connect;
     in property <bool> saved-close-to-tray;
+    in property <bool> saved-autostart;
     in property <[string]> egress-options;
     in property <string> core-version;
     in property <string> core-path;
@@ -18,7 +19,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> geo-updating;
     // A start/stop is in flight; saving could restart the core again.
     in property <bool> busy;
-    callback save(string, string, string, int, bool, bool);
+    callback save(string, string, string, int, bool, bool, bool);
     callback update-geodata();
 
     // Working copies, reset from the saved values whenever the page opens.
@@ -28,6 +29,7 @@ export component SettingsPage inherits VerticalLayout {
     property <int> provider-egress: root.saved-provider-egress;
     property <bool> auto-connect: root.saved-auto-connect;
     property <bool> close-to-tray: root.saved-close-to-tray;
+    property <bool> autostart: root.saved-autostart;
 
     spacing: 16px;
     alignment: start;
@@ -85,7 +87,13 @@ export component SettingsPage inherits VerticalLayout {
             Text { text: "启动与窗口"; font-weight: 600; color: Theme.text; }
             CheckBox { text: "启动后自动连接"; checked <=> root.auto-connect; }
             CheckBox { text: "关闭窗口时最小化到托盘（取消则关闭即退出）"; checked <=> root.close-to-tray; }
-            Text { text: "开机启动将在后续版本提供。"; color: Theme.text-muted; font-size: 12px; }
+            CheckBox { text: "开机启动（登录后最小化到托盘运行）"; checked <=> root.autostart; }
+            Text {
+                text: "开机启动写入当前用户的启动项（Run 键），不需要管理员权限；取消勾选并保存即移除。";
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
         }
     }
 
@@ -99,7 +107,7 @@ export component SettingsPage inherits VerticalLayout {
             icon: @image-url("../../assets/icons/lucide/check.svg");
             colorize-icon: true;
             clicked => {
-                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray);
+                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray, root.autostart);
             }
         }
         Button {
@@ -111,6 +119,7 @@ export component SettingsPage inherits VerticalLayout {
                 root.provider-egress = root.saved-provider-egress;
                 root.auto-connect = root.saved-auto-connect;
                 root.close-to-tray = root.saved-close-to-tray;
+                root.autostart = root.saved-autostart;
             }
         }
     }

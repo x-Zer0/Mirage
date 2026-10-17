@@ -61,8 +61,10 @@ export component MainWindow inherits Window {
     in property <int> settings-provider-egress;
     in property <bool> settings-auto-connect;
     in property <bool> settings-close-to-tray;
+    in property <bool> settings-autostart;
     in property <string> core-path;
     in property <bool> geo-updating;
+    in property <bool> exporting;
     // Live data: only fed while the window is visible (§17.4).
     in property <string> up-rate: "0 B/s";
     in property <string> down-rate: "0 B/s";
@@ -103,8 +105,9 @@ export component MainWindow inherits Window {
     callback remove-account(string, bool);
     callback import-legacy();
     callback probe-hosts();
-    callback save-settings(string, string, string, int, bool, bool);
+    callback save-settings(string, string, string, int, bool, bool, bool);
     callback update-geodata();
+    callback export-diagnostics();
     callback clear-logs();
     callback filter-nodes(string);
 
@@ -279,13 +282,14 @@ export component MainWindow inherits Window {
                     saved-provider-egress: root.settings-provider-egress;
                     saved-auto-connect: root.settings-auto-connect;
                     saved-close-to-tray: root.settings-close-to-tray;
+                    saved-autostart: root.settings-autostart;
                     egress-options: root.egress-options;
                     core-version: root.core-version;
                     core-path: root.core-path;
                     running: root.running;
                     geo-updating: root.geo-updating;
                     busy: root.busy;
-                    save(port, bypass, ua, egress, auto, tray) => { root.save-settings(port, bypass, ua, egress, auto, tray); }
+                    save(port, bypass, ua, egress, auto, tray, autostart) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart); }
                     update-geodata => { root.update-geodata(); }
                 }
             }

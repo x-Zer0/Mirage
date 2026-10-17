@@ -4,6 +4,7 @@
 
 mod accounts;
 mod connectivity;
+pub mod diagnostics;
 pub mod live;
 mod pipeline;
 mod profiles;
@@ -92,6 +93,8 @@ pub enum Command {
     /// Main window shown/hidden; live streams only run while visible (§17.4).
     WindowVisible(bool),
     CloseHintShown,
+    /// Writes the diagnostics bundle to a user-chosen file (§18).
+    ExportDiagnostics,
     /// Installs the receiver of traffic samples and log batches.
     SetLiveSink(std::sync::Arc<dyn live::LiveSink>),
     /// Logoff/shutdown: clean up now and acknowledge when done (§11.5).
@@ -136,6 +139,8 @@ enum Internal {
     ModeApplied(u64, Result<(), AppError>),
     CoreMode(u64, Result<String, AppError>),
     GeoUpdated(Result<(), AppError>),
+    /// Diagnostics bundle written (or the user cancelled the save dialog).
+    DiagnosticsExported(Result<Option<diagnostics::Bundle>, AppError>),
 }
 
 pub struct CoreHandle {
@@ -335,6 +340,14 @@ impl AppCore {
         }
         let layout = self.layout.clone();
         self.spawn(async move { Internal::CoreVerified(binary::verify(&layout).await) });
+        // §11.6: the saved preference is the source of truth, so a Run entry
+        // deleted outside Mirage (or left by an older executable path) is
+        // repaired here rather than only when the user opens the settings page.
+        if self.settings.autostart
+            && let Err(e) = crate::platform::windows::autostart::apply(true)
+        {
+            tracing::warn!(error = %e, "autostart entry not repaired");
+        }
         self.refresh_settings_view();
         self.refresh_profiles_view();
         self.refresh_accounts_view();
