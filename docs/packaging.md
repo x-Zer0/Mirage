@@ -1,6 +1,6 @@
-# Windows 安装包与分发（M8）
+# Windows 安装版、便携版与分发（M8）
 
-目标为 Windows 10 1809+ / Windows 11 x64。使用 Inno Setup；默认安装到 `%LOCALAPPDATA%\Programs\Mirage`，安装本身无需 UAC。安装向导包含欢迎页、安装说明、目录选择、可选桌面快捷方式、完成说明和启动选项；开始菜单及 Windows 应用列表提供卸载入口。
+目标为 Windows 10 1809+ / Windows 11 x64。同一次打包构建同时生成安装版 EXE 和免安装 ZIP，二者复用同一批 release 文件、官方核心及许可证材料。安装版使用 Inno Setup；默认安装到 `%LOCALAPPDATA%\Programs\Mirage`，安装本身无需 UAC。安装向导包含欢迎页、安装说明、目录选择、可选桌面快捷方式、完成说明和启动选项；开始菜单及 Windows 应用列表提供卸载入口。
 
 ## 构建
 
@@ -18,15 +18,16 @@ pwsh -File scripts/package.ps1
 pwsh -File scripts/package.ps1 -Iscc 'D:\Tools\Inno Setup\ISCC.exe' -CargoAbout 'D:\Tools\cargo-about.exe'
 ```
 
-脚本校验并复用已下载的官方核心 / geodata，缺失时按固定 SHA256 下载；锁定依赖构建整个 workspace，生成许可证清单，再编译安装包。首次执行 cargo-about 若提示缺少其他平台 crate，先在联网环境执行一次 `cargo fetch --locked`，之后许可证生成使用 `--offline --locked --fail`。
+脚本校验并复用已下载的官方核心 / geodata，缺失时按固定 SHA256 下载；锁定依赖构建整个 workspace，生成许可证清单，再编译安装包并使用 PowerShell 自带 `Compress-Archive` 生成便携 ZIP，无需额外压缩工具。首次执行 cargo-about 若提示缺少其他平台 crate，先在联网环境执行一次 `cargo fetch --locked`，之后许可证生成使用 `--offline --locked --fail`。
 
 输出：
 
 - `dist/Mirage-<版本>-windows-x64-setup.exe`
-- 同名 `.exe.sha256` 校验文件。
-- `target/package/<版本>-<随机标识>/` 留存独立打包目录，包含 `payload-sha256.txt`，便于核对本次实际入包文件。
+- `dist/Mirage-<版本>-windows-x64-portable.zip`
+- 两个产物分别附同名 `.exe.sha256` / `.zip.sha256` 校验文件。
+- `target/package/<版本>-<随机标识>/` 留存独立打包目录，包含安装版公共文件及 `payload-sha256.txt`；其下 `portable/Mirage/` 为便携版目录，独立清单还覆盖便携版说明，便于核对实际入包文件。用于安装器编译的 `app.ico` 不额外放入 ZIP。
 
-`-SkipBuild` 仅用于已完成本次 release 构建后的重新打包；`-StageOnly` 只准备目录、不调用安装器编译器。版本来自 Cargo metadata；主程序和服务版本必须一致，核心哈希必须与 `ipc/src/binary.rs` 一致。四份 geodata 和核心压缩包的固定值集中在 `scripts/core-assets.psd1`，下载和打包复用它，滚动数据变化时拒绝静默替换。
+`-SkipBuild` 仅用于已完成本次 release 构建后的重新打包；`-StageOnly` 只准备公共目录、不调用安装器编译器，也不输出 EXE / ZIP；正常构建和 `-SkipBuild` 重打包均同时输出两种产物。`cargo build` 本身仅编译程序，分发统一使用上述打包入口。版本来自 Cargo metadata；主程序和服务版本必须一致，核心哈希必须与 `ipc/src/binary.rs` 一致。四份 geodata 和核心压缩包的固定值集中在 `scripts/core-assets.psd1`，下载和打包复用它，滚动数据变化时拒绝静默替换。
 
 ## 随包内容与首次使用
 
@@ -63,6 +64,16 @@ payload-sha256.txt
 卸载前执行 `Mirage.exe --prepare-uninstall`：正常退出及恢复完成后，只清理属于当前用户、当前安装路径的服务；服务卸载请求 UAC，取消或失败则中断卸载、保留应用文件。再删除指向本 exe 的开机启动项。Windows 卸载器删除应用文件及快捷方式，保留 `%LOCALAPPDATA%\Mirage` 的订阅、凭据和偏好，便于重装；不会清空用户数据目录。
 
 静默安装可使用 Inno 标准 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，静默安装不会自动启动应用。静默卸载若存在本应用服务，仍需要可交互的管理员授权；不提供绕过 UAC 的模式。
+
+## 便携版使用、更新与移除
+
+ZIP 内只有顶层 `Mirage/` 文件夹；完整解压后运行其中的 `Mirage.exe`，保留 `mirage-service.exe`、`core/` 和 `licenses/`。额外附带的 `README-portable.txt` 说明数据位置、TUN、更新和移除步骤。解压不创建快捷方式、Windows 应用卸载项或辅助服务。普通代理、订阅、节点、测速等运行逻辑与安装版一致；首次启用 TUN 仍提示安装 / 更新服务并请求 UAC。
+
+这是主程序免安装分发。设置、订阅、缓存和日志仍在 `%LOCALAPPDATA%\Mirage`，与同一用户的安装版共用；同一用户仅运行一个 Mirage 实例。账号及订阅凭据使用 Windows 凭据管理器 / 当前用户 DPAPI，不随程序目录自动迁移到其他电脑或用户；不引入程序旁的 `data/` 模式。
+
+更新前从托盘正常退出，或运行 `.\Mirage.exe --quit`，等待代理恢复和内核退出，再完整替换文件。移动目录后手动启动可修复已启用的开机启动项；服务绑定用户及客户端路径，下一次开启 TUN 可能再次请求 UAC 更新路径 / 版本。安装版和便携版共用同名服务，切换运行路径也适用此规则。
+
+移除前在设置中关闭开机启动；若安装过 TUN 服务，关闭 TUN 后在设置中卸载服务（需要管理员授权），再从托盘退出并删除程序目录。只删除文件夹不会清理服务、启动项或用户数据；同一用户的安装版也会使用这些数据和服务，移除前需确认是否仍要保留。
 
 ## 许可证与签名
 

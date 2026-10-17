@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Build the self-contained Windows x64 installer; requires Inno Setup and cargo-about.
+    Build the Windows x64 installer and portable ZIP; requires Inno Setup and cargo-about.
 #>
 #Requires -Version 7.0
 [CmdletBinding()]
@@ -67,6 +67,54 @@ function Write-PayloadHashes([string]$Stage) {
     $lines | Set-Content -LiteralPath (Join-Path $Stage 'payload-sha256.txt') -Encoding utf8
 }
 
+function Initialize-Payload([string]$Stage, [string]$Release, [string]$CargoAbout) {
+    New-Item -ItemType Directory -Force -Path $stage, "$stage/core", "$stage/licenses" | Out-Null
+    foreach ($name in @('Mirage.exe', 'mirage-service.exe')) {
+        Copy-Item -LiteralPath (Join-Path $release $name) -Destination $stage -Force
+    }
+    $icon = Get-ChildItem -Path "$release/build/mirage-*/out/app.ico" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if (-not $icon) { throw 'Build-generated application icon missing.' }
+    Copy-Item -LiteralPath $icon.FullName -Destination "$stage/app.ico" -Force
+    Copy-Core $stage
+    Copy-Item -Path 'packaging/licenses/*' -Destination "$stage/licenses" -Recurse -Force
+    Copy-Item -LiteralPath 'packaging/THIRD-PARTY-NOTICES.txt' -Destination $stage -Force
+    Invoke-Checked $CargoAbout @('generate', '--workspace', '--locked', '--offline', '--fail', '--target', 'x86_64-pc-windows-msvc', '--config', 'packaging/about.toml', '--output-file', "$stage/licenses/rust-dependencies.html", 'packaging/licenses.hbs')
+    $licenseList = Get-Content -LiteralPath "$stage/licenses/rust-dependencies.html" -Raw
+    foreach ($crate in @('reqwest', 'rustls', 'tokio', 'serde', 'windows')) {
+        if (-not $licenseList.Contains($crate)) { throw "Incomplete license report: $crate" }
+    }
+    Write-SlintNotices $stage
+    Write-PayloadHashes $stage
+    $required = @('Mihomo-GPL-3.0.txt', 'Slint-Royalty-free-2.0.md', 'CC-BY-SA-4.0.txt',
+        'Lucide-LICENSE.txt', 'Inno-Setup.txt', 'geodata-notices.txt')
+    foreach ($name in $required) {
+        if ((Get-Item -LiteralPath "$stage/licenses/$name").Length -eq 0) {
+            throw "Empty license text: $name"
+        }
+    }
+}
+
+function Write-ArtifactHash([string]$Path) {
+    $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $(Split-Path $Path -Leaf)" | Set-Content -LiteralPath "$Path.sha256" -Encoding ascii
+}
+
+function New-PortableArchive([string]$Stage, [string]$Output, [string]$Version) {
+    $portable = Join-Path $Stage 'portable/Mirage'
+    New-Item -ItemType Directory -Force -Path $portable | Out-Null
+    foreach ($name in @('Mirage.exe', 'mirage-service.exe', 'core', 'licenses', 'THIRD-PARTY-NOTICES.txt')) {
+        Copy-Item -LiteralPath (Join-Path $Stage $name) -Destination $portable -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $Root 'packaging/README-portable.txt') -Destination $portable -Force
+    Write-PayloadHashes $portable
+    $temporaryZip = Join-Path $Stage 'portable.zip'
+    Compress-Archive -LiteralPath $portable -DestinationPath $temporaryZip -CompressionLevel Optimal
+    $archive = Join-Path $Output "Mirage-$Version-windows-x64-portable.zip"
+    Move-Item -LiteralPath $temporaryZip -Destination $archive -Force
+    Write-ArtifactHash $archive
+    Write-Host "Portable: $archive"
+}
+
 Push-Location $Root
 try {
     $metadata = cargo metadata --locked --offline --no-deps --format-version 1 | ConvertFrom-Json
@@ -96,38 +144,15 @@ try {
     }
     $release = Join-Path $metadata.target_directory 'release'
     $stage = Join-Path $Root ("target/package/$version-" + [Guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Force -Path $stage, "$stage/core", "$stage/licenses" | Out-Null
-    foreach ($name in @('Mirage.exe', 'mirage-service.exe')) {
-        Copy-Item -LiteralPath (Join-Path $release $name) -Destination $stage -Force
-    }
-    $icon = Get-ChildItem -Path "$release/build/mirage-*/out/app.ico" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-    if (-not $icon) { throw 'Build-generated application icon missing.' }
-    Copy-Item -LiteralPath $icon.FullName -Destination "$stage/app.ico" -Force
-    Copy-Core $stage
-    Copy-Item -Path 'packaging/licenses/*' -Destination "$stage/licenses" -Recurse -Force
-    Copy-Item -LiteralPath 'packaging/THIRD-PARTY-NOTICES.txt' -Destination $stage -Force
-    Invoke-Checked $CargoAbout @('generate', '--workspace', '--locked', '--offline', '--fail', '--target', 'x86_64-pc-windows-msvc', '--config', 'packaging/about.toml', '--output-file', "$stage/licenses/rust-dependencies.html", 'packaging/licenses.hbs')
-    $licenseList = Get-Content -LiteralPath "$stage/licenses/rust-dependencies.html" -Raw
-    foreach ($crate in @('reqwest', 'rustls', 'tokio', 'serde', 'windows')) {
-        if (-not $licenseList.Contains($crate)) { throw "Incomplete license report: $crate" }
-    }
-    Write-SlintNotices $stage
-    Write-PayloadHashes $stage
-    $required = @('Mihomo-GPL-3.0.txt', 'Slint-Royalty-free-2.0.md', 'CC-BY-SA-4.0.txt',
-        'Lucide-LICENSE.txt', 'Inno-Setup.txt', 'geodata-notices.txt')
-    foreach ($name in $required) {
-        if ((Get-Item -LiteralPath "$stage/licenses/$name").Length -eq 0) {
-            throw "Empty license text: $name"
-        }
-    }
+    Initialize-Payload $stage $release $CargoAbout
     if ($StageOnly) { Write-Host "Staged: $stage"; return }
     $output = Join-Path $Root 'dist'
     New-Item -ItemType Directory -Force -Path $output | Out-Null
     Invoke-Checked $Iscc @("/DAppVersion=$version", "/DStageDir=$stage", "/DOutputDir=$output", 'packaging/Mirage.iss')
     $setup = Join-Path $output "Mirage-$version-windows-x64-setup.exe"
-    $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$hash  $(Split-Path $setup -Leaf)" | Set-Content -LiteralPath "$setup.sha256" -Encoding ascii
+    Write-ArtifactHash $setup
     Write-Host "Installer: $setup"
+    New-PortableArchive $stage $output $version
 } finally {
     Pop-Location
 }

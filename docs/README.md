@@ -20,13 +20,15 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 ## 当前状态
 
 - 2026-10-17 账号订阅整合已定稿：移除账号菜单，配置页负责添加/覆盖单账号、原客户端本地导入、右侧账号信息抽屉及确认删除。眼睛手动显隐，抽屉关闭后恢复脱敏；列表刷新与账号信息刷新分别保留。交互以 [DESIGN.md §17.1](DESIGN.md#171-页面) 为准，检查范围见 [整合记录](acceptance/account-profile-integration.md)。
-- 里程碑：M0～M7 功能已实现；M8 已完成 Windows 安装向导、打包脚本和许可证分发，本机普通用户安装 / 覆盖升级 / 卸载检查通过。各阶段的实测证据及剩余环境验收见 [acceptance/](acceptance/)，M8 范围见 [acceptance/M8.md](acceptance/M8.md)。
+- 里程碑：M0～M7 功能已实现；M8 已完成 Windows 安装向导、安装版 / 便携版同时打包和许可证分发，本机普通用户安装 / 覆盖升级 / 卸载检查通过。各阶段的实测证据及剩余环境验收见 [acceptance/](acceptance/)，M8 范围见 [acceptance/M8.md](acceptance/M8.md)。
 - 已验证：自由猫账号密码登录（真实账号，2026-10-16）、会话恢复与订阅下载；`clash-verge` 可取得合法 YAML，但本次节点入口不可达；`freecatencua/v` 的 AES 订阅解密后，官方 Mihomo v1.19.32 四节点测速和 HTTPS 204 成功，详见新增分析文档。
 - 未验证：令牌有效期、验证码/设备要求、TUN/UDP/IPv6、原客户端退出后的完整独立运行。
 
-## Windows 安装包（M8）
+## Windows 安装版与便携版（M8）
 
-执行 `pwsh -File scripts/package.ps1` 生成 `dist/Mirage-0.1.0-windows-x64-setup.exe` 及 SHA256 文件。安装包自带 Mihomo、四份 geodata 和 `mirage-service.exe`；用户级安装不创建服务，第一次启用 TUN 时单独提示安装并请求 UAC。
+执行 `pwsh -File scripts/package.ps1` 一次构建同时生成 `dist/Mirage-0.1.0-windows-x64-setup.exe` 和 `dist/Mirage-0.1.0-windows-x64-portable.zip`，分别附 SHA256 文件。两种包均自带 Mihomo、四份 geodata、`mirage-service.exe` 和许可材料；安装 / 解压不创建服务，第一次启用 TUN 时单独提示安装并请求 UAC。
+
+便携版完整解压后运行 `Mirage/Mirage.exe`；数据仍在 `%LOCALAPPDATA%\Mirage`，与安装版共用。更新前正常退出；删除前先关闭开机启动、按需卸载 TUN 服务，详见包内 `README-portable.txt`。
 
 构建前置工具、升级 / 卸载、许可证与未签名说明见 [packaging.md](packaging.md)，验收范围见 [acceptance/M8.md](acceptance/M8.md)。
 
