@@ -1,4 +1,4 @@
-import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import { Button, LineEdit } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 import { Card } from "../components/card.slint";
 
@@ -28,6 +28,7 @@ export component AccountsPage inherits VerticalLayout {
     callback remove(string, bool);
     callback import-legacy();
 
+    min-width: 0px;
     spacing: 16px;
     alignment: start;
 
@@ -41,39 +42,47 @@ export component AccountsPage inherits VerticalLayout {
     for a in root.accounts: Card {
         VerticalLayout {
             spacing: 6px;
-            HorizontalLayout {
+            GridLayout {
                 spacing: 8px;
                 VerticalLayout {
+                    row: 0;
+                    col: 0;
                     spacing: 2px;
                     horizontal-stretch: 1;
-                    Text { text: "自由猫账号 · " + a.name; font-weight: 600; color: Theme.text; }
+                    Text { text: "自由猫账号 · " + a.name; font-weight: 600; color: Theme.text; wrap: word-wrap; min-width: 0px; }
                     Text {
                         text: a.status;
                         color: a.status-level == 1 ? Theme.ok : a.status-level == 2 ? Theme.danger : Theme.text-muted;
                         wrap: word-wrap;
                     }
                 }
-                Button {
-                    text: a.busy ? "验证中…" : "刷新信息";
-                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-                    colorize-icon: true;
-                    enabled: !a.busy;
-                    clicked => { root.revalidate(a.id); }
-                }
-                Button {
-                    text: "移除";
-                    icon: @image-url("../../assets/icons/lucide/trash-2.svg");
-                    colorize-icon: true;
-                    accessible-label: "移除账号（保留配置）";
-                    clicked => { root.remove(a.id, false); }
-                }
-                if a.has-profile: Button {
-                    text: "移除账号和配置";
-                    clicked => { root.remove(a.id, true); }
+                HorizontalLayout {
+                    row: root.width < 720px ? 1 : 0;
+                    col: root.width < 720px ? 0 : 1;
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: a.busy ? "验证中…" : "刷新信息";
+                        icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                        colorize-icon: true;
+                        enabled: !a.busy;
+                        clicked => { root.revalidate(a.id); }
+                    }
+                    Button {
+                        text: "移除";
+                        icon: @image-url("../../assets/icons/lucide/trash-2.svg");
+                        colorize-icon: true;
+                        accessible-label: "移除账号（保留配置）";
+                        clicked => { root.remove(a.id, false); }
+                    }
+                    if a.has-profile: Button {
+                        text: "移除账号和配置";
+                        clicked => { root.remove(a.id, true); }
+                    }
                 }
             }
-            if a.plan != "": Text { text: "套餐：" + a.plan; color: Theme.text; }
-            if a.usage != "": Text { text: a.usage + " · " + a.expires; color: Theme.text-muted; }
+            if a.plan != "": Text { text: "套餐：" + a.plan; color: Theme.text; wrap: word-wrap; min-width: 0px; }
+            if a.usage != "": Text { text: a.usage + " · " + a.expires; color: Theme.text-muted; wrap: word-wrap; min-width: 0px; }
             Text {
                 text: "移除只清除本机保存的会话和订阅地址，不会注销服务端登录。";
                 color: Theme.text-muted;
@@ -94,12 +103,14 @@ export component AccountsPage inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 8px;
                 LineEdit {
+                    min-width: 80px;
                     placeholder-text: "邮箱";
                     text <=> root.email;
                     horizontal-stretch: 1;
                     enabled: !root.login-busy;
                 }
                 LineEdit {
+                    min-width: 80px;
                     placeholder-text: "密码";
                     input-type: InputType.password;
                     text <=> root.password;

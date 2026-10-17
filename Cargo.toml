@@ -18,7 +18,7 @@ path = "src/main.rs"
 [dependencies]
 # Software renderer only (DESIGN.md §2, §22, decided in M5): no OpenGL driver
 # in the process, works over RDP/VMs, lower memory and CPU for this UI.
-slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "system-tray"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "system-tray", "unstable-winit-030"] }
 tokio = { version = "=1.53.3", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "net", "fs"] }
 tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["fmt", "registry", "env-filter"] }

@@ -34,16 +34,18 @@ export component OverviewPage inherits VerticalLayout {
     callback check-connectivity();
     callback set-routing-mode(int);
 
+    min-width: 0px;
     spacing: 16px;
     alignment: start;
 
     Card {
         HorizontalLayout {
+            min-width: 0px;
             spacing: 16px;
             Image {
                 source: root.running ? @image-url("../../assets/icons/tray/connected.svg")
-                    : root.failed ? @image-url("../../assets/icons/tray/error.svg")
-                    : @image-url("../../assets/icons/tray/idle.svg");
+                : root.failed ? @image-url("../../assets/icons/tray/error.svg")
+                : @image-url("../../assets/icons/tray/idle.svg");
                 width: 48px;
                 height: 48px;
             }
@@ -57,10 +59,10 @@ export component OverviewPage inherits VerticalLayout {
                     font-weight: 600;
                     color: root.failed ? Theme.danger : Theme.text;
                     // Details belong in the error bar; keep the header one line.
-                    overflow: elide;
+                    overflow: elide; min-width: 0px;
                 }
-                Text { text: root.profile-name == "" ? "未选择配置" : "当前配置：" + root.profile-name; color: Theme.text-muted; }
-                if root.running && root.exit-node != "": Text { text: "出口节点：" + root.exit-node; color: Theme.text-muted; overflow: elide; }
+                Text { text: root.profile-name == "" ? "未选择配置" : "当前配置：" + root.profile-name; color: Theme.text-muted; wrap: word-wrap; min-width: 0px; }
+                if root.running && root.exit-node != "": Text { text: "出口节点：" + root.exit-node; color: Theme.text-muted; overflow: elide; min-width: 0px; }
             }
             VerticalLayout {
                 alignment: center;
@@ -76,9 +78,11 @@ export component OverviewPage inherits VerticalLayout {
         }
     }
 
-    HorizontalLayout {
+    GridLayout {
         spacing: 16px;
         Card {
+            row: 0;
+            col: 0;
             horizontal-stretch: 1;
             VerticalLayout {
                 spacing: 10px;
@@ -91,8 +95,8 @@ export component OverviewPage inherits VerticalLayout {
                         Text { text: "系统代理"; color: Theme.text; font-weight: 600; }
                         Text {
                             text: root.system-proxy-active ? "已指向 127.0.0.1:" + root.mixed-port
-                                : root.system-proxy-wanted ? "连接后自动开启"
-                                : "未开启";
+                            : root.system-proxy-wanted ? "连接后自动开启"
+                            : "未开启";
                             color: Theme.text-muted;
                         }
                     }
@@ -109,7 +113,7 @@ export component OverviewPage inherits VerticalLayout {
                         spacing: 2px;
                         horizontal-stretch: 1;
                         Text { text: "TUN 模式"; color: Theme.text; font-weight: 600; }
-                        Text { text: root.tun-active ? "已开启" : root.tun-wanted ? "连接后开启" : root.service-installed ? "未开启" : "首次开启需要安装辅助服务"; color: Theme.text-muted; }
+                        Text { text: root.tun-active ? "已开启" : root.tun-wanted ? "连接后开启" : root.service-installed ? "未开启" : "首次开启需要安装辅助服务"; color: Theme.text-muted; wrap: word-wrap; min-width: 0px; }
                     }
                     Switch {
                         checked <=> root.tun-wanted;
@@ -128,6 +132,8 @@ export component OverviewPage inherits VerticalLayout {
         }
 
         Card {
+            row: root.width < 700px ? 1 : 0;
+            col: root.width < 700px ? 0 : 1;
             horizontal-stretch: 1;
             VerticalLayout {
                 spacing: 10px;
@@ -167,6 +173,7 @@ export component OverviewPage inherits VerticalLayout {
         VerticalLayout {
             spacing: 8px;
             HorizontalLayout {
+                min-width: 0px;
                 spacing: 16px;
                 Text { text: "实时速率"; color: Theme.text; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
                 Text { text: "↑ " + root.up-rate; color: Theme.up; vertical-alignment: center; }
@@ -227,8 +234,8 @@ export component OverviewPage inherits VerticalLayout {
             }
             Text { text: "本地代理端口：127.0.0.1:" + root.mixed-port; color: Theme.text; }
             if root.plan != "": Text { text: "套餐：" + root.plan; color: Theme.text; }
-            if root.usage != "": Text { text: root.usage; color: Theme.text-muted; }
-            Text { text: "内核：" + root.core-version; color: Theme.text-muted; }
+            if root.usage != "": Text { text: root.usage; color: Theme.text-muted; wrap: word-wrap; min-width: 0px; }
+            Text { text: "内核：" + root.core-version; color: Theme.text-muted; wrap: word-wrap; min-width: 0px; }
         }
     }
 }

@@ -10,6 +10,7 @@ export struct LogRow {
 // Diagnostics (DESIGN.md §17.1, §18). The core log view is fed only while
 // the window is visible and keeps at most the last 2000 lines.
 export component DiagnosticsPage inherits VerticalLayout {
+    in property <length> available-height;
     in property <string> version;
     in property <string> core-version;
     in property <string> status-text;
@@ -27,78 +28,92 @@ export component DiagnosticsPage inherits VerticalLayout {
     callback clear-logs();
     callback export-diagnostics();
 
+    min-width: 0px;
     spacing: 12px;
 
-    HorizontalLayout {
+    header := VerticalLayout {
         spacing: 12px;
         vertical-stretch: 0;
-        Card {
-            horizontal-stretch: 1;
-            VerticalLayout {
-                spacing: 4px;
-                Text { text: "Mirage " + root.version + " · " + root.core-version; color: Theme.text; font-weight: 600; }
-                Text { text: "内核状态：" + root.status-text; color: Theme.text; wrap: word-wrap; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "连通性：" + root.connectivity-text; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
-                    Button {
-                        text: "检测";
-                        enabled: root.running;
-                        clicked => { root.check-connectivity(); }
+        summary := GridLayout {
+            spacing: 12px;
+            vertical-stretch: 0;
+            Card {
+                row: 0;
+                col: 0;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Mirage " + root.version + " · " + root.core-version; color: Theme.text; font-weight: 600; wrap: word-wrap; min-width: 0px; }
+                    Text { text: "内核状态：" + root.status-text; color: Theme.text; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "连通性：" + root.connectivity-text; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                        Button {
+                            text: "检测";
+                            enabled: root.running;
+                            clicked => { root.check-connectivity(); }
+                        }
                     }
+                    Text { text: "数据目录：" + root.data-dir; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
                 }
-                Text { text: "数据目录：" + root.data-dir; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
             }
-        }
-        Card {
-            horizontal-stretch: 1;
-            VerticalLayout {
-                spacing: 4px;
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "自由猫服务地址"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
-                    Button {
-                        text: root.probing-hosts ? "检测中…" : "检测";
-                        enabled: !root.probing-hosts;
-                        clicked => { root.probe-hosts(); }
+            Card {
+                row: root.width < 700px ? 1 : 0;
+                col: root.width < 700px ? 0 : 1;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "自由猫服务地址"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                        Button {
+                            text: root.probing-hosts ? "检测中…" : "检测";
+                            enabled: !root.probing-hosts;
+                            clicked => { root.probe-hosts(); }
+                        }
                     }
+                    if root.provider-hosts.length == 0: Text { text: "未检测"; color: Theme.text-muted; font-size: 12px; }
+                    for line in root.provider-hosts: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
                 }
-                if root.provider-hosts.length == 0: Text { text: "未检测"; color: Theme.text-muted; font-size: 12px; }
-                for line in root.provider-hosts: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
             }
         }
-    }
 
-    if root.check-lines.length > 0 || root.policy-notes.length > 0: Card {
-        vertical-stretch: 0;
-        // Bounded so a long check output never pushes the core log away.
-        ScrollView {
-            max-height: 160px;
-            VerticalLayout {
-                spacing: 2px;
-                if root.check-lines.length > 0: Text { text: "最近一次配置校验输出"; color: Theme.text; font-weight: 600; }
-                for line in root.check-lines: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
-                if root.policy-notes.length > 0: Text { text: "最近一次导入或更新的安全调整"; color: Theme.text; font-weight: 600; }
-                for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+        if root.check-lines.length > 0 || root.policy-notes.length > 0: Card {
+            vertical-stretch: 0;
+            // Bounded so a long check output never pushes the core log away.
+            notes-scroll := ScrollView {
+                height: min(160px, notes.preferred-height);
+                horizontal-scrollbar-policy: always-off;
+                content-width: self.visible-width;
+                content-height: notes.preferred-height;
+                notes := VerticalLayout {
+                    width: max(0px, notes-scroll.visible-width - 16px);
+                    spacing: 2px;
+                    if root.check-lines.length > 0: Text { text: "最近一次配置校验输出"; color: Theme.text; font-weight: 600; }
+                    for line in root.check-lines: Text { text: line; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                    if root.policy-notes.length > 0: Text { text: "最近一次导入或更新的安全调整"; color: Theme.text; font-weight: 600; }
+                    for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                }
             }
         }
-    }
 
-    HorizontalLayout {
-        spacing: 8px;
-        vertical-stretch: 0;
-        Text { text: "内核日志（warning 及以上，最近 2000 行）"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
-        Button {
-            text: "清空";
-            icon: @image-url("../../assets/icons/lucide/trash-2.svg");
-            colorize-icon: true;
-            enabled: root.logs.length > 0;
-            clicked => { root.clear-logs(); }
+        HorizontalLayout {
+            spacing: 8px;
+            vertical-stretch: 0;
+            Text { text: "内核日志（warning 及以上，最近 2000 行）"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+            Button {
+                text: "清空";
+                icon: @image-url("../../assets/icons/lucide/trash-2.svg");
+                colorize-icon: true;
+                enabled: root.logs.length > 0;
+                clicked => { root.clear-logs(); }
+            }
         }
     }
     Rectangle {
         vertical-stretch: 1;
-        min-height: 120px;
+        min-height: 180px;
+        preferred-height: max(180px, root.available-height - header.preferred-height - footer.preferred-height - 24px);
         background: Theme.card;
         border-radius: 6px;
         border-width: 1px;
@@ -122,6 +137,7 @@ export component DiagnosticsPage inherits VerticalLayout {
                 }
                 Text {
                     text: line.text;
+                    min-width: 0px;
                     font-size: 12px;
                     color: Theme.text;
                     wrap: word-wrap;
@@ -131,26 +147,41 @@ export component DiagnosticsPage inherits VerticalLayout {
         }
     }
 
-    HorizontalLayout {
+    footer := GridLayout {
         spacing: 12px;
         vertical-stretch: 0;
-        alignment: start;
-        Button {
-            text: root.exporting ? "正在导出…" : "导出诊断包";
-            icon: @image-url("../../assets/icons/lucide/file-plus.svg");
-            colorize-icon: true;
-            enabled: !root.exporting;
-            accessible-label: "导出诊断包";
-            clicked => { root.export-diagnostics(); }
+        VerticalLayout {
+            row: 0;
+            col: 0;
+            min-width: 0px;
+            alignment: center;
+            HorizontalLayout {
+                min-width: 0px;
+                spacing: 12px;
+                alignment: start;
+                Button {
+                    text: root.exporting ? "正在导出…" : "导出诊断包";
+                    icon: @image-url("../../assets/icons/lucide/file-plus.svg");
+                    colorize-icon: true;
+                    enabled: !root.exporting;
+                    accessible-label: "导出诊断包";
+                    clicked => { root.export-diagnostics(); }
+                }
+                Text {
+                    text: "含脱敏日志、设置与内核信息；不含订阅地址与令牌 · 图标：Lucide (ISC)";
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    wrap: word-wrap;
+                }
+            }
         }
-        Text {
-            text: "含脱敏日志、设置与内核信息；不含订阅地址与令牌 · 图标：Lucide (ISC)";
-            color: Theme.text-muted;
-            font-size: 12px;
-            vertical-alignment: center;
-            horizontal-stretch: 1;
-            wrap: word-wrap;
+        AboutSlint {
+            row: root.width < 700px ? 1 : 0;
+            col: root.width < 700px ? 0 : 1;
+            max-height: 80px;
+            max-width: 260px;
         }
-        AboutSlint { max-height: 80px; max-width: 260px; }
     }
 }

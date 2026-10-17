@@ -1,5 +1,5 @@
 // Main window, navigation shell and system tray (DESIGN.md §17).
-import { ScrollView } from "std-widgets.slint";
+import { PageScroll } from "components/page-scroll.slint";
 import { Theme } from "components/theme.slint";
 import { NavItem } from "components/nav.slint";
 import { ErrorBar, Toast } from "components/error-bar.slint";
@@ -21,7 +21,7 @@ export component MainWindow inherits Window {
     preferred-height: 680px;
     min-width: 760px;
     min-height: 520px;
-    background: Theme.surface;
+    background: root.surface-refresh ? Theme.surface : #FFFFFE;
 
     in property <string> version;
     in property <string> data-dir;
@@ -134,6 +134,21 @@ export component MainWindow inherits Window {
         }
     }
 
+    // A full-surface color change invalidates cached damage after restoration.
+    property <bool> surface-refresh;
+    public function refresh-surface() {
+        surface-timer.running = false;
+        surface-timer.running = true;
+    }
+    surface-timer := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            root.surface-refresh = !root.surface-refresh;
+            self.running = false;
+        }
+    }
+
     HorizontalLayout {
         Rectangle {
             width: 200px;
@@ -145,8 +160,8 @@ export component MainWindow inherits Window {
                     spacing: 8px;
                     Image {
                         source: root.running ? @image-url("../assets/icons/tray/connected.svg")
-                            : root.failed ? @image-url("../assets/icons/tray/error.svg")
-                            : @image-url("../assets/icons/tray/idle.svg");
+                        : root.failed ? @image-url("../assets/icons/tray/error.svg")
+                        : @image-url("../assets/icons/tray/idle.svg");
                         width: 22px;
                         height: 22px;
                         y: (parent.height - self.height) / 2;
@@ -182,6 +197,8 @@ export component MainWindow inherits Window {
 
         VerticalLayout {
             padding: 24px;
+            min-width: 0px;
+            min-height: 0px;
             spacing: 12px;
 
             HorizontalLayout {
@@ -208,7 +225,7 @@ export component MainWindow inherits Window {
                 dismiss => { root.dismiss-error(); }
             }
 
-            if root.page == 0: ScrollView {
+            if root.page == 0: PageScroll {
                 vertical-stretch: 1;
                 OverviewPage {
                     status-text: root.status-text;
@@ -271,7 +288,7 @@ export component MainWindow inherits Window {
                 sort-changed(on) => { root.sort-nodes(on); }
                 filter-changed(text) => { root.filter-nodes(text); }
             }
-            if root.page == 3: ScrollView {
+            if root.page == 3: PageScroll {
                 vertical-stretch: 1;
                 AccountsPage {
                     accounts: root.accounts;
@@ -284,7 +301,7 @@ export component MainWindow inherits Window {
                     import-legacy => { root.import-legacy(); }
                 }
             }
-            if root.page == 4: ScrollView {
+            if root.page == 4: PageScroll {
                 vertical-stretch: 1;
                 SettingsPage {
                     saved-port: root.settings-port;
@@ -309,29 +326,35 @@ export component MainWindow inherits Window {
                     update-geodata => { root.update-geodata(); }
                 }
             }
-            if root.page == 5: DiagnosticsPage {
+            if root.page == 5: diagnostics-scroll := PageScroll {
                 vertical-stretch: 1;
-                version: root.version;
-                core-version: root.core-version;
-                status-text: root.status-text;
-                data-dir: root.data-dir;
-                connectivity-text: root.connectivity-text;
-                running: root.running;
-                check-lines: root.check-lines;
-                policy-notes: root.policy-notes;
-                logs: root.logs;
-                probing-hosts: root.probing-hosts;
-                provider-hosts: root.provider-hosts;
-                check-connectivity => { root.check-connectivity(); }
-                probe-hosts => { root.probe-hosts(); }
-                clear-logs => { root.clear-logs(); }
+                DiagnosticsPage {
+                    available-height: diagnostics-scroll.visible-height;
+                    vertical-stretch: 1;
+                    exporting: root.exporting;
+                    export-diagnostics => { root.export-diagnostics(); }
+                    version: root.version;
+                    core-version: root.core-version;
+                    status-text: root.status-text;
+                    data-dir: root.data-dir;
+                    connectivity-text: root.connectivity-text;
+                    running: root.running;
+                    check-lines: root.check-lines;
+                    policy-notes: root.policy-notes;
+                    logs: root.logs;
+                    probing-hosts: root.probing-hosts;
+                    provider-hosts: root.provider-hosts;
+                    check-connectivity => { root.check-connectivity(); }
+                    probe-hosts => { root.probe-hosts(); }
+                    clear-logs => { root.clear-logs(); }
+                }
             }
         }
     }
 
     if root.toast-visible: Toast {
         text: root.toast-text;
-        x: (parent.width - self.width) / 2 + 100px;
+        x: (parent.width - self.width) / 2;
         y: parent.height - self.height - 24px;
     }
 }
@@ -354,12 +377,12 @@ export component AppTray inherits SystemTrayIcon {
     callback quit-app();
 
     icon: state == TrayState.connected ? @image-url("../assets/icons/tray/connected.svg")
-        : state == TrayState.error || state == TrayState.restarting ? @image-url("../assets/icons/tray/error.svg")
-        : @image-url("../assets/icons/tray/idle.svg");
+    : state == TrayState.error || state == TrayState.restarting ? @image-url("../assets/icons/tray/error.svg")
+    : @image-url("../assets/icons/tray/idle.svg");
     tooltip: (state == TrayState.connected ? "Mirage - 已连接"
-        : state == TrayState.error ? "Mirage - 错误"
-        : state == TrayState.restarting ? "Mirage - 正在重启内核"
-        : "Mirage - 未连接") + (root.detail == "" ? "" : "\n" + root.detail);
+    : state == TrayState.error ? "Mirage - 错误"
+    : state == TrayState.restarting ? "Mirage - 正在重启内核"
+    : "Mirage - 未连接") + (root.detail == "" ? "" : "\n" + root.detail);
 
     clicked => { root.toggle-window(); }
 

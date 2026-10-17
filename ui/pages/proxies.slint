@@ -34,6 +34,7 @@ export component ProxiesPage inherits VerticalLayout {
     // The tab list changes with the routing mode (GLOBAL); stay in range.
     property <int> shown-group: min(root.current-group, max(0, root.groups.length - 1));
 
+    min-width: 0px;
     spacing: 12px;
 
     if !root.running: Text {
@@ -44,9 +45,13 @@ export component ProxiesPage inherits VerticalLayout {
     if root.running && root.groups.length > 0: HorizontalLayout {
         spacing: 8px;
         ScrollView {
-            height: 40px;
+            height: 48px;
+            min-width: 0px;
             horizontal-stretch: 1;
-            HorizontalLayout {
+            vertical-scrollbar-policy: always-off;
+            content-width: tabs.preferred-width;
+            content-height: 32px;
+            tabs := HorizontalLayout {
                 spacing: 6px;
                 for g[i] in root.groups: Rectangle {
                     width: label.preferred-width + 24px;
@@ -86,7 +91,12 @@ export component ProxiesPage inherits VerticalLayout {
                 color: Theme.text-muted;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
+                min-width: 0px;
+                wrap: word-wrap;
             }
+        }
+        HorizontalLayout {
+            spacing: 8px;
             CheckBox {
                 text: "按延迟排序";
                 checked <=> root.sort-by-delay;
@@ -94,7 +104,9 @@ export component ProxiesPage inherits VerticalLayout {
             }
             LineEdit {
                 placeholder-text: "搜索节点";
-                width: 180px;
+                min-width: 80px;
+                preferred-width: 180px;
+                horizontal-stretch: 1;
                 text <=> root.filter;
                 edited(text) => { root.filter-changed(text); }
             }
@@ -108,6 +120,9 @@ export component ProxiesPage inherits VerticalLayout {
         }
 
         ListView {
+            min-width: 0px;
+            min-height: 180px;
+            preferred-height: 0px;
             vertical-stretch: 1;
             for n in group.nodes: Rectangle {
                 height: 40px;
@@ -130,6 +145,7 @@ export component ProxiesPage inherits VerticalLayout {
                         text: n.name;
                         color: n.current ? Theme.accent : Theme.text;
                         vertical-alignment: center;
+                        min-width: 0px;
                         overflow: elide;
                         horizontal-stretch: 1;
                     }
@@ -146,6 +162,7 @@ export component ProxiesPage inherits VerticalLayout {
             text: "另有 " + group.hidden + " 个节点未列出" + (root.filter == "" ? "（列表最多显示 1000 个，可用搜索查找）" : "（不匹配搜索或超出 1000 个）");
             color: Theme.text-muted;
             font-size: 12px;
+            wrap: word-wrap;
         }
     }
 }

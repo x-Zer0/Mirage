@@ -12,14 +12,19 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Round-trip time in ms of a `generate_204` request sent via the mixed port.
 pub async fn probe(mixed_port: u16) -> AppResult<u32> {
-    let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{mixed_port}"))
-        .map_err(|e| AppError::internal(STAGE, e.without_url()))?;
-    let client = reqwest::Client::builder()
-        .proxy(proxy)
-        .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| AppError::internal(STAGE, e.without_url()))?;
+    tokio::time::timeout(TIMEOUT, probe_request(mixed_port))
+        .await
+        .map_err(|_| AppError::new(AppErrorKind::Timeout, STAGE, "连通性检测超时，请重试"))?
+}
+
+async fn probe_request(mixed_port: u16) -> AppResult<u32> {
+    let purpose = crate::net::Purpose {
+        connect_timeout: Duration::from_secs(5),
+        total_timeout: TIMEOUT,
+        max_body: 0,
+        max_redirects: 0,
+    };
+    let client = crate::net::client(&purpose, crate::net::EgressRoute::ViaLocalCore(mixed_port))?;
     let started = Instant::now();
     let resp = client.get(PROBE_URL).send().await.map_err(|e| {
         let kind = if e.is_timeout() {

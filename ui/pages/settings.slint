@@ -37,6 +37,7 @@ export component SettingsPage inherits VerticalLayout {
     property <bool> autostart: root.saved-autostart;
     property <bool> tun-disable-system-proxy: root.saved-tun-disable-system-proxy;
 
+    min-width: 0px;
     spacing: 16px;
     alignment: start;
 
@@ -46,7 +47,7 @@ export component SettingsPage inherits VerticalLayout {
             Text { text: "网络"; font-weight: 600; color: Theme.text; }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "本地代理端口（mixed-port）"; color: Theme.text; vertical-alignment: center; width: 220px; }
+                Text { text: "本地代理端口（mixed-port）"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
                 LineEdit {
                     text <=> root.port;
                     input-type: InputType.number;
@@ -54,8 +55,8 @@ export component SettingsPage inherits VerticalLayout {
                     horizontal-stretch: 0;
                     accessible-label: "本地代理端口";
                 }
-                Text { text: "仅监听 127.0.0.1；修改后内核会重启"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
             }
+            Text { text: "仅监听 127.0.0.1；修改端口后内核会重启"; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
             Text { text: "系统代理例外（分号或换行分隔）"; color: Theme.text; }
             TextEdit {
                 text <=> root.bypass;
@@ -66,12 +67,12 @@ export component SettingsPage inherits VerticalLayout {
             }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "订阅默认 User-Agent"; color: Theme.text; vertical-alignment: center; width: 220px; }
-                LineEdit { text <=> root.user-agent; accessible-label: "订阅默认 User-Agent"; }
+                Text { text: "订阅默认 User-Agent"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
+                LineEdit { min-width: 80px; text <=> root.user-agent; accessible-label: "订阅默认 User-Agent"; }
             }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "自由猫账号请求出站"; color: Theme.text; vertical-alignment: center; width: 220px; }
+                Text { text: "自由猫账号请求出站"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
                 ComboBox {
                     model: root.egress-options;
                     current-index <=> root.provider-egress;

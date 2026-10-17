@@ -1,4 +1,4 @@
-import { Button, ComboBox, ListView, LineEdit, SpinBox } from "std-widgets.slint";
+import { Button, ComboBox, ListView, LineEdit, ScrollView, SpinBox } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 
 export struct ProfileRow {
@@ -37,11 +37,13 @@ export component ProfilesPage inherits VerticalLayout {
     callback open-accounts();
     callback set-policy(string, int, int);
 
+    min-width: 0px;
     spacing: 12px;
 
     HorizontalLayout {
         spacing: 8px;
         LineEdit {
+            min-width: 80px;
             placeholder-text: "订阅链接（https://…）";
             text <=> root.new-url;
             horizontal-stretch: 3;
@@ -54,6 +56,7 @@ export component ProfilesPage inherits VerticalLayout {
             }
         }
         LineEdit {
+            min-width: 80px;
             placeholder-text: "名称（可选）";
             text <=> root.new-name;
             horizontal-stretch: 1;
@@ -100,12 +103,17 @@ export component ProfilesPage inherits VerticalLayout {
     if root.profiles.length == 0: Text {
         text: "还没有配置。添加一个订阅链接，或导入完整的 Mihomo YAML 配置。";
         color: Theme.text-muted;
+        min-width: 0px;
+        wrap: word-wrap;
     }
 
     ListView {
+        min-width: 0px;
+        min-height: 180px;
+        preferred-height: 0px;
         vertical-stretch: 1;
         for p in root.profiles: Rectangle {
-            height: col.preferred-height + 20px;
+            height: row-layout.preferred-height;
             background: p.selected ? Theme.nav-selected : touch.has-hover ? Theme.nav-hover : transparent;
             border-radius: 6px;
             accessible-role: list-item;
@@ -114,113 +122,124 @@ export component ProfilesPage inherits VerticalLayout {
             accessible-action-default => { if (!root.busy) { root.select(p.id); } }
             // No switching while a start/stop or import is in flight.
             touch := TouchArea { enabled: !root.busy; clicked => { root.select(p.id); } }
-            HorizontalLayout {
+            row-layout := VerticalLayout {
                 padding: 10px;
-                spacing: 12px;
-                col := VerticalLayout {
-                    alignment: center;
-                    spacing: 2px;
-                    horizontal-stretch: 1;
-                    Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; overflow: elide; }
-                    Text { text: p.source + " · " + p.detail + " · 更新于 " + p.updated; color: Theme.text-muted; font-size: 12px; overflow: elide; }
-                    if p.usage != "": Text { text: p.usage; color: Theme.text-muted; font-size: 12px; }
-                    if p.updating: Text { text: "正在更新…"; color: Theme.accent; font-size: 12px; }
-                    if !p.updating && p.fetch-error != "": Text { text: p.fetch-error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
-                    // The panel swallows clicks: a click on its background must
-                    // not fall through to the row and switch the active profile.
-                    if root.expanded == p.id: Rectangle {
-                        TouchArea { }
-                        details := VerticalLayout {
-                            spacing: 6px;
-                            padding-top: 6px;
-                            property <int> hours: p.interval-hours;
-                            property <int> egress: p.egress;
-                            if p.remote: HorizontalLayout {
-                                spacing: 8px;
-                                Text { text: "自动更新间隔（小时，0 = 仅手动）"; color: Theme.text; vertical-alignment: center; }
-                                SpinBox {
-                                    minimum: 0;
-                                    maximum: 720;
-                                    value: p.interval-hours;
-                                    width: 120px;
-                                    horizontal-stretch: 0;
-                                    accessible-label: "自动更新间隔（小时）";
-                                    edited(v) => { details.hours = v; }
-                                }
-                            }
-                            if p.remote: HorizontalLayout {
-                                spacing: 8px;
-                                Text { text: "下载出站"; color: Theme.text; vertical-alignment: center; }
-                                ComboBox {
-                                    model: root.egress-options;
-                                    current-index: p.egress;
-                                    accessible-label: "下载出站";
-                                    selected => { details.egress = self.current-index; }
-                                }
-                                Button {
-                                    text: "保存";
-                                    clicked => { root.set-policy(p.id, details.hours, details.egress); }
-                                }
-                            }
-                            if p.remote: Text {
-                                text: "经本地内核下载时，请求会按订阅规则分流，可能经过某个节点。";
-                                color: Theme.text-muted;
-                                font-size: 12px;
-                                wrap: word-wrap;
-                            }
-                            if p.has-url: HorizontalLayout {
-                                alignment: start;
-                                Button {
-                                    text: "复制订阅链接";
-                                    icon: @image-url("../../assets/icons/lucide/link.svg");
-                                    colorize-icon: true;
-                                    clicked => { root.copy-url(p.id); }
-                                }
-                            }
-                            Text {
-                                text: p.policy-notes.length == 0 ? "安全调整：无" : "安全调整：";
-                                color: Theme.text-muted;
-                                font-size: 12px;
-                            }
-                            for note in p.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
-                        }
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    col := VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+                        Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; overflow: elide; min-width: 0px; }
+                        Text { text: p.source + " · " + p.detail + " · 更新于 " + p.updated; color: Theme.text-muted; font-size: 12px; overflow: elide; min-width: 0px; }
+                        if p.usage != "": Text { text: p.usage; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; min-width: 0px; }
+                        if p.updating: Text { text: "正在更新…"; color: Theme.accent; font-size: 12px; wrap: word-wrap; min-width: 0px; }
+                        if !p.updating && p.fetch-error != "": Text { text: p.fetch-error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
+
+                    }
+                    if p.selected: Image {
+                        source: @image-url("../../assets/icons/lucide/check.svg");
+                        width: 18px; height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        colorize: Theme.accent;
+                    }
+                    Button {
+                        icon: @image-url("../../assets/icons/lucide/settings.svg");
+                        colorize-icon: true;
+                        accessible-label: "详情 " + p.name;
+                        checkable: true;
+                        checked: root.expanded == p.id;
+                        clicked => { root.expanded = root.expanded == p.id ? "" : p.id; }
+                    }
+                    if p.remote: Button {
+                        icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                        colorize-icon: true;
+                        accessible-label: "更新 " + p.name;
+                        enabled: !p.updating;
+                        clicked => { root.update(p.id); }
+                    }
+                    Button {
+                        icon: @image-url("../../assets/icons/lucide/trash-2.svg");
+                        colorize-icon: true;
+                        accessible-label: "删除 " + p.name;
+                        enabled: !root.busy;
+                        clicked => { root.remove(p.id); }
                     }
                 }
-                if p.selected: Image {
-                    source: @image-url("../../assets/icons/lucide/check.svg");
-                    width: 18px; height: 18px;
-                    y: (parent.height - self.height) / 2;
-                    colorize: Theme.accent;
-                }
-                Button {
-                    icon: @image-url("../../assets/icons/lucide/settings.svg");
-                    colorize-icon: true;
-                    accessible-label: "详情 " + p.name;
-                    checkable: true;
-                    checked: root.expanded == p.id;
-                    clicked => { root.expanded = root.expanded == p.id ? "" : p.id; }
-                }
-                if p.remote: Button {
-                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-                    colorize-icon: true;
-                    accessible-label: "更新 " + p.name;
-                    enabled: !p.updating;
-                    clicked => { root.update(p.id); }
-                }
-                Button {
-                    icon: @image-url("../../assets/icons/lucide/trash-2.svg");
-                    colorize-icon: true;
-                    accessible-label: "删除 " + p.name;
-                    enabled: !root.busy;
-                    clicked => { root.remove(p.id); }
+                // The panel swallows clicks: a click on its background must
+                // not fall through to the row and switch the active profile.
+                if root.expanded == p.id: Rectangle {
+                    TouchArea { }
+                    details := VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 6px;
+                        property <int> hours: p.interval-hours;
+                        property <int> egress: p.egress;
+                        if p.remote: HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "更新间隔（小时，0 = 手动）"; color: Theme.text; vertical-alignment: center; wrap: word-wrap; min-width: 0px; horizontal-stretch: 1; }
+                            SpinBox {
+                                minimum: 0;
+                                maximum: 720;
+                                value: p.interval-hours;
+                                width: 100px;
+                                horizontal-stretch: 0;
+                                accessible-label: "自动更新间隔（小时）";
+                                edited(v) => { details.hours = v; }
+                            }
+                        }
+                        if p.remote: HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "下载出站"; color: Theme.text; vertical-alignment: center; }
+                            ComboBox {
+                                model: root.egress-options;
+                                current-index: p.egress;
+                                accessible-label: "下载出站";
+                                selected => { details.egress = self.current-index; }
+                            }
+                            Button {
+                                text: "保存";
+                                clicked => { root.set-policy(p.id, details.hours, details.egress); }
+                            }
+                        }
+                        if p.remote: Text {
+                            text: "经本地内核下载时，请求会按订阅规则分流，可能经过某个节点。";
+                            color: Theme.text-muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        if p.has-url: HorizontalLayout {
+                            alignment: start;
+                            Button {
+                                text: "复制订阅链接";
+                                icon: @image-url("../../assets/icons/lucide/link.svg");
+                                colorize-icon: true;
+                                clicked => { root.copy-url(p.id); }
+                            }
+                        }
+                        Text {
+                            text: p.policy-notes.length == 0 ? "安全调整：无" : "安全调整：";
+                            color: Theme.text-muted;
+                            font-size: 12px;
+                        }
+                        for note in p.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+                    }
                 }
             }
         }
     }
 
-    if root.policy-notes.length > 0: VerticalLayout {
-        spacing: 2px;
-        Text { text: "最近一次导入或更新的安全调整："; color: Theme.text-muted; font-size: 12px; }
-        for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; }
+    if root.policy-notes.length > 0: notes-scroll := ScrollView {
+        height: min(96px, notes.preferred-height);
+        horizontal-scrollbar-policy: always-off;
+        content-width: self.visible-width;
+        content-height: notes.preferred-height;
+        notes := VerticalLayout {
+            width: max(0px, notes-scroll.visible-width - 16px);
+            spacing: 2px;
+            Text { text: "最近一次导入或更新的安全调整："; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; min-width: 0px; }
+            for note in root.policy-notes: Text { text: "· " + note; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; min-width: 0px; }
+        }
     }
 }

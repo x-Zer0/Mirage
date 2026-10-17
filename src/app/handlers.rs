@@ -93,7 +93,9 @@ impl AppCore {
                 }
             }
             Internal::RestartDue(generation) => self.on_restart_due(generation),
-            Internal::Connectivity(generation, result) => self.on_connectivity(generation, result),
+            Internal::Connectivity(generation, request, result) => {
+                self.on_connectivity(generation, request, result)
+            }
             Internal::RemoteAdded(added) => self.on_remote_added(*added),
             Internal::Updated(outcome, manual) => self.on_updated(*outcome, manual),
             Internal::Reloaded {
@@ -335,6 +337,7 @@ impl AppCore {
         };
         self.generation += 1;
         let generation = self.generation;
+        self.view.connectivity = Connectivity::Unknown;
         self.view.runtime = RuntimeStatus::Starting;
         self.view.error = None;
         let req = runtime::StartRequest {

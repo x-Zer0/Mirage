@@ -4,6 +4,7 @@
 //! log batches arrive through [`LiveSink`] and only while the window is shown.
 
 mod models;
+mod window;
 
 use crate::app::live::{LiveSink, UiLogLine};
 use crate::app::settings::SettingsInput;
@@ -46,6 +47,7 @@ impl Ui {
 
         let tray = AppTray::new()?;
         let commands = core.sender();
+        window::wire_restore(&window);
         wire_window(&window, commands.clone());
         wire_tray(&window, &tray, commands.clone());
         wire_close(&window, &tray, commands.clone());
@@ -257,7 +259,7 @@ fn wire_tray(window: &MainWindow, tray: &AppTray, commands: mpsc::Sender<Command
         let (Some(w), Some(t)) = (w.upgrade(), t.upgrade()) else {
             return;
         };
-        if w.window().is_visible() {
+        if w.window().is_visible() && !w.window().is_minimized() {
             hide_window(&w, &t, &c);
         } else {
             show_window(&w, &t, &c);
@@ -383,6 +385,7 @@ fn show_window(w: &MainWindow, t: &AppTray, commands: &mpsc::Sender<Command>) {
         return;
     }
     w.window().set_minimized(false);
+    window::refresh(w);
     t.set_window_visible(true);
     send(commands, Command::WindowVisible(true));
 }

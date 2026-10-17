@@ -190,21 +190,31 @@ impl AppCore {
 
     pub(super) fn check_connectivity(&mut self) {
         let Some(running) = &self.running else { return };
-        if self.view.connectivity == Connectivity::Checking {
-            return;
+        if let Some(task) = self.connectivity_task.take() {
+            task.abort();
         }
         let port = running.mixed_port;
         let generation = self.generation;
+        self.connectivity_request += 1;
+        let request = self.connectivity_request;
+        let tx = self.internal_tx.clone();
         self.view.connectivity = Connectivity::Checking;
-        self.spawn(
-            async move { Internal::Connectivity(generation, connectivity::probe(port).await) },
-        );
+        self.connectivity_task = Some(tokio::spawn(async move {
+            let result = connectivity::probe(port).await;
+            let _ = tx.send(Internal::Connectivity(generation, request, result));
+        }));
     }
 
-    pub(super) fn on_connectivity(&mut self, generation: u64, result: Result<u32, AppError>) {
-        if generation != self.generation {
+    pub(super) fn on_connectivity(
+        &mut self,
+        generation: u64,
+        request: u64,
+        result: Result<u32, AppError>,
+    ) {
+        if generation != self.generation || request != self.connectivity_request {
             return;
         }
+        self.connectivity_task = None;
         self.view.connectivity = match result {
             Ok(ms) => Connectivity::Reachable(ms),
             Err(e) => {

@@ -123,7 +123,7 @@ enum Internal {
     Stopped(u64),
     DelayDone(u64, String, Result<(), AppError>),
     RestartDue(u64),
-    Connectivity(u64, Result<u32, AppError>),
+    Connectivity(u64, u64, Result<u32, AppError>),
     RemoteAdded(Box<updates::AddedRemote>),
     /// `bool`: started by the user (notices) rather than the schedule.
     Updated(Box<pipeline::UpdateOutcome>, bool),
@@ -234,6 +234,8 @@ struct AppCore {
     profiles: profiles::Profiles,
     running: Option<Running>,
     generation: u64,
+    connectivity_request: u64,
+    connectivity_task: Option<tokio::task::JoinHandle<()>>,
     settings: SettingsFile,
     /// Consecutive supervised restarts since the core last ran stably (§5.2).
     restart_attempts: u32,
@@ -287,6 +289,8 @@ impl AppCore {
             profiles,
             running: None,
             generation: 0,
+            connectivity_request: 0,
+            connectivity_task: None,
             settings,
             restart_attempts: 0,
             proxy_before_tun: None,
