@@ -10,8 +10,31 @@ const STAGE: &str = "app.connectivity";
 const PROBE_URL: &str = "http://cp.cloudflare.com/generate_204";
 const TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Round-trip time in ms of a `generate_204` request sent via the mixed port.
-pub async fn probe(mixed_port: u16) -> AppResult<u32> {
+/// DNS and interface selection may still settle just after a TUN restart.
+pub const SETTLE_WINDOW: Duration = Duration::from_secs(30);
+const RETRY_DELAY: Duration = Duration::from_secs(1);
+
+/// Retry transient startup failures twice; keep HTTP interception errors visible.
+pub async fn probe(mixed_port: u16, settling: bool) -> AppResult<u32> {
+    let mut retries = if settling { 2 } else { 0 };
+    loop {
+        match probe_once(mixed_port).await {
+            Err(e) if retries > 0 && is_transient(&e) => {
+                tracing::debug!(error = %e, retries, "TUN connectivity settling, retrying");
+                retries -= 1;
+                tokio::time::sleep(RETRY_DELAY).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+fn is_transient(error: &AppError) -> bool {
+    crate::net::is_transport_failure(error) || matches!(error.kind, AppErrorKind::Http(502..=504))
+}
+
+/// Round-trip time excludes startup retries and their delays.
+async fn probe_once(mixed_port: u16) -> AppResult<u32> {
     tokio::time::timeout(TIMEOUT, probe_request(mixed_port))
         .await
         .map_err(|_| AppError::new(AppErrorKind::Timeout, STAGE, "连通性检测超时，请重试"))?

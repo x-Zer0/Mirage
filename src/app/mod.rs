@@ -57,14 +57,17 @@ pub enum Command {
     UpdateAll,
     /// ziyoumao login; the password is zeroed after the request (§6.1).
     ProviderLogin {
+        provider_id: String,
         email: String,
         password: Password,
     },
     RevalidateAccount(AccountId),
-    /// Local-only removal; `bool`: also remove the account's profile.
-    RemoveAccount(AccountId, bool),
+    RevealAccount {
+        id: AccountId,
+        visible: bool,
+    },
     /// Read-only import of the original client's config (ZIYOUMAO.md §9).
-    ImportLegacyZiyoumao,
+    ImportLegacyProvider(String),
     /// Diagnostics: bootstrap + host checks without a token.
     ProbeProviderHosts,
     Connect,
@@ -133,14 +136,17 @@ enum Internal {
         revision: RevisionId,
         outcome: runtime::ReloadOutcome,
     },
-    LoggedIn(Box<Result<crate::providers::ziyoumao::LoggedIn, AppError>>),
+    LoggedIn {
+        provider_id: String,
+        result: Box<Result<crate::providers::LoggedIn, AppError>>,
+    },
     ProviderProfileAdded {
         account_id: AccountId,
         result: Box<Result<pipeline::RemoteAdded, AppError>>,
     },
     AccountRefreshed {
         account_id: AccountId,
-        result: Result<crate::providers::ziyoumao::Refreshed, AppError>,
+        result: Result<crate::providers::Refreshed, AppError>,
         /// Started by the user (notices) rather than a background check.
         manual: bool,
     },

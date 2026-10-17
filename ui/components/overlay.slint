@@ -1,0 +1,72 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// Shared modal surface for centered dialogs and the right-side drawer.
+export component Overlay inherits PopupWindow {
+    in property <string> title;
+    in property <bool> drawer;
+    in property <bool> custom-header;
+    in property <bool> dismissible: true;
+    in property <length> panel-width: 480px;
+    in property <length> vertical-padding: 24px;
+    callback dismissed();
+    close-policy: no-auto-close;
+
+    public function dismiss() {
+        if (root.dismissible) {
+            root.close();
+            root.dismissed();
+        }
+    }
+
+    Rectangle {
+        background: #00000060;
+        TouchArea { clicked => { root.dismiss(); } }
+    }
+    scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismiss();
+                return accept;
+            }
+            return reject;
+        }
+        Rectangle {
+            x: root.drawer ? root.width - self.width : (root.width - self.width) / 2;
+            y: root.drawer ? 0px : (root.height - self.height) / 2;
+            width: min(root.panel-width, root.width - 48px);
+            height: root.drawer ? root.height : min(content.preferred-height, root.height - 48px);
+            background: Theme.surface;
+            border-radius: root.drawer ? 0px : 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            TouchArea { }
+            content := VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-top: root.vertical-padding;
+                padding-bottom: root.vertical-padding;
+                spacing: 20px;
+                if !root.custom-header: HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: root.title;
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        overflow: elide;
+                    }
+                    Button {
+                        text: "关闭";
+                        enabled: root.dismissible;
+                        clicked => { root.dismiss(); }
+                    }
+                }
+                @children
+            }
+        }
+    }
+}

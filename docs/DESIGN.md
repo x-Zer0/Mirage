@@ -1,6 +1,6 @@
 # Mirage 详细设计
 
-版本：v1.0（2026-10-15）。来源：原《系统设计与开发路线》、《自由猫兼容规范》、分析报告，以及评审意见。本文是实现依据；与旧文档冲突时以本文为准。
+版本：v1.0（2026-10-15），最后更新：2026-10-17（账号订阅并入配置及交互定稿）。来源：原《系统设计与开发路线》、《自由猫兼容规范》、分析报告，以及评审意见。本文是实现依据；与旧文档冲突时以本文为准。
 
 自由猫协议细节见 [ZIYOUMAO.md](ZIYOUMAO.md)。
 
@@ -92,7 +92,7 @@ flowchart TB
     UI["ui_bridge / Slint"] -->|"Command"| CORE["app::AppCore actor"]
     CORE -->|"Event"| UI
     CORE --> PROF["subscriptions：来源 / 下载 / 识别 / 版本"]
-    CORE --> PROV["providers：ProviderRegistry"]
+    CORE --> PROV["providers：AccountProvider"]
     PROV --> ZYM["providers::ziyoumao"]
     PROF --> PROV
     CORE --> ENG["cores::CoreAdapter"]
@@ -127,8 +127,9 @@ Mirage/
     core/                  # 构建时复制：mihomo.exe、geodata（不入库，见 §10.1）
   ui/                      # Slint 源文件
     app.slint
-    pages/                 # overview / profiles / proxies / accounts / settings / diagnostics
-    components/
+    pages/                 # 五个导航页；accounts 为账号信息组件，profile-details 为配置详情
+    providers/ziyoumao.slint # 自由猫登录弹窗与行内表单
+    components/            # 共享弹层/抽屉、问号提示、滚动容器等
   src/
     main.rs                # 单实例、日志初始化、组装依赖、启动运行时与 UI
     app/
@@ -145,7 +146,7 @@ Mirage/
       userinfo.rs          # subscription-userinfo 等响应头解析
       revisions.rs         # 候选/活动版本管理
     providers/
-      mod.rs               # ProviderAccountAdapter trait、ProviderRegistry
+      mod.rs               # AccountProvider 分发与公共登录/刷新结果
       ziyoumao/            # bootstrap / api / auth / account / subscription / legacy_import
     cores/
       mod.rs               # CoreAdapter、CoreLauncher、CoreCapabilities
@@ -208,6 +209,7 @@ pub struct ConfigRevision {
     pub profile_id: ProfileId,
     pub raw_sha256: String,
     pub format: ConfigFormat,              // MihomoYaml | SingBoxJson | Unsupported
+    pub download_format: DownloadFormat,   // Auto | ZiyoumaoAes；raw 保存解码后的配置
     pub fetched_at: Timestamp,
     pub checked_with: Option<String>,      // 例如 "mihomo v1.19.32"
     pub overlay_version: u32,              // 管理字段覆盖规则版本，见 §9.5
@@ -220,6 +222,8 @@ pub struct ProviderAccount {
     pub provider_id: ProviderId,           // "ziyoumao"
     pub display_name: String,              // 脱敏邮箱，如 a***@example.com
     pub session_secret: Option<SecretRef>,
+    pub subscribe_secret: Option<SecretRef>,
+    pub profile_id: Option<ProfileId>,      // 同一服务商覆盖登录时沿用此配置
     pub trusted_hosts: Vec<String>,        // 会话绑定的可信 API 主机
     pub status: AccountStatus,
     pub snapshot: Option<AccountSnapshot>,
@@ -236,7 +240,7 @@ pub struct RuntimeSession {
 }
 ```
 
-`SecretRef` 是一个不透明的键名（例如 `Mirage/account/<uuid>/session`），值只存放在 `SecretStore` 中。元数据 JSON 里只出现 `SecretRef`。
+`SecretRef` 是一个不透明的键名（例如 `account/<uuid>/session`），值只存放在 `SecretStore` 中；Windows 存储目标再加 `Mirage/` 前缀。元数据 JSON 里只出现键名。
 
 ### 5.1 状态枚举
 
@@ -298,57 +302,39 @@ pub struct AppError {
 
 ## 6. 模块接口
 
-下面是 trait 草案，签名可以随实现微调，但职责边界不变。所有异步方法都接收 `CancellationToken`（`tokio_util::sync`）或在可取消的任务中执行。
+账号接口以当前实现为准，其余 trait 为职责草案，签名可随实现微调。异步操作在可取消的任务中执行；服务商协议、配置来源和内核运行相互独立。
 
 ### 6.1 服务商账号
 
-```rust
-#[async_trait]
-pub trait ProviderAccountAdapter: Send + Sync {
-    fn id(&self) -> ProviderId;                       // "ziyoumao"
-    fn capabilities(&self) -> ProviderCapabilities;   // login_password / validate / account_info / logout_local …
-    async fn discover(&self) -> Result<ProviderEndpoint, AppError>;
-    async fn login(&self, ep: &ProviderEndpoint, cred: LoginCredential) -> Result<LoginOutcome, AppError>;
-    async fn validate_session(&self, acc: &AccountContext) -> Result<SessionCheck, AppError>;
-    async fn account_info(&self, acc: &AccountContext) -> Result<AccountSnapshot, AppError>;
-    async fn resolve_subscription(&self, acc: &AccountContext) -> Result<DownloadDescriptor, AppError>;
-    fn logout_local(&self, acc: &AccountContext) -> Result<(), AppError>;  // 只清本地
-}
+`src/providers/mod.rs` 的 `AccountProvider` 是当前账号订阅适配边界，`account_provider(provider_id)` 选择服务商模块，不引入异步 trait 或额外依赖。
 
-pub struct LoginCredential { pub email: String, pub password: Zeroizing<String> }
-pub enum LoginOutcome { Session(SessionSecret), NeedsUserAction(String), Rejected(Redacted<String>) }
-pub enum SessionCheck { Valid(AccountSnapshot), Invalid, Unknown(AppError) }
+| 入口 | 职责 / 返回值 |
+| --- | --- |
+| `name()` | 面向用户的服务商名称 |
+| `login(layout, email, password, egress)` | 主机发现、一次登录及后续账号读取，返回 `LoggedIn` |
+| `refresh(layout, hosts, session, egress)` | 仅向可信主机验证会话、读取账号与订阅地址，返回 `Refreshed` |
+| `descriptor(url)` | 生成通用 `subscriptions::fetch::Descriptor`（URL、UA、重定向策略、下载封装） |
+| `needs_revision_update(revision)` | 判定该服务商的旧订阅封装是否需要更新 |
+| `import_legacy()` | 只读原客户端配置，返回可进入通用管线的内容 |
 
-pub struct AccountSnapshot {
-    pub email_masked: Option<String>,
-    pub plan_name: Option<String>,
-    pub used_bytes: Option<u64>, pub total_bytes: Option<u64>,
-    pub expires_at: Option<Timestamp>,             // None 表示服务端未提供，不等于永久
-    pub device_limit: Option<u32>,
-    pub banned: Option<bool>,
-    pub fetched_at: Timestamp,
-}
+`LoggedIn` 携带会话、脱敏邮箱、完整身份标识、可信主机，以及可选的账号快照和订阅地址；登录后的读取失败通过 `follow_up_error` 表达，不把已成功的登录误判为密码错误。`Refreshed` 携带 `AccountSnapshot`、可选完整身份标识和订阅地址。完整身份标识与会话、订阅 URL 均用 `SecretString` 承载，账号元数据只保存脱敏值。
 
-pub struct DownloadDescriptor {
-    pub url: SecretString,                         // 含订阅 token，按秘密处理
-    pub headers: Vec<(HeaderName, HeaderValue)>,   // 仅本次下载使用，例如 User-Agent: clash-verge
-    pub expected_formats: Vec<ConfigFormat>,
-    pub expires_at: Option<Timestamp>,
-    pub redirect: RedirectPolicy,                  // 自由猫：None
-}
-```
-
-- `ProviderRegistry` 在 `main.rs` 中注册所有适配器（v1 只有自由猫），按 `ProviderId` 查找。
-- 适配器内部持有自己的 HTTP 客户端（通过 `net::HttpClientFactory` 创建）。
+- 自由猫适配位于 `providers/ziyoumao/`，下载 UA 为 `freecatencua/v`，不跟随重定向，`DownloadFormat::ZiyoumaoAes` 在通用内容识别之前解密。
+- 适配器复用 `net` 的 HTTP 客户端与出站策略，只负责协议，不操作 UI、内核或系统代理。
+- 本地删除由 actor 在删除关联配置时统一处理，不提供独立的服务商注销或移除账号命令。
+- 新增账号订阅类型时，增加独立服务商模块及分发分支、所需的登录表单与封装解码；复用通用账号结果、配置抽屉和配置管线，不修改普通 URL / 本地文件的处理路径。
 
 ### 6.2 订阅来源
 
-```rust
-pub async fn resolve_source(src: &SubscriptionSource, deps: &Deps) -> Result<FetchPlan, AppError>;
-pub enum FetchPlan { Download(DownloadDescriptor), Local(PathBuf) }
-```
+`SubscriptionSource` 明确区分来源，具体服务商只出现在账号来源的适配边界：
 
-`RemoteUrl` 直接构造 `DownloadDescriptor`。`ProviderAccount` 交给对应的适配器处理。之后统一进入 §8 的配置管线。
+| 来源 | 处理路径 |
+| --- | --- |
+| `LocalFile` | 读取/导入本地内容，不自动更新；原客户端导入归此类 |
+| `RemoteUrl` | 读取配置自己的 URL 凭据，用普通 UA 构造 `subscriptions::fetch::Descriptor` |
+| `ProviderAccount { provider_id, account_id, .. }` | 读取账号会话，经 `AccountProvider::refresh()` 取得最新 URL，再构造对应下载描述 |
+
+下载完成后按 `Descriptor.format` 解码封装，统一进入 §8 的识别、合成、校验与版本提交。账号来源读取失败时按协议区分网络故障与鉴权失败，再决定是否使用缓存 URL；配置的更新策略、版本与运行状态仍独立于服务商。新增服务商复用此流程，不修改普通 URL / 本地文件的行为。
 
 ### 6.3 内核适配
 
@@ -426,8 +412,9 @@ pub enum Command {
     ImportLocalFile(PathBuf), UpdateProfile(ProfileId), UpdateAll, SelectProfile(ProfileId), RemoveProfile(ProfileId),
     // 节点
     SelectNode { group: String, node: String }, TestGroupDelay(String),
-    // 账号
-    ProviderLogin { provider: ProviderId, cred: LoginCredential }, RevalidateAccount(AccountId), RemoveAccount(AccountId),
+    // 账号来源：添加、刷新、手动显隐、原客户端导入；删除统一使用 RemoveProfile
+    ProviderLogin { provider_id: ProviderId, email: String, password: Password }, RevalidateAccount(AccountId),
+    RevealAccount { id: AccountId, visible: bool }, ImportLegacyProvider(ProviderId),
     // 外壳
     ShowWindow, Quit, SaveSettings(Settings),
 }
@@ -839,9 +826,10 @@ pub trait SecretStore: Send + Sync {
 ```
 
 - 实现：使用 Windows Credential Manager（`CredWriteW`，类型 `CRED_TYPE_GENERIC`，持久化范围 `CRED_PERSIST_LOCAL_MACHINE`），TargetName 为 `Mirage/<key>`。单条 blob 上限 2560 字节；超出时改为 `CryptProtectData` 加密后写入 `secrets\<hash>.bin`，并在 Credential Manager 中记录“已外置”的标记。
-- 保存的内容：账号会话令牌、完整订阅 URL、普通订阅的自定义认证头。
+- 保存的内容：账号会话令牌、完整账号标识（用于用户手动切换显示）、完整订阅 URL、普通订阅的自定义认证头。
 - 不保存：账号密码（只在登录调用期间存在于内存，用 `Zeroizing<String>`）、控制器 secret（每次启动生成，只在内存中）。
-- 删除账号或 Profile 时，同步删除对应的凭据条目。
+- 完整邮箱使用固定键 `account/<id>/identity`，Credential Manager 的目标名为 `Mirage/account/<id>/identity`；不增加明文邮箱元数据字段或旧数据兼容提示。
+- 删除账号关联 Profile 时，同步删除账号身份、会话和订阅地址凭据及账号元数据；普通 URL 配置只清理自己的订阅地址。
 
 ### 14.2 敏感文件
 
@@ -932,29 +920,29 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant U as UI
+    participant U as 配置页登录弹窗
     participant C as AppCore
-    participant Z as ziyoumao
+    participant A as AccountProvider / ziyoumao
     participant S as SecretStore
     participant P as 配置管线
-    U->>C: ProviderLogin(email, password)
-    C->>Z: discover()（bootstrap → 验证主机）
-    C->>Z: login()
-    Z-->>C: Session(auth_data) / NeedsUserAction / Rejected
-    C->>S: put(session)（密码从内存清零）
-    C->>Z: account_info() + resolve_subscription()
-    Z-->>C: AccountSnapshot + DownloadDescriptor(UA=clash-verge)
-    C->>S: put(subscribe_url)
-    C->>C: 创建 Profile(source=ProviderAccount)
-    C->>P: fetch → detect → compose → check → commit
+    U->>C: ProviderLogin(ziyoumao, email, password)
+    C->>A: login()（发现主机、登录、读取账号与订阅地址）
+    A-->>C: LoggedIn / 登录失败
+    C->>S: 保存 session、identity、subscribe_url（密码不保存）
+    C->>C: 首次创建账号与 Profile，已有账号则覆盖并沿用原 Profile
+    C->>A: descriptor(subscribe_url)
+    A-->>C: Descriptor(UA=freecatencua/v, ZiyoumaoAes)
+    C->>P: fetch → decode → detect → compose → check → commit
     P-->>C: Valid revision
     U->>C: Connect（或设置为自动）
 ```
 
+登录被拒绝或网络失败时保留原账号；登录成功后若账号读取或配置更新失败，显示具体错误，不把旧配置替换为无效内容。原客户端导入独立走 `LocalFile`，不执行账号登录。
+
 ### 16.4 订阅更新（内核运行中）
 
 ```text
-fetch(带 EgressRoute) → detect → 存 raw → compose → check
+fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw → compose → check
   ├─ 失败：记录 FetchRecord，活动版本和内核都不变，UI 显示“更新失败（仍使用 <时间> 的版本）”
   └─ 成功：进入事务 → 写 run/config.yaml → PUT /configs?force=true → 恢复节点选择 → 标记 good
              └─ reload 失败：写回 last_good → reload，再失败则重启内核 → 标记新版本 Invalid
@@ -969,11 +957,21 @@ fetch(带 EgressRoute) → detect → 存 raw → compose → check
 | 页面 | 内容 | 自由猫扩展 |
 | --- | --- | --- |
 | 总览 | 连接按钮（大）、系统代理开关、TUN 开关（默认关闭）、路由模式（规则/全局/直连）、当前 Profile、当前出口节点、实时速率、连通状态 | 套餐、剩余流量、到期时间（有数据时显示） |
-| 配置 | Profile 列表（名称、来源类型、更新时间、用量）、添加 URL、导入文件、更新、更新全部、设为活动、删除、查看校验结果 | “添加自由猫账号”入口 |
+| 配置 | Profile 列表（名称、来源类型、更新时间、用量）、添加 URL、导入文件、更新、更新全部、设为活动、删除确认、右侧设置抽屉 | “添加自由猫账号”居中弹窗（邮箱/密码、原客户端导入）；账号信息与刷新在关联配置抽屉展示 |
 | 节点 | 代理组选项卡（只列 Selector 组可选；其他类型的组只读并显示当前节点）、搜索、测速、延迟排序 | — |
-| 账号 | 服务商账号列表、状态、重新登录、刷新信息、移除（本地） | 登录表单（邮箱/密码），需要用户操作时的提示 |
 | 设置 | 内核路径与版本、mixed-port、bypass 列表、默认 UA、内部请求出站策略、启动行为（开机启动/自动连接/关闭到托盘）、TUN 服务安装/卸载、geodata 更新 | — |
 | 诊断 | 内核状态与日志（有界）、最近一次校验输出、policy_notes、连通检测、导出诊断包 | 接口阶段与脱敏错误 |
+
+账号功能已全部并入配置，侧栏只保留上表五页，不再有“账号”菜单。五页内容区不重复显示菜单名称；节点未连接时，“连接后显示代理组和节点。”在内容区水平、垂直居中。自由猫继续保持单账号；入口始终叫“添加自由猫账号”，已有账号时仍可登录或导入。新登录成功后覆盖当前账号并更新原关联配置，登录失败保留原会话。抽屉不提供重新登录、移除账号或移除账号和配置的独立入口；需再次登录时仍从添加入口进入。
+
+- 登录采用居中弹窗，目标宽度 420px，上下内边距 40px；窄窗口自动限制宽高并允许内容滚动。邮箱、密码标签与输入框同行，间距 6px，底部取消/登录各占可用按钮区域的一半。标题不放关闭按钮，右侧为“从自由猫导入”；账号密码说明与导入说明分别收进垂直居中的 Lucide 问号图标，悬浮提示使用单一表面和内容边距。
+- 配置设置使用右侧抽屉，目标宽度 400px，正文与标题左右对齐，滚动条放在右侧留白内。账号来源合并显示“自由猫账号信息”，正常状态不重复显示“已登录”；验证中、失效、网络错误仍显示对应信息。邮箱行按“账号 → 眼睛 → 刷新信息”排列，下载出站标签与下拉框同行；更新间隔使用数字文本框，仅接受 0～720 的整数（0 为手动），空值或超范围时提示并禁止保存。
+- 账号默认脱敏。Lucide 眼睛按钮手动切换完整邮箱与脱敏邮箱，不提供悬浮提示、不设置自动隐藏计时；关闭抽屉后清除完整显示状态，再次打开仍为脱敏。成功覆盖账号或删除配置也清除此状态。完整邮箱按 §14.1 保存在 SecretStore，密码不保存。
+- 列表刷新用于更新订阅配置，仍走下载、解码、校验和应用流程；账号来源在此过程中也会获取最新快照和订阅地址。抽屉“刷新信息”验证会话、更新账号快照与缓存订阅地址，并同步用量，不下载或应用新配置。两者用途不同，均保留。
+- 所有配置删除均需弹窗二次确认。删除账号订阅配置时同时清除账号元数据、完整身份、会话、订阅地址、配置版本与本地文件；正在使用时断开连接并恢复系统代理。只清理 Mirage 本地关联数据，不调用服务端注销。普通 URL / 本地配置按各自来源清理。
+- “从自由猫导入”只复制并解码原自由猫客户端已保存的配置，生成独立本地配置；不读取账号密码、不覆盖当前账号、不自动更新。
+
+交互与验证记录见 [账号订阅并入配置](acceptance/account-profile-integration.md)。
 
 ### 17.2 托盘
 

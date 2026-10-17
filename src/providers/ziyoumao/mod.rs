@@ -2,9 +2,7 @@
 //! snapshots and subscription download descriptors; it never starts the
 //! core, touches the system proxy or opens windows.
 //!
-//! Like `cores::mihomo`, this is a concrete module: the
-//! `ProviderAccountAdapter` trait of DESIGN.md §6.1 is extracted once a
-//! second provider exists.
+//! The common account provider dispatcher calls this concrete protocol adapter.
 
 mod account;
 mod api;
@@ -13,10 +11,10 @@ pub mod bootstrap;
 pub mod legacy_import;
 pub mod subscription;
 
-pub use api::Egress;
+use super::{Egress, LoggedIn, Refreshed, is_unreachable};
 
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{AccountSnapshot, DownloadFormat};
+use crate::domain::model::DownloadFormat;
 use crate::domain::redact::{Password, SecretString};
 use crate::storage::layout::Layout;
 use crate::subscriptions::fetch::Descriptor;
@@ -26,17 +24,6 @@ pub const PROVIDER_ID: &str = "ziyoumao";
 const STAGE: &str = "ziyoumao";
 /// Verified encrypted subscription UA; use this literal without a version suffix.
 pub const SUBSCRIPTION_UA: &str = "freecatencua/v";
-
-pub struct LoggedIn {
-    pub session: SecretString,
-    pub email_masked: String,
-    /// Origin of the host the session is bound to (§4.3).
-    pub trusted_host: String,
-    pub snapshot: Option<AccountSnapshot>,
-    pub subscribe_url: Option<SecretString>,
-    /// Account calls after the login that failed (the session is still kept).
-    pub follow_up_error: Option<AppError>,
-}
 
 /// discover → login → user/info + user/getSubscribe (DESIGN.md §16.3).
 pub async fn login(
@@ -78,25 +65,20 @@ pub async fn login(
     let mut logged_in = LoggedIn {
         session,
         email_masked: account::mask_email(&email),
+        identity: SecretString::new(email),
         trusted_host: bootstrap::origin(&base),
         snapshot: None,
         subscribe_url: None,
         follow_up_error: None,
     };
     match fetch_account(&base, logged_in.session.expose(), egress).await {
-        Ok((snapshot, url)) => {
-            logged_in.snapshot = Some(snapshot);
-            logged_in.subscribe_url = Some(url);
+        Ok(refreshed) => {
+            logged_in.snapshot = Some(refreshed.snapshot);
+            logged_in.subscribe_url = Some(refreshed.subscribe_url);
         }
         Err(e) => logged_in.follow_up_error = Some(e),
     }
     Ok(logged_in)
-}
-
-/// Fresh account data and the latest subscription URL (§6.4, §7.2).
-pub struct Refreshed {
-    pub snapshot: AccountSnapshot,
-    pub subscribe_url: SecretString,
 }
 
 /// Validates the saved session against the trusted hosts only (§4.3). When
@@ -114,12 +96,7 @@ pub async fn refresh(
             continue;
         };
         match fetch_account(&base, session, egress).await {
-            Ok((snapshot, subscribe_url)) => {
-                return Ok(Refreshed {
-                    snapshot,
-                    subscribe_url,
-                });
-            }
+            Ok(refreshed) => return Ok(refreshed),
             Err(e) if is_unreachable(&e) => last_err = Some(e),
             Err(e) => return Err(e),
         }
@@ -140,22 +117,14 @@ pub fn descriptor(url: &SecretString) -> AppResult<Descriptor> {
     })
 }
 
-/// Errors that leave the account usable, just not reachable right now.
-pub fn is_unreachable(e: &AppError) -> bool {
-    matches!(
-        e.kind,
-        AppErrorKind::Network | AppErrorKind::Timeout | AppErrorKind::Tls
-    ) || matches!(e.kind, AppErrorKind::Http(code) if code >= 500)
-}
-
-async fn fetch_account(
-    base: &Url,
-    session: &str,
-    egress: Egress,
-) -> AppResult<(AccountSnapshot, SecretString)> {
+async fn fetch_account(base: &Url, session: &str, egress: Egress) -> AppResult<Refreshed> {
     let info = account::user_info(base, session, egress).await?;
     let sub = account::subscription(base, session, egress).await?;
-    Ok((account::merge(Some(info), &sub.snapshot), sub.url))
+    Ok(Refreshed {
+        snapshot: account::merge(Some(info.snapshot), &sub.snapshot),
+        identity: info.identity,
+        subscribe_url: sub.url,
+    })
 }
 
 async fn moved_hint(

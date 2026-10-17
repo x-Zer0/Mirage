@@ -8,8 +8,8 @@
 
 use super::STAGE;
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::EgressPolicy;
 use crate::net::{self, EgressRoute};
+pub(super) use crate::providers::Egress;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, RETRY_AFTER};
 use reqwest::{Method, StatusCode, Url};
 use serde::Deserialize;
@@ -22,13 +22,6 @@ const GET_BACKOFF: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(
 const MAX_RETRY_AFTER: u64 = 60;
 const DEFAULT_RETRY_AFTER: u64 = 5;
 const MESSAGE_LIMIT: usize = 200;
-
-/// Where and how requests leave the machine.
-#[derive(Debug, Clone, Copy)]
-pub struct Egress {
-    pub policy: EgressPolicy,
-    pub core_port: Option<u16>,
-}
 
 /// One HTTP response, body already read with the size limit.
 pub struct Raw {

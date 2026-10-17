@@ -39,6 +39,7 @@ pub struct ProfileView {
     pub id: String,
     pub name: String,
     pub source: String,
+    pub account_id: String,
     pub detail: String,
     pub updated: String,
     pub selected: bool,
@@ -58,11 +59,12 @@ pub struct ProfileView {
     pub policy_notes: Vec<String>,
 }
 
-/// One provider account as shown on the accounts page.
+/// Provider account details shown in its profile drawer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountView {
     pub id: String,
     pub name: String,
+    pub provider_name: String,
     pub status: String,
     /// 0 neutral, 1 ok, 2 error.
     pub status_level: i32,
@@ -70,7 +72,6 @@ pub struct AccountView {
     pub plan: String,
     pub usage: String,
     pub expires: String,
-    pub has_profile: bool,
     pub profile_id: String,
 }
 
@@ -80,7 +81,7 @@ impl AccountView {
             AccountStatus::LoggedOut => ("未登录".to_owned(), 0),
             AccountStatus::LoggingIn => ("正在登录…".to_owned(), 0),
             AccountStatus::Validating => ("正在验证会话…".to_owned(), 0),
-            AccountStatus::Valid => ("已登录".to_owned(), 1),
+            AccountStatus::Valid => (String::new(), 1),
             AccountStatus::ReauthRequired => ("登录已失效，请重新登录".to_owned(), 2),
             AccountStatus::NeedsUserAction(t) => (t.clone(), 2),
             AccountStatus::NetworkUnavailable(t) => (format!("暂时无法连接服务：{t}"), 2),
@@ -111,13 +112,13 @@ impl AccountView {
         Self {
             id: a.id.clone(),
             name: a.display_name.clone(),
+            provider_name: crate::providers::account_name(&a.provider_id).into(),
             status,
             status_level,
             busy: a.status == AccountStatus::Validating,
             plan,
             usage,
             expires: format!("到期 {expires}"),
-            has_profile: a.profile_id.is_some(),
             profile_id: a.profile_id.clone().unwrap_or_default(),
         }
     }
@@ -270,7 +271,11 @@ pub struct AppStateView {
     pub policy_notes: Vec<String>,
     pub check_lines: Vec<String>,
     pub accounts: Vec<AccountView>,
+    /// Temporary disclosure, excluded from normal account models and debug output.
+    pub revealed_account: Option<(String, crate::domain::redact::SecretString)>,
     pub login_busy: bool,
+    /// Successful login counter survives UI snapshot throttling.
+    pub login_success: u64,
     /// Last login failure, shown under the login form.
     pub login_message: Option<String>,
     pub probing_hosts: bool,

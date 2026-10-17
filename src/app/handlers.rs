@@ -1,6 +1,6 @@
 //! Command and completion handlers for [`AppCore`].
 
-use super::state::{Connectivity, ProfileView, Retry, RuntimeStatus};
+use super::state::{ProfileView, Retry, RuntimeStatus};
 use super::{AppCore, Command, Internal, error_notice, info_notice, pipeline, runtime, updates};
 use crate::domain::error::{AppError, AppErrorKind};
 use crate::domain::model::{EgressPolicy, Profile, SubscriptionSource, Validity, now};
@@ -24,13 +24,18 @@ impl AppCore {
             Command::AddRemoteProfile { name, url } => self.add_remote(name, url),
             Command::UpdateProfile(id) => self.update_profile(&id, true),
             Command::UpdateAll => self.update_all(),
-            Command::ProviderLogin { email, password } => self.provider_login(email, password),
+            Command::ProviderLogin {
+                provider_id,
+                email,
+                password,
+            } => self.provider_login(provider_id, email, password),
             Command::RevalidateAccount(id) => self.revalidate_account(&id, true),
-            Command::RemoveAccount(id, with_profile) => self.remove_account(&id, with_profile),
-            Command::ImportLegacyZiyoumao if !self.core_checked() => {
-                self.deferred.push(Command::ImportLegacyZiyoumao);
+            Command::RevealAccount { id, visible } => self.reveal_account(&id, visible),
+            Command::ImportLegacyProvider(provider_id) if !self.core_checked() => {
+                self.deferred
+                    .push(Command::ImportLegacyProvider(provider_id));
             }
-            Command::ImportLegacyZiyoumao => self.import_legacy(),
+            Command::ImportLegacyProvider(provider_id) => self.import_legacy(&provider_id),
             Command::ProbeProviderHosts => self.probe_provider_hosts(),
             Command::Connect => self.connect(),
             Command::Disconnect => self.disconnect(),
@@ -104,7 +109,10 @@ impl AppCore {
                 revision,
                 outcome,
             } => self.on_reloaded(generation, profile_id, revision, outcome),
-            Internal::LoggedIn(result) => self.on_logged_in(*result),
+            Internal::LoggedIn {
+                provider_id,
+                result,
+            } => self.on_logged_in(provider_id, *result),
             Internal::ProviderProfileAdded { account_id, result } => {
                 self.on_provider_profile_added(account_id, *result)
             }
@@ -267,12 +275,21 @@ impl AppCore {
     }
 
     pub(super) fn remove_profile(&mut self, id: &str) {
+        if self.view.login_busy {
+            return;
+        }
+        let Some(profile) = self.profiles.get(id).cloned() else {
+            return;
+        };
+        if let Err(e) = self.forget_secrets(&profile) {
+            self.view.notice = Some(error_notice(&e));
+            return;
+        }
         if self.running.as_ref().is_some_and(|r| r.profile_id == id) {
             self.disconnect();
         }
-        if let Some(removed) = self.profiles.remove(id) {
+        if self.profiles.remove(id).is_some() {
             self.save_profiles();
-            self.forget_secrets(&removed);
             if self
                 .queued_reload
                 .as_ref()
@@ -337,7 +354,7 @@ impl AppCore {
         };
         self.generation += 1;
         let generation = self.generation;
-        self.view.connectivity = Connectivity::Unknown;
+        self.reset_connectivity();
         self.view.runtime = RuntimeStatus::Starting;
         self.view.error = None;
         let req = runtime::StartRequest {
@@ -423,7 +440,7 @@ impl AppCore {
         self.update_tun_state(false);
         self.view.groups.clear();
         self.view.testing_group = None;
-        self.view.connectivity = Connectivity::Unknown;
+        self.reset_connectivity();
         let Some(running) = self.running.take() else {
             self.view.runtime = RuntimeStatus::Stopped;
             return;
@@ -530,12 +547,18 @@ fn profile_view(
         .unwrap_or_else(|| "没有可用版本".into());
     let source = match &p.source {
         SubscriptionSource::RemoteUrl { host, .. } => format!("订阅 {host}"),
+        SubscriptionSource::ProviderAccount { provider_id, .. } => {
+            format!("{}账号", crate::providers::account_name(provider_id))
+        }
         other => other.label().into(),
     };
     ProfileView {
         id: p.id.clone(),
         name: p.name.clone(),
         source,
+        account_id: super::accounts::account_of(p)
+            .unwrap_or_default()
+            .to_owned(),
         detail,
         updated: updates::profile_time(p.updated_at),
         selected: p.id == selected,

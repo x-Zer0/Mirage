@@ -1,168 +1,57 @@
-import { Button, LineEdit } from "std-widgets.slint";
+import { Button } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
-import { Card } from "../components/card.slint";
 
 export struct AccountRow {
     id: string,
     name: string,
+    provider-name: string,
     status: string,
-    status-level: int, // 0 neutral, 1 ok, 2 error
+    status-level: int,
     busy: bool,
     plan: string,
     usage: string,
     expires: string,
-    has-profile: bool,
 }
 
-// 自由猫 accounts (DESIGN.md §17.1). The password field is cleared as soon as
-// the login is submitted; it is never kept in a UI property afterwards.
-export component AccountsPage inherits VerticalLayout {
-    in property <[AccountRow]> accounts;
-    in property <bool> login-busy;
-    in property <string> login-message;
+export component AccountInfo inherits VerticalLayout {
+    in property <AccountRow> account;
     in property <bool> busy;
-    in-out property <string> email;
-    in-out property <string> password;
-    callback login(string, string);
-    callback revalidate(string);
-    callback remove(string, bool);
-    callback import-legacy();
-
-    min-width: 0px;
-    spacing: 16px;
-    alignment: start;
-
-    function submit() {
-        if (root.email != "" && root.password != "" && !root.login-busy) {
-            root.login(root.email, root.password);
-            root.password = "";
+    in property <string> revealed-name;
+    callback refresh(string);
+    callback reveal(string, bool);
+    spacing: 8px;
+    Text { text: root.account.provider-name + "账号信息"; font-weight: 600; color: Theme.text; }
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: root.revealed-name == "" ? root.account.name : root.revealed-name;
+            color: Theme.text;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            min-width: 0px;
+        }
+        Button {
+            icon: root.revealed-name == "" ? @image-url("../../assets/icons/lucide/eye.svg") : @image-url("../../assets/icons/lucide/eye-off.svg");
+            colorize-icon: true;
+            accessible-label: root.revealed-name == "" ? "显示完整账号" : "隐藏账号";
+            enabled: !root.busy;
+            clicked => { root.reveal(root.account.id, root.revealed-name == ""); }
+        }
+        Button {
+            text: root.account.busy ? "验证中…" : "刷新信息";
+            icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+            colorize-icon: true;
+            enabled: !root.busy && !root.account.busy;
+            clicked => { root.refresh(root.account.id); }
         }
     }
-
-    for a in root.accounts: Card {
-        VerticalLayout {
-            spacing: 6px;
-            GridLayout {
-                spacing: 8px;
-                VerticalLayout {
-                    row: 0;
-                    col: 0;
-                    spacing: 2px;
-                    horizontal-stretch: 1;
-                    Text { text: "自由猫账号 · " + a.name; font-weight: 600; color: Theme.text; wrap: word-wrap; min-width: 0px; }
-                    Text {
-                        text: a.status;
-                        color: a.status-level == 1 ? Theme.ok : a.status-level == 2 ? Theme.danger : Theme.text-muted;
-                        wrap: word-wrap;
-                    }
-                }
-                HorizontalLayout {
-                    row: root.width < 720px ? 1 : 0;
-                    col: root.width < 720px ? 0 : 1;
-                    spacing: 8px;
-                    alignment: start;
-                    Button {
-                        text: a.busy ? "验证中…" : "刷新信息";
-                        icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-                        colorize-icon: true;
-                        enabled: !a.busy;
-                        clicked => { root.revalidate(a.id); }
-                    }
-                    Button {
-                        text: "移除";
-                        icon: @image-url("../../assets/icons/lucide/trash-2.svg");
-                        colorize-icon: true;
-                        accessible-label: "移除账号（保留配置）";
-                        clicked => { root.remove(a.id, false); }
-                    }
-                    if a.has-profile: Button {
-                        text: "移除账号和配置";
-                        clicked => { root.remove(a.id, true); }
-                    }
-                }
-            }
-            if a.plan != "": Text { text: "套餐：" + a.plan; color: Theme.text; wrap: word-wrap; min-width: 0px; }
-            if a.usage != "": Text { text: a.usage + " · " + a.expires; color: Theme.text-muted; wrap: word-wrap; min-width: 0px; }
-            Text {
-                text: "移除只清除本机保存的会话和订阅地址，不会注销服务端登录。";
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-        }
+    if root.account.status != "": Text {
+        text: root.account.status;
+        color: root.account.status-level == 2 ? Theme.danger : Theme.text-muted;
+        wrap: word-wrap;
     }
-
-    Card {
-        VerticalLayout {
-            spacing: 8px;
-            Text {
-                text: root.accounts.length == 0 ? "登录自由猫账号" : "重新登录";
-                font-weight: 600;
-                color: Theme.text;
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit {
-                    min-width: 80px;
-                    placeholder-text: "邮箱";
-                    text <=> root.email;
-                    horizontal-stretch: 1;
-                    enabled: !root.login-busy;
-                }
-                LineEdit {
-                    min-width: 80px;
-                    placeholder-text: "密码";
-                    input-type: InputType.password;
-                    text <=> root.password;
-                    horizontal-stretch: 1;
-                    enabled: !root.login-busy;
-                    accepted => { root.submit(); }
-                }
-                Button {
-                    text: root.login-busy ? "登录中…" : "登录";
-                    icon: @image-url("../../assets/icons/lucide/circle-user.svg");
-                    colorize-icon: true;
-                    primary: true;
-                    enabled: !root.login-busy && root.email != "" && root.password != "";
-                    clicked => { root.submit(); }
-                }
-            }
-            if root.login-message != "": Text { text: root.login-message; color: Theme.danger; wrap: word-wrap; }
-            Text {
-                text: "密码只用于本次登录请求，不会保存。登录后会自动获取订阅并创建“自由猫”配置。";
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-        }
-    }
-
-    Card {
-        VerticalLayout {
-            spacing: 8px;
-            HorizontalLayout {
-                spacing: 8px;
-                Text {
-                    text: "从原自由猫客户端导入";
-                    font-weight: 600;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                }
-                Button {
-                    text: "导入";
-                    icon: @image-url("../../assets/icons/lucide/file-plus.svg");
-                    colorize-icon: true;
-                    enabled: !root.busy;
-                    clicked => { root.import-legacy(); }
-                }
-            }
-            Text {
-                text: "只读取原客户端保存的配置文件（不读取账号和密码，也不修改原客户端的任何文件），导入为本地配置，不会自动更新。";
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-        }
-    }
+    Text { text: "套餐：" + (root.account.plan == "" ? "未提供" : root.account.plan); color: Theme.text; wrap: word-wrap; }
+    Text { text: root.account.usage == "" ? "流量：未提供" : root.account.usage; color: Theme.text-muted; wrap: word-wrap; }
+    Text { text: root.account.expires; color: Theme.text-muted; wrap: word-wrap; }
 }

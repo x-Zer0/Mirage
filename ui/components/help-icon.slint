@@ -1,0 +1,30 @@
+import { Theme } from "theme.slint";
+
+export component HelpIcon inherits Rectangle {
+    in property <string> text;
+    width: 20px;
+    min-height: 32px;
+    horizontal-stretch: 0;
+    accessible-role: image;
+    accessible-description: root.text;
+    Image {
+        width: 16px;
+        height: 16px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: @image-url("../../assets/icons/lucide/circle-question-mark.svg");
+        colorize: Theme.text-muted;
+    }
+    Tooltip {
+        VerticalLayout {
+            padding: 10px;
+            Text {
+                text: root.text;
+                max-width: 280px;
+                color: Theme.text;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -40,6 +40,10 @@ export component ProxiesPage inherits VerticalLayout {
     if !root.running: Text {
         text: "连接后显示代理组和节点。";
         color: Theme.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+        vertical-stretch: 1;
     }
 
     if root.running && root.groups.length > 0: HorizontalLayout {

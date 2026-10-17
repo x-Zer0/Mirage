@@ -51,7 +51,7 @@ impl AppCore {
         self.view.tun_active = false;
         self.view.groups.clear();
         self.view.testing_group = None;
-        self.view.connectivity = Connectivity::Unknown;
+        self.reset_connectivity();
         self.schedule_restart(detail);
     }
 
@@ -188,19 +188,33 @@ impl AppCore {
         }
     }
 
-    pub(super) fn check_connectivity(&mut self) {
-        let Some(running) = &self.running else { return };
+    fn cancel_connectivity(&mut self) {
+        self.connectivity_request += 1;
         if let Some(task) = self.connectivity_task.take() {
             task.abort();
         }
+    }
+
+    pub(super) fn reset_connectivity(&mut self) {
+        self.cancel_connectivity();
+        self.view.connectivity = Connectivity::Unknown;
+    }
+
+    pub(super) fn check_connectivity(&mut self) {
+        if self.view.runtime != RuntimeStatus::Running {
+            return;
+        }
+        let Some(running) = &self.running else { return };
         let port = running.mixed_port;
+        let settling =
+            self.view.tun_active && running.started_at.elapsed() < connectivity::SETTLE_WINDOW;
+        self.cancel_connectivity();
         let generation = self.generation;
-        self.connectivity_request += 1;
         let request = self.connectivity_request;
         let tx = self.internal_tx.clone();
         self.view.connectivity = Connectivity::Checking;
         self.connectivity_task = Some(tokio::spawn(async move {
-            let result = connectivity::probe(port).await;
+            let result = connectivity::probe(port, settling).await;
             let _ = tx.send(Internal::Connectivity(generation, request, result));
         }));
     }

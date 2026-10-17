@@ -48,6 +48,7 @@ export component OverviewPage inherits VerticalLayout {
                 : @image-url("../../assets/icons/tray/idle.svg");
                 width: 48px;
                 height: 48px;
+                y: (parent.height - self.height) / 2;
             }
             VerticalLayout {
                 alignment: center;
@@ -228,7 +229,7 @@ export component OverviewPage inherits VerticalLayout {
                     icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
                     colorize-icon: true;
                     accessible-label: "重新检测连通性";
-                    enabled: root.running;
+                    enabled: root.running && !root.busy;
                     clicked => { root.check-connectivity(); }
                 }
             }

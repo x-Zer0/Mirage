@@ -12,3 +12,4 @@ pub mod single_instance;
 pub mod sysproxy;
 pub mod token;
 pub mod tray_balloon;
+pub mod tun;

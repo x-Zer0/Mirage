@@ -41,20 +41,31 @@ struct SubscribeInfo {
     alive_ip: Option<u64>,
 }
 
+pub struct UserAccountInfo {
+    pub snapshot: AccountSnapshot,
+    pub identity: Option<SecretString>,
+}
+
 /// `user/info`: the session check (§6.4). Errors keep their kind, so the
 /// caller can tell AuthInvalid from a network failure.
-pub async fn user_info(base: &Url, session: &str, egress: Egress) -> AppResult<AccountSnapshot> {
+pub async fn user_info(base: &Url, session: &str, egress: Egress) -> AppResult<UserAccountInfo> {
     let data = api::get_data(&api::endpoint(base, "user/info")?, Some(session), egress).await?;
     tracing::debug!(fields = %api::field_names(&data), "ziyoumao user/info");
     let info: UserInfo = api::decode(data, "账号信息")?;
-    Ok(AccountSnapshot {
+    let snapshot = AccountSnapshot {
         email_masked: info.email.as_deref().map(mask_email),
         total_bytes: info.transfer_enable,
         expires_at: timestamp(info.expired_at),
         banned: info.banned,
         fetched_at: now(),
         ..Default::default()
-    })
+    };
+    let identity = info
+        .email
+        .map(|email| email.trim().to_owned())
+        .filter(|email| !email.is_empty() && !email.contains('*'))
+        .map(SecretString::new);
+    Ok(UserAccountInfo { snapshot, identity })
 }
 
 pub struct Subscription {

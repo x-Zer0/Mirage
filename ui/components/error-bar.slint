@@ -61,6 +61,7 @@ export component ErrorBar inherits Rectangle {
 // Placed freely in the window, so it sizes itself to its content.
 export component Toast inherits Rectangle {
     in property <string> text;
+    in property <bool> busy;
     width: content.preferred-width;
     height: content.preferred-height;
     background: Theme.toast-bg;
@@ -76,7 +77,8 @@ export component Toast inherits Rectangle {
         padding-bottom: 8px;
         spacing: 8px;
         Image {
-            source: @image-url("../../assets/icons/lucide/check.svg");
+            source: root.busy ? @image-url("../../assets/icons/lucide/refresh-cw.svg")
+                : @image-url("../../assets/icons/lucide/check.svg");
             width: 16px;
             height: 16px;
             y: (parent.height - self.height) / 2;

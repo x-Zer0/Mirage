@@ -174,11 +174,12 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     let c = commands.clone();
     window.on_check_connectivity(move || send(&c, Command::CheckConnectivity));
     let c = commands.clone();
-    window.on_provider_login(move |email, password| {
+    window.on_provider_login(move |provider, email, password| {
         // The Slint string is dropped right after; the core zeroes its copy.
         send(
             &c,
             Command::ProviderLogin {
+                provider_id: provider.into(),
                 email: email.into(),
                 password: Password::new(password.as_str().to_owned()),
             },
@@ -187,11 +188,18 @@ fn wire_window(window: &MainWindow, commands: mpsc::Sender<Command>) {
     let c = commands.clone();
     window.on_revalidate_account(move |id| send(&c, Command::RevalidateAccount(id.into())));
     let c = commands.clone();
-    window.on_remove_account(move |id, with_profile| {
-        send(&c, Command::RemoveAccount(id.into(), with_profile))
+    window.on_reveal_account(move |id, visible| {
+        send(
+            &c,
+            Command::RevealAccount {
+                id: id.into(),
+                visible,
+            },
+        );
     });
     let c = commands.clone();
-    window.on_import_legacy(move || send(&c, Command::ImportLegacyZiyoumao));
+    window
+        .on_import_legacy(move |provider| send(&c, Command::ImportLegacyProvider(provider.into())));
     let c = commands.clone();
     window.on_probe_hosts(move || send(&c, Command::ProbeProviderHosts));
     let c = commands.clone();

@@ -1,10 +1,10 @@
 # 自由猫（ziyoumao）接入规范
 
-> **2026-10-16 订阅结论修正：** 本文的 `clash-verge` 明文订阅仅验证了格式，当前样本的入口实际不可用。原客户端使用 `freecatencua/v` 获取 AES 加密订阅，解密后入口不同，官方核心已实连成功。订阅下载与解密实现请以 [节点超时与加密订阅分析](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md) 为准；下文旧 UA 契约及无需解密的说法已被此次证据修正。
+> **2026-10-16 订阅结论修正：** 本文的 `clash-verge` 明文订阅仅验证了格式，当前样本的入口实际不可用。原客户端使用 `freecatencua/v` 获取 AES 加密订阅，解密后入口不同，官方核心已实连成功。订阅下载与解密实现请以 [节点超时与加密订阅分析](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md) 为准；当前契约已按此修正；下文证据表与 M4 登录记录保留当时的明文 UA 观察。
 
 > **2026-10-17 实现：** 在线订阅已改用 `freecatencua/v`，由 `src/providers/ziyoumao/subscription.rs` 严格解码 Base64 → AES-128-CBC/PKCS#7 → Base64 → UTF-8 YAML，再进入现有 compose、官方核心校验和原子应用流程。复用 Windows CNG，无新增加密依赖。`DownloadFormat::ZiyoumaoAes` 标识下载封装；持久化的 raw 仍是解密后的 YAML，并在 revision 中记录 `download_format`。旧 revision 缺省为 `Auto`，启动或连接后会自动刷新账号来源的旧配置，包括设置为手动更新的配置；下载、解密或应用失败时保留旧版本，不降级下载明文订阅。账号登录、双令牌隔离和原客户端本地导入逻辑保留。
 
-版本 v1.0（2026-10-15）。本文是 `src/providers/ziyoumao/` 的实现依据，自包含：实现时无需再查阅逆向材料。通用接口（`ProviderAccountAdapter`、`DownloadDescriptor`、`SecretStore`、`HttpClientFactory`、错误类型）定义见 [DESIGN.md](DESIGN.md) §5、§6、§12、§14。
+版本 v1.0（2026-10-15），最后更新：2026-10-17（账号订阅交互定稿）。本文是 `src/providers/ziyoumao/` 的实现依据，自包含：实现时无需再查阅逆向材料。通用边界（`AccountProvider`、`subscriptions::fetch::Descriptor`、`SecretStore`、`net` 出站策略、错误类型）定义见 [DESIGN.md](DESIGN.md) §5、§6、§12、§14。
 
 本文不是官方 API 文档。接口来自原客户端静态分析、公开 Web 客户端源码和授权账号的只读实测，服务端行为可能变化。证据标记：
 
@@ -21,11 +21,11 @@ bootstrap（公开 Base64 JSON）→ 候选主机 → GET /guest/comm/config 验
   → POST /passport/auth/login（email/password）→ data.auth_data
   → GET /user/info、GET /user/getSubscribe（Authorization: <auth_data 原值>）
   → data.subscribe_url（含独立订阅 token）
-  → GET subscribe_url（User-Agent: clash-verge，无 Authorization）
-  → 标准 Mihomo YAML → 通用配置管线
+  → GET subscribe_url（User-Agent: freecatencua/v，无 Authorization）
+  → Base64 → AES-128-CBC/PKCS#7 → Base64 → UTF-8 YAML → 通用配置管线
 ```
 
-- 【已验证】订阅在线路径返回的是标准明文 Mihomo YAML，官方 Mihomo v1.19.32 `-t` 退出码为 0。单节点经官方内核请求 `generate_204` 返回 204。因此不需要自由猫定制内核，也不需要节点协议转换。
+- 当前在线路径返回 AES 封装，解码后是标准 Mihomo YAML；已由官方 Mihomo v1.19.32 校验和联网验证，无需自由猫定制内核或节点协议转换。此前 `clash-verge` 明文样本只证明格式合法，入口不可用，不能作为当前下载契约。
 - 原客户端的内核通过本地 TCP 加换行分隔 JSON 的私有 action 协议通信，不是官方 Mihomo CLI/REST 接口，所以不能把官方 exe 直接替换进原客户端的安装目录。Mirage 使用标准 CLI 和 REST 接口。
 
 ## 2. 证据表
@@ -50,18 +50,18 @@ bootstrap（公开 Base64 JSON）→ 候选主机 → GET /guest/comm/config 验
 
 ```text
 src/providers/ziyoumao/
-  mod.rs            # ZiyoumaoAdapter: ProviderAccountAdapter
+  mod.rs            # 自由猫协议适配，由通用 AccountProvider 分发
   bootstrap.rs      # 入口下载、解码、主机候选、缓存
   api.rs            # 请求构造、响应信封解析、错误映射、DTO
   auth.rs           # 登录、会话验证
   account.rs        # /user/info + /user/getSubscribe → AccountSnapshot
-  subscription.rs   # subscribe_url → DownloadDescriptor
+  subscription.rs   # AES 订阅封装解码（下载描述由 mod.rs 构造）
   legacy_import.rs  # 可选：原客户端 config.yaml 只读解码
 ```
 
-- 模块输出 `AccountSnapshot`、`DownloadDescriptor` 和 `AppError`。
+- 模块输出通用 `LoggedIn` / `Refreshed`（含 `AccountSnapshot`）、下载 `Descriptor` 和 `AppError`；入口见 DESIGN.md §6.1。
 - 不负责 UI 跳转、启动内核、修改系统代理，也不把自由猫特有字段放进通用节点模型。
-- 数据按 `account_id` 隔离，不使用全局单例 token。v1 的 UI 只支持一个自由猫账号，但数据层支持多个。
+- 数据按 `account_id` 隔离，不使用全局单例 token。当前产品只支持一个自由猫账号，再次登录覆盖该服务商原账号并沿用其配置；不提供多账号管理。其他服务商通过独立适配模块扩展，普通 URL 和本地文件不受影响。
 
 ---
 
@@ -123,7 +123,7 @@ struct BootstrapDoc {
 | 登录 | `POST /passport/auth/login` | JSON `{"email","password"}` | `data.auth_data` | 【源码确认】 |
 | 账号信息 | `GET /user/info` | `Authorization: <auth_data>` | `data.email`、`transfer_enable`、`expired_at`、`banned`、`plan_id` | 【已验证】 |
 | 订阅信息 | `GET /user/getSubscribe` | 同上 | `data.subscribe_url`、`u`、`d`、`transfer_enable`、`expired_at`、`plan`、`alive_ip` | 【已验证】 |
-| 下载订阅 | `GET <subscribe_url>` | `User-Agent: clash-verge`，不带 Authorization | 标准 YAML | 【已验证】 |
+| 下载订阅 | `GET <subscribe_url>` | `User-Agent: freecatencua/v`，不带 Authorization | AES 封装，解码后为标准 YAML | 【已验证 2026-10-17 实现】 |
 
 所有账号类请求的公共头：`Accept: application/json`。登录请求额外带 `Content-Type: application/json`。
 
@@ -209,7 +209,7 @@ Accept: application/json
 
 - `auth_data` 是不透明字符串。不要假设它是 JWT，也不要自行解析有效期。
 - 后续请求使用 `Authorization: <auth_data 原值>`，不加 `Bearer ` 前缀（公开 Web 客户端也是这样使用的）。
-- 登录成功后把令牌写入 `SecretStore`，键为 `Mirage/account/<account_id>/session`。v1 默认保存会话，因为用户添加账号的目的就是长期使用。移除账号时删除这条记录。
+- 登录成功后把令牌写入 `SecretStore`，键为 `Mirage/account/<account_id>/session`。v1 默认保存会话，因为用户添加账号的目的就是长期使用。删除账号关联配置时，同时删除会话、完整邮箱、订阅地址、账号元数据和配置文件；没有独立移除账号入口。
 
 ### 6.3 验证码与挑战
 
@@ -233,7 +233,16 @@ Valid ──validate──▶ Validating ──▶ Valid / ReauthRequired / Netw
 - 只有 401 或 403，或业务信封明确表示未登录或令牌失效时，才转为 `ReauthRequired`。网络错误和 5xx 转为 `NetworkUnavailable`，保留令牌。
 - 没有刷新接口时，不要在后台循环提交密码来“保活”。会话失效后提示用户重新登录。
 - 账号状态变化不影响正在运行的内核（DESIGN.md §5.1）。
-- 移除账号只清除本地数据：删除令牌、订阅 URL 和账号元数据，对应 Profile 由用户决定是否一并删除。服务端注销接口尚未确认，v1 不调用。
+
+### 6.5 配置页账号交互（2026-10-17 定稿）
+
+- 移除独立“账号”菜单，所有账号操作并入“配置”；“添加自由猫账号”始终保持添加文案，已有账号时仍可登录覆盖。无独立管理账号、重新登录或移除账号按钮。
+- 登录使用 420px 居中弹窗，上下留白 40px；邮箱/密码与标签同行、间距 6px，取消/登录等宽。标题右侧为“从自由猫导入”，账号密码说明与导入说明各用一个居中的 Lucide 问号图标及悬浮提示展示，导入提示称为“原自由猫客户端”。
+- 设置使用 400px 右侧抽屉。“自由猫账号信息”合并显示账号、套餐、流量和到期信息，不重复显示正常“已登录”状态。邮箱行按账号、眼睛、刷新信息排列；正文与标题左右对齐，下载出站与选择框同行；更新间隔使用 0～720 整数文本框，空值或超范围时禁止保存。
+- 完整邮箱存于 SecretStore 固定键 `account/<id>/identity`，元数据只保存脱敏值。眼睛手动切换显隐，无悬浮提示、无定时隐藏；关闭抽屉、成功替换账号或删除配置后清除完整显示状态。开发阶段不提供完整邮箱缺失时的迁移或刷新提示。
+- 抽屉“刷新信息”验证会话、刷新账号快照与缓存订阅 URL，不更新配置正文；列表刷新走完整订阅更新管线，其用途保持不变。
+- 删除统一保留配置项的删除入口，二次确认后清理关联账号、身份、令牌、订阅地址及配置文件；正在使用时断开连接。服务端注销接口未确认，不调用。
+- 原客户端导入只生成独立本地配置，不导入账号或密码，不覆盖当前登录账号，不自动更新。完整交互约束见 [DESIGN.md §17.1](DESIGN.md#171-页面)，当前验证记录见 [账号订阅并入配置](acceptance/account-profile-integration.md)。
 
 ## 7. 订阅（subscription.rs）
 
@@ -251,23 +260,25 @@ Valid ──validate──▶ Validating ──▶ Valid / ReauthRequired / Netw
 
 ### 7.2 生成下载描述
 
+当前实现使用通用下载描述（`src/subscriptions/fetch.rs`），由 `AccountProvider::descriptor()` 分发到自由猫模块：
+
 ```rust
-DownloadDescriptor {
-    url: subscribe_url,
-    headers: vec![(USER_AGENT, "clash-verge")],
-    expected_formats: vec![ConfigFormat::MihomoYaml],
-    expires_at: None,
-    redirect: RedirectPolicy::None,
+Descriptor {
+    url: checked_subscribe_url,
+    user_agent: "freecatencua/v".into(),
+    follow_redirects: false,
+    format: DownloadFormat::ZiyoumaoAes,
 }
 ```
 
-- UA 必须严格为 `clash-verge`，这是实测通过的值。不要追加版本号，以免触发服务端的 UA 规则。这个 UA 只用于自由猫，不改变普通订阅的默认 UA。
-- 每次更新订阅时先调用 `/user/getSubscribe` 获取最新的 URL，然后再下载。URL 变化时更新 SecretStore 中的记录。不能假设订阅 token 永远不变，也不能假设它每次都会轮换。
-- `getSubscribe` 因网络问题失败时，可以使用 SecretStore 中已保存的上一次 URL 下载，并在日志中标注“使用缓存的订阅地址”。如果是鉴权失败，不再继续下载，改为提示用户重新登录。
+- UA 严格为 `freecatencua/v`，不要追加版本号。只影响自由猫账号来源，普通 URL 订阅继续使用自己的 UA。
+- 每次更新订阅前读取账号与 `/user/getSubscribe` 的最新 URL，更新快照及 SecretStore 中的缓存地址。不能假设订阅 token 永远不变或每次轮换。
+- 账号 API 因网络问题失败时，可使用 SecretStore 中上次 URL 下载；鉴权失败时停止下载并提示从“添加自由猫账号”重新登录。
+- 下载后严格解码 AES 封装，再进入通用配置管线；失败保留旧配置，不自动降级到 `clash-verge` 明文下载。具体协议和证据见 [节点超时与加密订阅分析](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md)。
 
 ### 7.3 下载结果判定
 
-- 【已验证】成功响应的 Content-Type 是 `text/html; charset=UTF-8`，但内容实际是 YAML。所以 Content-Type 不参与判断，直接按 DESIGN.md §8 第 3 步做内容识别。
+- 不以 Content-Type 判定配置有效性。历史明文样本的 Content-Type 为 `text/html; charset=UTF-8`；当前账号来源先解码 AES 封装，再按 DESIGN.md §8 做 YAML 内容识别与校验。
 - 反过来，HTTP 200 加 HTML 错误页或挑战页的情况由 `detect` 识别为 `NotAConfig`，不会被保存为可用配置。
 - 内容识别通过后进入通用管线，节点密码、SNI、`skip-cert-verify` 等服务商字段保持原样。
 - 当时的订阅带有 `fallback-filter.geosite` 弃用警告，校验仍然通过。升级内核前要重新做一次校验，不要擅自修改订阅中的 DNS 段。

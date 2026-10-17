@@ -17,6 +17,7 @@ export component DiagnosticsPage inherits VerticalLayout {
     in property <string> data-dir;
     in property <string> connectivity-text;
     in property <bool> running;
+    in property <bool> busy;
     in property <[string]> check-lines;
     in property <[string]> policy-notes;
     in property <[LogRow]> logs;
@@ -50,7 +51,7 @@ export component DiagnosticsPage inherits VerticalLayout {
                         Text { text: "连通性：" + root.connectivity-text; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
                         Button {
                             text: "检测";
-                            enabled: root.running;
+                            enabled: root.running && !root.busy;
                             clicked => { root.check-connectivity(); }
                         }
                     }

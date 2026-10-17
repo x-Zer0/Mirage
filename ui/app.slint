@@ -1,12 +1,16 @@
 // Main window, navigation shell and system tray (DESIGN.md §17).
-import { PageScroll } from "components/page-scroll.slint";
+import { PageScroll, PageViewport } from "components/page-scroll.slint";
 import { Theme } from "components/theme.slint";
 import { NavItem } from "components/nav.slint";
 import { ErrorBar, Toast } from "components/error-bar.slint";
 import { OverviewPage } from "pages/overview.slint";
 import { ProfilesPage, ProfileRow } from "pages/profiles.slint";
 import { ProxiesPage, GroupRow, NodeRow } from "pages/proxies.slint";
-import { AccountsPage, AccountRow } from "pages/accounts.slint";
+import { AccountRow } from "pages/accounts.slint";
+import { AccountDialog } from "providers/ziyoumao.slint";
+import { ProfileDetails } from "pages/profile-details.slint";
+import { Overlay } from "components/overlay.slint";
+import { Button } from "std-widgets.slint";
 import { SettingsPage } from "pages/settings.slint";
 import { DiagnosticsPage, LogRow } from "pages/diagnostics.slint";
 
@@ -54,6 +58,8 @@ export component MainWindow inherits Window {
     in property <string> error-text;
     in property <bool> error-retry;
     in property <[AccountRow]> accounts;
+    in property <string> revealed-account-id;
+    in property <string> revealed-account-name;
     in property <bool> login-busy;
     in property <string> login-message;
     in property <bool> probing-hosts;
@@ -82,6 +88,17 @@ export component MainWindow inherits Window {
     in-out property <string> node-filter;
     in-out property <int> node-group;
 
+    private property <string> details-id;
+    private property <ProfileRow> delete-target;
+
+    public function close-account-login() {
+        account-dialog.close();
+    }
+    function confirm-delete(profile: ProfileRow) {
+        root.delete-target = profile;
+        delete-dialog.show();
+    }
+
     // Toast: shown for a few seconds after `show-toast`.
     property <string> toast-text;
     property <bool> toast-visible;
@@ -106,10 +123,10 @@ export component MainWindow inherits Window {
     callback check-connectivity();
     callback dismiss-error();
     callback retry-error();
-    callback provider-login(string, string);
+    callback provider-login(string, string, string);
     callback revalidate-account(string);
-    callback remove-account(string, bool);
-    callback import-legacy();
+    callback reveal-account(string, bool);
+    callback import-legacy(string);
     callback probe-hosts();
     callback save-settings(string, string, string, int, bool, bool, bool, bool);
     callback manage-service(bool);
@@ -177,9 +194,8 @@ export component MainWindow inherits Window {
                 NavItem { icon: @image-url("../assets/icons/lucide/layout-dashboard.svg"); label: "总览"; selected: root.page == 0; clicked => { root.page = 0; } }
                 NavItem { icon: @image-url("../assets/icons/lucide/layers.svg"); label: "配置"; selected: root.page == 1; clicked => { root.page = 1; } }
                 NavItem { icon: @image-url("../assets/icons/lucide/globe.svg"); label: "节点"; selected: root.page == 2; clicked => { root.page = 2; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/circle-user.svg"); label: "账号"; selected: root.page == 3; clicked => { root.page = 3; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/settings.svg"); label: "设置"; selected: root.page == 4; clicked => { root.page = 4; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/activity.svg"); label: "诊断"; selected: root.page == 5; clicked => { root.page = 5; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/settings.svg"); label: "设置"; selected: root.page == 3; clicked => { root.page = 3; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/activity.svg"); label: "诊断"; selected: root.page == 4; clicked => { root.page = 4; } }
                 Rectangle { vertical-stretch: 1; }
                 Text {
                     text: root.status-text;
@@ -201,22 +217,6 @@ export component MainWindow inherits Window {
             min-height: 0px;
             spacing: 12px;
 
-            HorizontalLayout {
-                spacing: 12px;
-                Text {
-                    text: ["总览", "配置", "节点", "账号", "设置", "诊断"][root.page];
-                    font-size: 22px;
-                    font-weight: 600;
-                    color: Theme.text;
-                    horizontal-stretch: 1;
-                }
-                if root.busy: Text {
-                    text: root.busy-text;
-                    color: Theme.accent;
-                    vertical-alignment: center;
-                }
-            }
-
             if root.error-text != "": ErrorBar {
                 stage: root.error-stage;
                 text: root.error-text;
@@ -225,7 +225,7 @@ export component MainWindow inherits Window {
                 dismiss => { root.dismiss-error(); }
             }
 
-            if root.page == 0: PageScroll {
+            if root.page == 0: PageViewport {
                 vertical-stretch: 1;
                 OverviewPage {
                     status-text: root.status-text;
@@ -263,16 +263,14 @@ export component MainWindow inherits Window {
                 profiles: root.profiles;
                 busy: root.busy;
                 policy-notes: root.policy-notes;
-                egress-options: root.egress-options;
                 import-file => { root.import-file(); }
                 add-remote(name, url) => { root.add-remote(name, url); }
                 update(id) => { root.update-profile(id); }
                 update-all => { root.update-all(); }
                 select(id) => { root.select-profile(id); }
-                remove(id) => { root.remove-profile(id); }
-                copy-url(id) => { root.copy-profile-url(id); }
-                open-accounts => { root.page = 3; }
-                set-policy(id, hours, egress) => { root.set-update-policy(id, hours, egress); }
+                remove(profile) => { root.confirm-delete(profile); }
+                show-details(id) => { root.reveal-account("", false); root.details-id = id; profile-drawer.show(); }
+                open-accounts => { account-dialog.show(); }
             }
             if root.page == 2: ProxiesPage {
                 vertical-stretch: 1;
@@ -288,20 +286,7 @@ export component MainWindow inherits Window {
                 sort-changed(on) => { root.sort-nodes(on); }
                 filter-changed(text) => { root.filter-nodes(text); }
             }
-            if root.page == 3: PageScroll {
-                vertical-stretch: 1;
-                AccountsPage {
-                    accounts: root.accounts;
-                    login-busy: root.login-busy;
-                    login-message: root.login-message;
-                    busy: root.busy;
-                    login(email, password) => { root.provider-login(email, password); }
-                    revalidate(id) => { root.revalidate-account(id); }
-                    remove(id, with-profile) => { root.remove-account(id, with-profile); }
-                    import-legacy => { root.import-legacy(); }
-                }
-            }
-            if root.page == 4: PageScroll {
+            if root.page == 3: PageViewport {
                 vertical-stretch: 1;
                 SettingsPage {
                     saved-port: root.settings-port;
@@ -326,7 +311,7 @@ export component MainWindow inherits Window {
                     update-geodata => { root.update-geodata(); }
                 }
             }
-            if root.page == 5: diagnostics-scroll := PageScroll {
+            if root.page == 4: diagnostics-scroll := PageViewport {
                 vertical-stretch: 1;
                 DiagnosticsPage {
                     available-height: diagnostics-scroll.visible-height;
@@ -337,6 +322,7 @@ export component MainWindow inherits Window {
                     core-version: root.core-version;
                     status-text: root.status-text;
                     data-dir: root.data-dir;
+                    busy: root.busy;
                     connectivity-text: root.connectivity-text;
                     running: root.running;
                     check-lines: root.check-lines;
@@ -352,8 +338,88 @@ export component MainWindow inherits Window {
         }
     }
 
-    if root.toast-visible: Toast {
-        text: root.toast-text;
+    account-dialog := AccountDialog {
+        width: root.width;
+        height: root.height;
+        login-busy: root.login-busy;
+        busy: root.busy;
+        login-message: root.login-message;
+        has-account: root.accounts.length > 0;
+        login(email, password) => { root.provider-login("ziyoumao", email, password); }
+        import-legacy => { root.import-legacy("ziyoumao"); }
+    }
+    profile-drawer := Overlay {
+        width: root.width;
+        height: root.height;
+        title: "配置设置";
+        drawer: true;
+        panel-width: 400px;
+        dismissed => { root.details-id = ""; root.reveal-account("", false); }
+        // Put the scrollbar in the outer gutter; align content with the header.
+        Rectangle {
+            min-height: 0px;
+            vertical-stretch: 1;
+            PageScroll {
+                width: parent.width + 16px;
+                height: parent.height;
+                content-padding: 0px;
+                for p in root.profiles: VerticalLayout {
+                    if p.id == root.details-id: ProfileDetails {
+                        profile: p;
+                        accounts: root.accounts;
+                        revealed-account-id: root.revealed-account-id;
+                        revealed-account-name: root.revealed-account-name;
+                        egress-options: root.egress-options;
+                        busy: root.busy || root.login-busy;
+                        set-policy(id, hours, egress) => { root.set-update-policy(id, hours, egress); }
+                        copy-url(id) => { root.copy-profile-url(id); }
+                        refresh-account(id) => { root.revalidate-account(id); }
+                        reveal-account(id, visible) => { root.reveal-account(id, visible); }
+                    }
+                }
+            }
+        }
+    }
+    delete-dialog := Overlay {
+        width: root.width;
+        height: root.height;
+        title: "删除配置";
+        init => { cancel-delete.focus(); }
+        Text {
+            text: "确定删除“" + root.delete-target.name + "”？";
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.delete-target.account-id != ""
+                ? "将同时清除本机保存的关联账号信息、登录会话、订阅地址和配置文件。后续需重新添加账号。"
+                : "将删除该配置及本机保存的相关文件。";
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        if root.delete-target.selected && root.running: Text {
+            text: "该配置正在使用，删除后将断开当前连接。";
+            color: Theme.danger;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            cancel-delete := Button { text: "取消"; clicked => { delete-dialog.close(); } }
+            Button {
+                text: "确认删除";
+                enabled: !root.busy && !root.login-busy;
+                clicked => {
+                    root.remove-profile(root.delete-target.id);
+                    delete-dialog.close();
+                }
+            }
+        }
+    }
+
+    if root.toast-visible || root.busy: Toast {
+        text: root.toast-visible ? root.toast-text : root.busy-text;
+        busy: !root.toast-visible && root.busy;
         x: (parent.width - self.width) / 2;
         y: parent.height - self.height - 24px;
     }

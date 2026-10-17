@@ -9,7 +9,7 @@ use crate::cores::mihomo::process::{self, CoreCommand};
 use crate::cores::mihomo::service::{ServiceClient, ServiceProcess};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{Profile, ProfileId, RevisionId, RoutingMode};
-use crate::platform::windows::process as win_process;
+use crate::platform::windows::{process as win_process, tun as win_tun};
 use crate::storage::journal::{self, CoreJournal};
 use crate::storage::layout::Layout;
 use crate::storage::{atomic, meta};
@@ -312,18 +312,34 @@ async fn wait_ready(
                 process::log_tail(log_file, 3),
             ));
         }
-        if controller.version().await.is_ok() && port_accepts(mixed_port).await {
+        if controller.version().await.is_ok()
+            && port_accepts(mixed_port).await
+            && (matches!(process, Process::Direct(_)) || tun_ready(controller).await)
+        {
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(AppError::new(
                 AppErrorKind::CoreNotReady,
                 STAGE,
-                "内核 15 秒内未就绪",
+                if matches!(process, Process::Service(_)) {
+                    "TUN 内核、网卡或路由 15 秒内未就绪"
+                } else {
+                    "内核 15 秒内未就绪"
+                },
             ));
         }
         tokio::time::sleep(READY_POLL).await;
     }
+}
+
+async fn tun_ready(controller: &Controller) -> bool {
+    let Ok(Some(device)) = controller.tun_device().await else {
+        return false;
+    };
+    tokio::task::spawn_blocking(move || win_tun::is_ready(&device))
+        .await
+        .unwrap_or(false)
 }
 
 async fn port_accepts(port: u16) -> bool {

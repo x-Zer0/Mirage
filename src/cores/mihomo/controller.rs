@@ -197,6 +197,21 @@ impl Controller {
         Ok(c.mode)
     }
 
+    /// Runtime TUN device reported by the core, without assuming an adapter name.
+    pub async fn tun_device(&self) -> AppResult<Option<String>> {
+        #[derive(Deserialize)]
+        struct Tun {
+            enable: bool,
+            device: String,
+        }
+        #[derive(Deserialize)]
+        struct Configs {
+            tun: Tun,
+        }
+        let configs: Configs = self.json(Method::GET, &["configs"], None).await?;
+        Ok((configs.tun.enable && !configs.tun.device.is_empty()).then_some(configs.tun.device))
+    }
+
     /// `PATCH /configs`: runtime-only changes (mode, log level); a reload or
     /// restart re-applies whatever the composed config says.
     pub async fn patch_configs(&self, body: serde_json::Value) -> AppResult<()> {

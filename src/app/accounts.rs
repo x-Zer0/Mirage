@@ -13,15 +13,14 @@ use crate::domain::model::{
     now,
 };
 use crate::domain::redact::{Password, SecretString};
-use crate::providers::ziyoumao::{self, Egress, LoggedIn, Refreshed, bootstrap};
+use crate::providers::ziyoumao::bootstrap;
+use crate::providers::{self, Egress, LoggedIn, Refreshed, account_provider};
 use crate::storage::layout::Layout;
 use crate::storage::meta::{self, AccountsFile};
 use crate::subscriptions::fetch::Descriptor;
 use tokio::sync::mpsc;
 
 const STAGE: &str = "app.accounts";
-pub const PROFILE_NAME: &str = "自由猫";
-pub const LEGACY_PROFILE_NAME: &str = "自由猫导入";
 
 pub struct Accounts {
     file: AccountsFile,
@@ -76,6 +75,7 @@ impl Accounts {
 /// What an update of an account-backed profile needs, read in the actor.
 pub struct ProviderPlan {
     pub account_id: AccountId,
+    provider_id: String,
     trusted_hosts: Vec<String>,
     session: SecretString,
     cached_url: Option<SecretString>,
@@ -89,11 +89,13 @@ pub async fn resolve(
     egress: Egress,
     tx: &mpsc::UnboundedSender<Internal>,
 ) -> AppResult<Descriptor> {
-    let refreshed =
-        ziyoumao::refresh(layout, &plan.trusted_hosts, plan.session.expose(), egress).await;
+    let provider = account_provider(&plan.provider_id)?;
+    let refreshed = provider
+        .refresh(layout, &plan.trusted_hosts, plan.session.expose(), egress)
+        .await;
     let fallback = match &refreshed {
         Ok(r) => Ok(r.subscribe_url.clone()),
-        Err(e) if ziyoumao::is_unreachable(e) => match &plan.cached_url {
+        Err(e) if providers::is_unreachable(e) => match &plan.cached_url {
             Some(url) => {
                 tracing::info!(error = %e, "using cached subscription url");
                 Ok(url.clone())
@@ -107,7 +109,7 @@ pub async fn resolve(
         result: refreshed,
         manual: false,
     });
-    ziyoumao::descriptor(&fallback?)
+    provider.descriptor(&fallback?)
 }
 
 impl AppCore {
@@ -118,8 +120,29 @@ impl AppCore {
         }
     }
 
-    pub(super) fn provider_login(&mut self, email: String, password: Password) {
+    pub(super) fn provider_login(
+        &mut self,
+        provider_id: String,
+        email: String,
+        password: Password,
+    ) {
         if self.view.login_busy {
+            return;
+        }
+        let provider = match account_provider(&provider_id) {
+            Ok(p) => p,
+            Err(e) => {
+                self.view.login_message = Some(e.user_message());
+                return;
+            }
+        };
+        if self.accounts.by_provider(&provider_id).is_some_and(|a| {
+            a.status == AccountStatus::Validating
+                || a.profile_id
+                    .as_ref()
+                    .is_some_and(|id| self.updating.contains(id))
+        }) {
+            self.view.login_message = Some("正在刷新该账号或订阅，请稍后再登录".into());
             return;
         }
         self.view.login_busy = true;
@@ -127,68 +150,28 @@ impl AppCore {
         let layout = self.layout.clone();
         let egress = self.provider_egress();
         self.spawn(async move {
-            Internal::LoggedIn(Box::new(
-                ziyoumao::login(&layout, email, password, egress).await,
-            ))
+            Internal::LoggedIn {
+                provider_id,
+                result: Box::new(provider.login(&layout, email, password, egress).await),
+            }
         });
     }
 
-    pub(super) fn on_logged_in(&mut self, result: AppResult<LoggedIn>) {
+    pub(super) fn on_logged_in(&mut self, provider_id: String, result: AppResult<LoggedIn>) {
         self.view.login_busy = false;
         let logged_in = match result {
             Ok(l) => l,
-            Err(e) => return self.on_login_failed(e),
+            Err(e) => return self.on_login_failed(&provider_id, e),
         };
-        // Re-login of the existing account keeps its id (and profile).
-        let id = self
-            .accounts
-            .by_provider(ziyoumao::PROVIDER_ID)
-            .map(|a| a.id.clone())
-            .unwrap_or_else(new_id);
-        let session_key = format!("account/{id}/session");
-        if let Err(e) = self
-            .secrets
-            .put(&session_key, logged_in.session.expose().as_bytes())
-        {
-            self.view.notice = Some(error_notice(&e));
-            return;
-        }
-        let url_key = format!("account/{id}/subscribe_url");
-        if let Some(url) = &logged_in.subscribe_url
-            && let Err(e) = self.secrets.put(&url_key, url.expose().as_bytes())
-        {
-            tracing::warn!(error = %e, "subscribe url not stored");
-        }
-        let existing = self.accounts.get(&id).cloned();
-        let account = ProviderAccount {
-            id: id.clone(),
-            provider_id: ziyoumao::PROVIDER_ID.into(),
-            display_name: logged_in.email_masked.clone(),
-            session_secret: Some(session_key),
-            subscribe_secret: Some(url_key),
-            // §4.3: the login host joins the trusted list (tried first);
-            // hosts only ever join through a login.
-            trusted_hosts: std::iter::once(logged_in.trusted_host.clone())
-                .chain(
-                    existing
-                        .iter()
-                        .flat_map(|a| a.trusted_hosts.iter().cloned())
-                        .filter(|h| *h != logged_in.trusted_host),
-                )
-                .collect(),
-            status: AccountStatus::Valid,
-            snapshot: logged_in
-                .snapshot
-                .clone()
-                .or_else(|| existing.as_ref().and_then(|a| a.snapshot.clone())),
-            profile_id: existing.as_ref().and_then(|a| a.profile_id.clone()),
-            created_at: existing.as_ref().map_or_else(now, |a| a.created_at),
+        let id = match self.store_account_login(&provider_id, &logged_in) {
+            Ok(id) => id,
+            Err(e) => {
+                self.view.login_message = Some(e.user_message());
+                self.view.notice = Some(error_notice(&e));
+                return;
+            }
         };
-        match self.accounts.get_mut(&id) {
-            Some(slot) => *slot = account,
-            None => self.accounts.file.accounts.push(account),
-        }
-        self.save_accounts();
+        self.view.login_success += 1;
         tracing::info!(account = %id, "provider account logged in");
         if let Some(e) = logged_in.follow_up_error {
             self.view.notice = Some(Notice::error(format!(
@@ -197,7 +180,8 @@ impl AppCore {
             )));
         } else {
             self.view.notice = Some(info_notice(format!(
-                "已登录自由猫账号 {}",
+                "已登录{}账号 {}",
+                providers::account_name(&provider_id),
                 logged_in.email_masked
             )));
         }
@@ -206,14 +190,55 @@ impl AppCore {
         self.refresh_accounts_view();
     }
 
-    fn on_login_failed(&mut self, e: AppError) {
+    fn store_account_login(
+        &mut self,
+        provider_id: &str,
+        logged_in: &LoggedIn,
+    ) -> AppResult<AccountId> {
+        // Re-login of the existing account keeps its id (and profile).
+        let id = self
+            .accounts
+            .by_provider(provider_id)
+            .map(|a| a.id.clone())
+            .unwrap_or_else(new_id);
+        let session_key = format!("account/{id}/session");
+        self.secrets
+            .put(&session_key, logged_in.session.expose().as_bytes())?;
+        let url_key = format!("account/{id}/subscribe_url");
+        // Clear the old URL before storing the new account's subscription.
+        self.secrets.delete(&url_key)?;
+        if let Some(url) = &logged_in.subscribe_url {
+            self.secrets.put(&url_key, url.expose().as_bytes())?;
+        }
+        self.store_account_identity(&id, &logged_in.identity)?;
+        self.view.revealed_account = None;
+        let existing = self.accounts.get(&id).cloned();
+        let account = ProviderAccount {
+            id: id.clone(),
+            provider_id: provider_id.into(),
+            display_name: logged_in.email_masked.clone(),
+            session_secret: Some(session_key),
+            subscribe_secret: Some(url_key),
+            // A new login replaces the account, so no old session data is reused.
+            trusted_hosts: vec![logged_in.trusted_host.clone()],
+            status: AccountStatus::Valid,
+            snapshot: logged_in.snapshot.clone(),
+            profile_id: existing.as_ref().and_then(|a| a.profile_id.clone()),
+            created_at: existing.as_ref().map_or_else(now, |a| a.created_at),
+        };
+        match self.accounts.get_mut(&id) {
+            Some(slot) => *slot = account,
+            None => self.accounts.file.accounts.push(account),
+        }
+        self.accounts.save(&self.layout)?;
+        Ok(id)
+    }
+
+    fn on_login_failed(&mut self, provider_id: &str, e: AppError) {
         tracing::warn!(error = %e, "provider login failed");
         let text = e.user_message();
         if e.kind == AppErrorKind::NeedsUserAction
-            && let Some(id) = self
-                .accounts
-                .by_provider(ziyoumao::PROVIDER_ID)
-                .map(|a| a.id.clone())
+            && let Some(id) = self.accounts.by_provider(provider_id).map(|a| a.id.clone())
             && let Some(a) = self.accounts.get_mut(&id)
         {
             a.status = AccountStatus::NeedsUserAction(text.clone());
@@ -236,7 +261,12 @@ impl AppCore {
             return;
         }
         let Some(url) = url else { return };
-        let desc = match ziyoumao::descriptor(&url) {
+        let provider = self
+            .accounts
+            .get(account_id)
+            .map(|a| a.provider_id.clone())
+            .unwrap_or_default();
+        let desc = match account_provider(&provider).and_then(|p| p.descriptor(&url)) {
             Ok(d) => d,
             Err(e) => {
                 self.view.notice = Some(error_notice(&e));
@@ -254,7 +284,10 @@ impl AppCore {
             core_port: self.core_port(),
             mixed_port: self.view.mixed_port,
         };
-        self.view.busy = Some("正在下载并校验自由猫订阅…".into());
+        self.view.busy = Some(format!(
+            "正在下载并校验{}订阅…",
+            providers::account_name(&provider)
+        ));
         let permits = self.fetch_permits.clone();
         let account_id = account_id.to_owned();
         self.spawn(async move {
@@ -272,22 +305,31 @@ impl AppCore {
         result: AppResult<RemoteAdded>,
     ) {
         self.view.busy = None;
+        let Some(account) = self.accounts.get(&account_id) else {
+            return;
+        };
+        let provider_id = account.provider_id.clone();
         let outcome = match result {
             Ok(o) => o,
             Err(e) => {
                 self.view.notice = Some(Notice::error(format!(
-                    "自由猫订阅未能导入：{}",
+                    "{}订阅未能导入：{}",
+                    providers::account_name(&provider_id),
                     e.user_message()
                 )));
                 return;
             }
         };
         let source = SubscriptionSource::ProviderAccount {
-            provider_id: ziyoumao::PROVIDER_ID.into(),
+            provider_id: provider_id.clone(),
             account_id: account_id.clone(),
         };
         let profile_id = outcome.profile_id.clone();
-        if self.store_new_profile(outcome, PROFILE_NAME.into(), source) {
+        if self.store_new_profile(
+            outcome,
+            providers::account_name(&provider_id).into(),
+            source,
+        ) {
             if let Some(a) = self.accounts.get_mut(&account_id) {
                 a.profile_id = Some(profile_id);
             }
@@ -298,6 +340,9 @@ impl AppCore {
     }
 
     pub(super) fn revalidate_account(&mut self, id: &str, manual: bool) {
+        if self.view.login_busy {
+            return;
+        }
         let Some(account) = self.accounts.get(id).cloned() else {
             return;
         };
@@ -310,6 +355,13 @@ impl AppCore {
             }
             return;
         };
+        let provider = match account_provider(&account.provider_id) {
+            Ok(p) => p,
+            Err(e) => {
+                self.view.notice = Some(error_notice(&e));
+                return;
+            }
+        };
         let previous = account.status.clone();
         if let Some(a) = self.accounts.get_mut(id) {
             a.status = AccountStatus::Validating;
@@ -319,8 +371,9 @@ impl AppCore {
         let egress = self.provider_egress();
         let id = id.to_owned();
         self.spawn(async move {
-            let result =
-                ziyoumao::refresh(&layout, &account.trusted_hosts, session.expose(), egress).await;
+            let result = provider
+                .refresh(&layout, &account.trusted_hosts, session.expose(), egress)
+                .await;
             Internal::AccountRefreshed {
                 account_id: id,
                 result,
@@ -343,10 +396,12 @@ impl AppCore {
             return;
         };
         let mut new_url = None;
+        let mut identity = None;
         match result {
             Ok(r) => {
                 account.status = AccountStatus::Valid;
                 account.snapshot = Some(r.snapshot);
+                identity = r.identity;
                 new_url = Some(r.subscribe_url);
                 if manual {
                     self.view.notice = Some(info_notice("账号信息已刷新"));
@@ -356,7 +411,7 @@ impl AppCore {
                 tracing::warn!(error = %e, account = %id, "account check failed");
                 account.status = match e.kind {
                     AppErrorKind::AuthInvalid => AccountStatus::ReauthRequired,
-                    _ if ziyoumao::is_unreachable(&e) => {
+                    _ if providers::is_unreachable(&e) => {
                         AccountStatus::NetworkUnavailable(e.user_message())
                     }
                     _ => previous
@@ -364,7 +419,10 @@ impl AppCore {
                         .unwrap_or(AccountStatus::Valid),
                 };
                 if manual || e.kind == AppErrorKind::AuthInvalid {
-                    let notice = Notice::error(e.user_message()).with_stage("自由猫账号");
+                    let notice = Notice::error(e.user_message()).with_stage(&format!(
+                        "{}账号",
+                        providers::account_name(&account.provider_id)
+                    ));
                     self.view.notice = Some(if e.kind == AppErrorKind::AuthInvalid {
                         notice.notifying()
                     } else {
@@ -374,6 +432,11 @@ impl AppCore {
             }
         }
         let url_key = account.subscribe_secret.clone();
+        if let Some(identity) = identity
+            && let Err(e) = self.store_account_identity(&id, &identity)
+        {
+            self.view.notice = Some(error_notice(&e));
+        }
         self.save_accounts();
         if let (Some(url), Some(key)) = (new_url, url_key) {
             self.store_subscribe_url(&key, &url);
@@ -382,6 +445,31 @@ impl AppCore {
         self.refresh_accounts_view();
     }
 
+    fn store_account_identity(&self, id: &str, identity: &SecretString) -> AppResult<()> {
+        let key = identity_key(id);
+        let value = identity.expose().as_bytes();
+        if self.secrets.get(&key)?.as_deref() != Some(value) {
+            self.secrets.put(&key, value)?;
+        }
+        Ok(())
+    }
+
+    /// Only expose the saved identifier after an explicit UI request.
+    pub(super) fn reveal_account(&mut self, id: &str, visible: bool) {
+        self.view.revealed_account = None;
+        if !visible || self.accounts.get(id).is_none() {
+            return;
+        }
+        match self.secrets.get(&identity_key(id)) {
+            Ok(identity) => {
+                self.view.revealed_account = identity.map(|bytes| {
+                    let name = String::from_utf8_lossy(&bytes).into_owned();
+                    (id.into(), SecretString::new(name))
+                });
+            }
+            Err(e) => self.view.notice = Some(error_notice(&e)),
+        }
+    }
     /// §7.2: the token in the URL may rotate; keep the newest one.
     fn store_subscribe_url(&self, key: &str, url: &SecretString) {
         let current = self.secrets.get(key).ok().flatten();
@@ -394,27 +482,35 @@ impl AppCore {
         }
     }
 
-    /// Local-only removal (§6.4): tokens, URL and metadata; the profile is
-    /// removed too only when the user asked for it.
-    pub(super) fn remove_account(&mut self, id: &str, with_profile: bool) {
-        let Some(index) = self.accounts.file.accounts.iter().position(|a| a.id == id) else {
-            return;
+    /// Deleting an account-backed profile also clears its local account data.
+    pub(super) fn remove_account(&mut self, id: &str) -> AppResult<()> {
+        let Some(account) = self.accounts.get(id).cloned() else {
+            return Ok(());
         };
-        let account = self.accounts.file.accounts.remove(index);
+        self.secrets.delete(&identity_key(id))?;
         for key in [&account.session_secret, &account.subscribe_secret]
             .into_iter()
             .flatten()
         {
-            if let Err(e) = self.secrets.delete(key) {
-                tracing::warn!(error = %e, "account secret not deleted");
-            }
+            self.secrets.delete(key)?;
         }
-        self.save_accounts();
-        if with_profile && let Some(profile_id) = &account.profile_id {
-            self.remove_profile(profile_id);
+        let index = self
+            .accounts
+            .file
+            .accounts
+            .iter()
+            .position(|a| a.id == id)
+            .unwrap();
+        self.accounts.file.accounts.remove(index);
+        if let Err(e) = self.accounts.save(&self.layout) {
+            self.accounts.file.accounts.insert(index, account);
+            return Err(e);
         }
-        self.view.notice = Some(info_notice("已移除自由猫账号（仅清除本机数据）"));
+        self.view.revealed_account = None;
+        self.validating_prev.remove(id);
+        self.view.login_message = None;
         self.refresh_accounts_view();
+        Ok(())
     }
 
     /// Plan for updating an account-backed profile; errors explain why not.
@@ -423,14 +519,17 @@ impl AppCore {
             AppError::new(
                 AppErrorKind::AuthInvalid,
                 STAGE,
-                "关联的自由猫账号已移除，请重新登录",
+                "关联的服务商账号已移除，请重新添加账号",
             )
         })?;
         if account.status == AccountStatus::ReauthRequired {
             return Err(AppError::new(
                 AppErrorKind::AuthInvalid,
                 STAGE,
-                "自由猫登录已失效，请在“账号”页重新登录",
+                format!(
+                    "{}登录已失效，请在“配置”页重新添加账号",
+                    providers::account_name(&account.provider_id)
+                ),
             ));
         }
         let session = self.load_session(account).ok_or_else(|| {
@@ -448,6 +547,7 @@ impl AppCore {
             .map(SecretString::new);
         Ok(ProviderPlan {
             account_id: account.id.clone(),
+            provider_id: account.provider_id.clone(),
             trusted_hosts: account.trusted_hosts.clone(),
             session,
             cached_url,
@@ -471,22 +571,20 @@ impl AppCore {
         let Some(account) = self.accounts.get(account_id) else {
             return;
         };
-        let (Some(profile_id), Some(usage)) = (
-            account.profile_id.clone(),
-            account.snapshot.as_ref().and_then(|s| s.usage()),
-        ) else {
+        let Some(profile_id) = account.profile_id.clone() else {
             return;
         };
+        let usage = account.snapshot.as_ref().and_then(|s| s.usage());
         if let Some(p) = self.profiles.get_mut(&profile_id)
-            && p.usage != Some(usage)
+            && p.usage != usage
         {
-            p.usage = Some(usage);
+            p.usage = usage;
             self.save_profiles();
             self.refresh_profiles_view();
         }
     }
 
-    /// Refresh pre-AES account revisions on startup/connect, even for manual-only profiles.
+    /// Let each adapter decide whether an old account revision needs refreshing.
     /// Success uses the normal checked/atomic commit; failures keep the old revision.
     pub(super) fn migrate_provider_profiles(&mut self) {
         if self.binary.is_none()
@@ -503,14 +601,17 @@ impl AppCore {
             .profiles
             .all()
             .iter()
-            .filter(|p| {
-                matches!(&p.source, SubscriptionSource::ProviderAccount { provider_id, .. }
-                if provider_id == ziyoumao::PROVIDER_ID)
-            })
+            .filter(|p| account_of(p).is_some())
             .map(|p| p.id.clone())
             .collect();
         for id in ids {
             let Some(profile) = self.profiles.get(&id) else {
+                continue;
+            };
+            let SubscriptionSource::ProviderAccount { provider_id, .. } = &profile.source else {
+                continue;
+            };
+            let Ok(provider) = account_provider(provider_id) else {
                 continue;
             };
             let revision = profile
@@ -520,9 +621,8 @@ impl AppCore {
                 .transpose();
             match revision {
                 Ok(revision)
-                    if revision.as_ref().and_then(|r| r.as_ref()).is_some_and(|r| {
-                        r.download_format == crate::domain::model::DownloadFormat::ZiyoumaoAes
-                    }) => {}
+                    if !provider
+                        .needs_revision_update(revision.as_ref().and_then(|r| r.as_ref())) => {}
                 Ok(_) => self.update_profile(&id, true),
                 Err(e) => self.view.notice = Some(error_notice(&e)),
             }
@@ -543,32 +643,31 @@ impl AppCore {
         }
     }
 
-    /// `profile_id` is no longer the account's profile.
-    pub(super) fn unlink_profile(&mut self, profile_id: &str) {
-        let mut changed = false;
-        for a in &mut self.accounts.file.accounts {
-            if a.profile_id.as_deref() == Some(profile_id) {
-                a.profile_id = None;
-                changed = true;
+    pub(super) fn import_legacy(&mut self, provider_id: &str) {
+        let provider = match account_provider(provider_id) {
+            Ok(p) => p,
+            Err(e) => {
+                self.view.notice = Some(error_notice(&e));
+                return;
             }
-        }
-        if changed {
-            self.save_accounts();
-        }
-    }
-
-    pub(super) fn import_legacy(&mut self) {
+        };
         let Some(binary) = self.require_binary() else {
             return;
         };
         let layout = self.layout.clone();
         let port = self.view.mixed_port;
-        self.view.busy = Some("正在导入原自由猫客户端配置…".into());
+        self.view.busy = Some(format!("正在导入原{}客户端配置…", provider.name()));
         self.spawn(async move {
             let result = async {
-                let path = ziyoumao::legacy_import::default_path()?;
-                let raw = ziyoumao::legacy_import::read(&path)?;
-                pipeline::import_raw(&binary, &layout, LEGACY_PROFILE_NAME.into(), raw, port).await
+                let raw = provider.import_legacy()?;
+                pipeline::import_raw(
+                    &binary,
+                    &layout,
+                    format!("{}导入", provider.name()),
+                    raw,
+                    port,
+                )
+                .await
             }
             .await;
             Internal::Imported(result)
@@ -635,4 +734,8 @@ pub fn account_of(profile: &Profile) -> Option<&str> {
         SubscriptionSource::ProviderAccount { account_id, .. } => Some(account_id),
         _ => None,
     }
+}
+
+fn identity_key(id: &str) -> String {
+    format!("account/{id}/identity")
 }

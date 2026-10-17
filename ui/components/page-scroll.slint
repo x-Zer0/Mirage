@@ -2,6 +2,7 @@ import { ScrollView } from "std-widgets.slint";
 
 // Keep page width bounded and let natural content height drive the scrollbar.
 export component PageScroll inherits ScrollView {
+    in property <length> content-padding: 8px;
     horizontal-scrollbar-policy: always-off;
     vertical-scrollbar-policy: as-needed;
     min-width: 0px;
@@ -9,10 +10,24 @@ export component PageScroll inherits ScrollView {
     content-width: self.visible-width;
     content-height: body.height;
     body := VerticalLayout {
+        padding: root.content-padding;
         // Reserve room for the vertical scrollbar without a width feedback loop.
         width: max(0px, root.visible-width - 16px);
         height: self.preferred-height;
         alignment: start;
+        @children
+    }
+}
+
+// Keep page edges at the shell's padding; the scrollbar uses its right gutter.
+export component PageViewport inherits Rectangle {
+    out property <length> visible-height: scroll.visible-height;
+    min-width: 0px;
+    min-height: 0px;
+    scroll := PageScroll {
+        width: parent.width + 16px;
+        height: parent.height;
+        content-padding: 0px;
         @children
     }
 }

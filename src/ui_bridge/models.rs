@@ -96,6 +96,7 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
             id: p.id.clone().into(),
             name: p.name.clone().into(),
             source: p.source.clone().into(),
+            account_id: p.account_id.clone().into(),
             detail: p.detail.clone().into(),
             updated: p.updated.clone().into(),
             selected: p.selected,
@@ -127,14 +128,26 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
         w.set_accounts(rc(s.accounts.iter().map(|a| AccountRow {
             id: a.id.clone().into(),
             name: a.name.clone().into(),
+            provider_name: a.provider_name.clone().into(),
             status: a.status.clone().into(),
             status_level: a.status_level,
             busy: a.busy,
             plan: a.plan.clone().into(),
             usage: a.usage.clone().into(),
             expires: a.expires.clone().into(),
-            has_profile: a.has_profile,
         })));
+    }
+    if prev.is_some_and(|p| p.login_success != s.login_success) {
+        w.invoke_close_account_login();
+    }
+    if changed(&|p| p.revealed_account != s.revealed_account) {
+        w.set_revealed_account_id(s.revealed_account.as_ref().map_or("", |(id, _)| id).into());
+        w.set_revealed_account_name(
+            s.revealed_account
+                .as_ref()
+                .map_or("", |(_, name)| name.expose())
+                .into(),
+        );
     }
     w.set_login_busy(s.login_busy);
     w.set_login_message(s.login_message.clone().unwrap_or_default().into());

@@ -259,8 +259,6 @@ async fn store_and_check(
 /// Provider envelopes are decoded before generic detection and persistence.
 async fn download(req: &RemoteFetch) -> AppResult<fetch::Downloaded> {
     let mut downloaded = fetch::download(&req.desc, req.egress, req.core_port).await?;
-    if req.desc.format == DownloadFormat::ZiyoumaoAes {
-        downloaded.raw = crate::providers::ziyoumao::subscription::decode(&downloaded.raw)?;
-    }
+    downloaded.raw = crate::providers::decode_subscription(req.desc.format, downloaded.raw)?;
     Ok(downloaded)
 }

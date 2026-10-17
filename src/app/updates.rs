@@ -146,6 +146,9 @@ impl AppCore {
         let Some(profile) = self.profiles.get(id).cloned() else {
             return;
         };
+        if self.view.login_busy && accounts::account_of(&profile).is_some() {
+            return;
+        }
         let Some(binary) = self.require_binary() else {
             return;
         };
@@ -528,17 +531,14 @@ impl AppCore {
         }
     }
 
-    /// Removes the stored URL of a deleted profile (§14.1). Account-backed
-    /// profiles keep the account; only the link to it goes.
-    pub(super) fn forget_secrets(&mut self, profile: &Profile) {
+    /// Profile removal clears its URL or the associated provider account.
+    pub(super) fn forget_secrets(&mut self, profile: &Profile) -> AppResult<()> {
         match &profile.source {
-            SubscriptionSource::RemoteUrl { url_secret, .. } => {
-                if let Err(e) = self.secrets.delete(url_secret) {
-                    tracing::warn!(error = %e, "subscription secret not deleted");
-                }
+            SubscriptionSource::RemoteUrl { url_secret, .. } => self.secrets.delete(url_secret),
+            SubscriptionSource::ProviderAccount { account_id, .. } => {
+                self.remove_account(account_id)
             }
-            SubscriptionSource::ProviderAccount { .. } => self.unlink_profile(&profile.id),
-            SubscriptionSource::LocalFile { .. } => {}
+            SubscriptionSource::LocalFile { .. } => Ok(()),
         }
     }
 }

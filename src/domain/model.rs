@@ -47,7 +47,7 @@ impl SubscriptionSource {
         match self {
             Self::LocalFile { .. } => "本地文件",
             Self::RemoteUrl { .. } => "订阅链接",
-            Self::ProviderAccount { .. } => "自由猫账号",
+            Self::ProviderAccount { .. } => "账号订阅",
         }
     }
 }

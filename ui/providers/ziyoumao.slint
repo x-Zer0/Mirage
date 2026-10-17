@@ -1,0 +1,123 @@
+import { Button, LineEdit } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { Overlay } from "../components/overlay.slint";
+import { HelpIcon } from "../components/help-icon.slint";
+import { PageScroll } from "../components/page-scroll.slint";
+
+export component AccountLogin inherits VerticalLayout {
+    in property <bool> login-busy;
+    in property <bool> busy;
+    in property <string> login-message;
+    private property <string> email;
+    private property <string> password;
+    private property <bool> submitted;
+    callback login(string, string);
+    callback cancel();
+    spacing: 16px;
+
+    public function reset() {
+        root.email = "";
+        root.password = "";
+        root.submitted = false;
+    }
+    public function focus-input() { email-input.focus(); }
+    function submit() {
+        if (root.email != "" && root.password != "" && !root.login-busy && !root.busy) {
+            root.submitted = true;
+            root.login(root.email, root.password);
+            root.password = "";
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 6px;
+        Text { text: "邮箱"; width: 32px; color: Theme.text; vertical-alignment: center; }
+        email-input := LineEdit {
+            placeholder-text: "请输入邮箱";
+            text <=> root.email;
+            horizontal-stretch: 1;
+            enabled: !root.login-busy && !root.busy;
+            accepted => { password-input.focus(); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        Text { text: "密码"; width: 32px; color: Theme.text; vertical-alignment: center; }
+        password-input := LineEdit {
+            placeholder-text: "请输入密码";
+            input-type: InputType.password;
+            text <=> root.password;
+            horizontal-stretch: 1;
+            enabled: !root.login-busy && !root.busy;
+            accepted => { root.submit(); }
+        }
+    }
+    if root.submitted && root.login-message != "": Text {
+        text: root.login-message;
+        color: Theme.danger;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Button {
+            text: "取消";
+            min-width: 0px;
+            preferred-width: 0px;
+            horizontal-stretch: 1;
+            enabled: !root.login-busy;
+            clicked => { root.cancel(); }
+        }
+        Button {
+            text: root.login-busy ? "登录中…" : "登录";
+            min-width: 0px;
+            preferred-width: 0px;
+            horizontal-stretch: 1;
+            primary: true;
+            enabled: !root.login-busy && !root.busy && root.email != "" && root.password != "";
+            clicked => { root.submit(); }
+        }
+    }
+}
+
+export component AccountDialog inherits Overlay {
+    in property <bool> login-busy;
+    in property <bool> busy;
+    in property <string> login-message;
+    in property <bool> has-account;
+    callback login(string, string);
+    callback import-legacy();
+    title: "添加自由猫账号";
+    custom-header: true;
+    panel-width: 420px;
+    vertical-padding: 40px;
+    dismissible: !root.login-busy;
+
+    init => { form.focus-input(); }
+    dismissed => { form.reset(); }
+    HorizontalLayout {
+        spacing: 6px;
+        Text { text: root.title; font-size: 18px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+        HelpIcon {
+            text: (root.has-account ? "登录成功后将覆盖当前自由猫账号并更新关联配置。\n" : "")
+                + "密码仅用于本次登录，不会保存。登录后自动获取订阅并创建或更新“自由猫”配置。";
+        }
+        Rectangle { horizontal-stretch: 1; }
+        Button {
+            text: "从自由猫导入";
+            enabled: !root.busy && !root.login-busy;
+            clicked => { root.close(); form.reset(); root.import-legacy(); }
+        }
+        HelpIcon { text: "仅复制原自由猫客户端已保存的配置，不导入账号或密码。导入后作为本地配置使用，不会自动更新。"; }
+    }
+    PageScroll {
+        preferred-height: form.preferred-height + 2 * self.content-padding;
+        vertical-stretch: 1;
+        form := AccountLogin {
+            login-busy: root.login-busy;
+            busy: root.busy;
+            login-message: root.login-message;
+            login(email, password) => { root.login(email, password); }
+            cancel => { root.dismiss(); }
+        }
+    }
+}
