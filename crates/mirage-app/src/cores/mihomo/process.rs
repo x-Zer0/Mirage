@@ -178,17 +178,20 @@ fn pump(
 ) {
     tokio::spawn(async move {
         let mut buf = vec![0u8; 16 * 1024];
+        let mut lines = mirage_ipc::core_log::DiagnosticLines::default();
         loop {
             match tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    if let Err(e) = writer.append(&buf[..n]) {
-                        tracing::debug!(error = %e, "core log write failed");
-                        break;
-                    }
+                    lines.push(&buf[..n], |line| {
+                        let _ = writer.append(line);
+                    });
                 }
             }
         }
+        lines.finish(|line| {
+            let _ = writer.append(line);
+        });
     });
 }
 

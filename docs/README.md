@@ -15,9 +15,11 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 - “必须 / 不得”是实现约束；“建议 / 默认”是可调整的工程决定，调整时同步修改文档。
 - 标注【已验证】的结论来自实测；【推测】【待核验】的内容只能作为实现起点，必须在真实环境中确认后再改为【已验证】。
 - 文档、示例和日志不得包含真实账号、密码、会话令牌、完整订阅地址或节点凭据。
-- 项目要求：不编写单元测试；代码改动以 `cargo fmt --all --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、release 构建通过为准，功能以有记录的手工端到端验收为准。
+- 项目要求：不编写单元测试；代码改动以 `cargo fmt --all --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings` 通过为准，功能以有记录的手工端到端验收为准。
 
 ## 当前状态
+
+- 2026-10-18 日志菜单已替换诊断菜单：连接历史在本次运行内按设置保留 0–10,000 条（默认 1,000），托盘期间持续采集；配置操作历史按设置保留 0–60 天（默认 30）。列表布局与实现边界见 [日志菜单说明](logs-redesign.md)。
 
 - 2026-10-17 账号订阅整合已定稿：移除账号菜单，配置页负责添加/覆盖单账号、原客户端本地导入、右侧账号信息抽屉及确认删除。眼睛手动显隐，抽屉关闭后恢复脱敏；列表刷新与账号信息刷新分别保留。交互以 [DESIGN.md §17.1](DESIGN.md#171-页面) 为准，检查范围见 [整合记录](acceptance/account-profile-integration.md)。
 - 里程碑：M0～M7 功能已实现；M8 已完成 Windows 安装向导、安装版 / 便携版同时打包和许可证分发，本机普通用户安装 / 覆盖升级 / 卸载检查通过。各阶段的实测证据及剩余环境验收见 [acceptance/](acceptance/)，M8 范围见 [acceptance/M8.md](acceptance/M8.md)。

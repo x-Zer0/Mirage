@@ -43,6 +43,13 @@ impl AppCore {
         let parsed = match net::parse_url(url.expose()) {
             Ok(u) => u,
             Err(e) => {
+                self.record_operation(
+                    "新增订阅",
+                    &name,
+                    "手动 · 订阅链接",
+                    "失败",
+                    &e.user_message(),
+                );
                 self.view.notice = Some(error_notice(&e));
                 return;
             }
@@ -70,9 +77,24 @@ impl AppCore {
 
     pub(super) fn on_remote_added(&mut self, added: AddedRemote) {
         self.view.busy = None;
+        let display_name = if added.name.is_empty() {
+            net::parse_url(added.url.expose())
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_owned))
+                .unwrap_or_else(|| "订阅链接".into())
+        } else {
+            added.name.clone()
+        };
         let outcome = match added.result {
             Ok(o) => o,
             Err(e) => {
+                self.record_operation(
+                    "新增订阅",
+                    &display_name,
+                    "手动 · 订阅链接",
+                    "失败",
+                    &e.user_message(),
+                );
                 self.view.notice = Some(error_notice(&e));
                 return;
             }
@@ -87,6 +109,13 @@ impl AppCore {
             .unwrap_or_else(|| host.clone());
         let url_secret = format!("profile/{}/url", outcome.profile_id);
         if let Err(e) = self.secrets.put(&url_secret, added.url.expose().as_bytes()) {
+            self.record_operation(
+                "新增订阅",
+                &name,
+                "手动 · 订阅链接",
+                "失败",
+                &e.user_message(),
+            );
             self.view.notice = Some(error_notice(&e));
             return;
         }
@@ -122,11 +151,35 @@ impl AppCore {
             revisions::store_raw(&self.layout, &profile, &outcome.revision.id, &outcome.raw)
                 .and_then(|()| revisions::upsert(&self.layout, &profile, outcome.revision.clone()));
         if let Err(e) = stored {
+            self.record_operation("新增订阅", &name, "手动", "失败", &e.user_message());
             self.view.notice = Some(error_notice(&e));
             return false;
         }
+        let origin = match &profile.source {
+            SubscriptionSource::RemoteUrl { host, .. } => format!("订阅链接 · {host}"),
+            SubscriptionSource::ProviderAccount { provider_id, .. } => {
+                format!("账号订阅 · {}", crate::providers::account_name(provider_id))
+            }
+            other => other.label().into(),
+        };
+        let description = format!(
+            "{} · {} 个节点 · {} 个组 · {} 条规则{}",
+            origin,
+            outcome.revision.summary.proxies,
+            outcome.revision.summary.groups,
+            outcome.revision.summary.rules,
+            if outcome.revision.policy_notes.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", outcome.revision.policy_notes.join("；"))
+            }
+        );
         self.profiles.add(profile);
-        self.save_profiles();
+        if !self.save_profiles() {
+            self.record_operation("新增订阅", &name, "手动", "失败", "配置列表保存失败");
+            return false;
+        }
+        self.record_operation("新增订阅", &name, "手动", "成功", &description);
         self.view.policy_notes = outcome.revision.policy_notes.clone();
         self.view.check_lines = outcome.check_lines;
         let s = outcome.revision.summary;
@@ -139,27 +192,33 @@ impl AppCore {
     }
 
     pub(super) fn update_profile(&mut self, id: &str, manual: bool) {
-        if self.updating.contains(id) {
+        if self.updating.contains(id) || self.update_operations.contains_key(id) {
             return;
         }
         let Some(profile) = self.profiles.get(id).cloned() else {
             return;
         };
+        if !profile.is_remote() {
+            return;
+        }
         if self.view.login_busy && accounts::account_of(&profile).is_some() {
             return;
         }
         let Some(binary) = self.require_binary() else {
             return;
         };
+        self.begin_update_log(id, manual);
         let source = match self.update_source(&profile) {
             Ok(Some(source)) => source,
             Ok(None) => {
+                self.finish_update_log(&profile.id, "成功", "本地文件配置无需更新");
                 if manual {
                     self.view.notice = Some(info_notice("本地文件配置无需更新"));
                 }
                 return;
             }
             Err(e) => {
+                self.finish_update_log(&profile.id, "失败", &e.user_message());
                 self.record_fetch_error(&profile.id, &e, manual);
                 return;
             }
@@ -288,6 +347,7 @@ impl AppCore {
     pub(super) fn on_updated(&mut self, outcome: UpdateOutcome, manual: bool) {
         self.updating.remove(&outcome.profile_id);
         let Some(profile) = self.profiles.get_mut(&outcome.profile_id) else {
+            self.finish_update_log(&outcome.profile_id, "失败", "配置已删除，更新已取消");
             // Removed while downloading: drop what the task may have written.
             let _ = std::fs::remove_dir_all(self.layout.profile_dir(&outcome.profile_id));
             self.refresh_profiles_view();
@@ -297,8 +357,10 @@ impl AppCore {
             apply_meta(profile, meta);
         }
         let name = profile.name.clone();
+        let mut completed = None;
         match outcome.result {
             Err(e) => {
+                completed = Some(("失败", format!("{}；继续使用原版本", e.user_message())));
                 let since = profile_time(profile.updated_at);
                 let text = format!("更新失败（仍使用 {since} 的版本）：{}", e.user_message());
                 tracing::warn!(error = %e, profile = %profile.id, "subscription update failed");
@@ -315,6 +377,7 @@ impl AppCore {
                 }
             }
             Ok(UpdateResult::Unchanged) => {
+                completed = Some(("成功", "已是最新，内容未变化".to_owned()));
                 profile.last_fetch = Some(FetchRecord {
                     at: now(),
                     error: None,
@@ -338,7 +401,18 @@ impl AppCore {
                 self.commit_candidate(&id, revision.id, manual);
             }
         }
-        self.save_profiles();
+        let saved = self.save_profiles();
+        if let Some((status, summary)) = completed {
+            self.finish_update_log(
+                &outcome.profile_id,
+                if saved { status } else { "失败" },
+                if saved {
+                    &summary
+                } else {
+                    "更新结果保存失败"
+                },
+            );
+        }
         self.refresh_profiles_view();
     }
 
@@ -363,10 +437,12 @@ impl AppCore {
             .map(|r| r.mixed_port)
     }
 
-    pub(super) fn save_profiles(&mut self) {
+    pub(super) fn save_profiles(&mut self) -> bool {
         if let Err(e) = self.profiles.save(&self.layout) {
             self.view.notice = Some(error_notice(&e));
+            return false;
         }
+        true
     }
 
     /// Profile removal clears its URL or the associated provider account.

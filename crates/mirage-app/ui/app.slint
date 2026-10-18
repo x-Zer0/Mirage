@@ -12,9 +12,9 @@ import { ProfileDetails } from "pages/profile-details.slint";
 import { Overlay } from "components/overlay.slint";
 import { Button } from "std-widgets.slint";
 import { SettingsPage } from "pages/settings.slint";
-import { DiagnosticsPage, LogRow } from "pages/diagnostics.slint";
+import { LogsPage, ConnectionRow, OperationRow } from "pages/logs.slint";
 
-export { ProfileRow, GroupRow, NodeRow, AccountRow, LogRow }
+export { ProfileRow, GroupRow, NodeRow, AccountRow, ConnectionRow, OperationRow }
 
 export enum TrayState { idle, connected, restarting, error }
 
@@ -73,15 +73,32 @@ export component MainWindow inherits Window {
     in property <bool> settings-close-to-tray;
     in property <bool> settings-autostart;
     in property <bool> settings-tun-disable-system-proxy;
+    in property <string> settings-connection-log-limit;
+    in property <string> settings-operation-log-days;
     in property <string> core-path;
     in property <bool> geo-updating;
     in property <bool> exporting;
-    // Live data: only fed while the window is visible (§17.4).
+    // Traffic is fed only while the window is visible; connection logs continue in the tray (§17.4).
     in property <string> up-rate: "0 B/s";
     in property <string> down-rate: "0 B/s";
     in property <string> up-path;
     in property <string> down-path;
-    in property <[LogRow]> logs;
+    in property <[ConnectionRow]> connection-logs;
+    in property <[OperationRow]> operation-logs;
+    in property <string> log-status;
+    in property <int> log-total;
+    in-out property <int> log-tab;
+    in-out property <string> log-query;
+    in-out property <int> log-filter;
+    in-out property <bool> log-paused;
+    function refresh-logs() {
+        root.filter-logs(root.page == 4, root.log-tab == 1, root.log-query, root.log-filter, root.log-paused);
+    }
+    changed page => { root.refresh-logs(); }
+    changed log-tab => { root.refresh-logs(); }
+    changed log-query => { root.refresh-logs(); }
+    changed log-filter => { root.refresh-logs(); }
+    changed log-paused => { root.refresh-logs(); }
     in-out property <int> page: 0;
     in-out property <bool> sort-by-delay;
     // Kept here so leaving the nodes page does not reset search or tab.
@@ -128,11 +145,12 @@ export component MainWindow inherits Window {
     callback reveal-account(string, bool);
     callback import-legacy(string);
     callback probe-hosts();
-    callback save-settings(string, string, string, int, bool, bool, bool, bool);
+    callback save-settings(string, string, string, int, bool, bool, bool, bool, string, string);
     callback manage-service(bool);
     callback update-geodata();
     callback export-diagnostics();
-    callback clear-logs();
+    callback clear-connection-logs();
+    callback filter-logs(bool, bool, string, int, bool);
     callback filter-nodes(string);
 
     public function show-toast(text: string) {
@@ -195,7 +213,7 @@ export component MainWindow inherits Window {
                 NavItem { icon: @image-url("../assets/icons/lucide/layers.svg"); label: "配置"; selected: root.page == 1; clicked => { root.page = 1; } }
                 NavItem { icon: @image-url("../assets/icons/lucide/globe.svg"); label: "节点"; selected: root.page == 2; clicked => { root.page = 2; } }
                 NavItem { icon: @image-url("../assets/icons/lucide/settings.svg"); label: "设置"; selected: root.page == 3; clicked => { root.page = 3; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/activity.svg"); label: "诊断"; selected: root.page == 4; clicked => { root.page = 4; } }
+                NavItem { icon: @image-url("../assets/icons/lucide/scroll-text.svg"); label: "日志"; selected: root.page == 4; clicked => { root.page = 4; } }
                 Rectangle { vertical-stretch: 1; }
                 Text {
                     text: root.status-text;
@@ -297,6 +315,8 @@ export component MainWindow inherits Window {
                     saved-close-to-tray: root.settings-close-to-tray;
                     saved-autostart: root.settings-autostart;
                     saved-tun-disable-system-proxy: root.settings-tun-disable-system-proxy;
+                    saved-connection-log-limit: root.settings-connection-log-limit;
+                    saved-operation-log-days: root.settings-operation-log-days;
                     service-installed: root.service-installed;
                     service-busy: root.service-busy;
                     tun-active: root.tun-active;
@@ -307,33 +327,24 @@ export component MainWindow inherits Window {
                     running: root.running;
                     geo-updating: root.geo-updating;
                     busy: root.busy;
-                    save(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy); }
+                    save(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy, connection-limit, operation-days) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy, connection-limit, operation-days); }
                     update-geodata => { root.update-geodata(); }
                 }
             }
-            if root.page == 4: diagnostics-scroll := PageViewport {
+            if root.page == 4: LogsPage {
                 vertical-stretch: 1;
-                DiagnosticsPage {
-                    available-height: diagnostics-scroll.visible-height;
-                    vertical-stretch: 1;
-                    exporting: root.exporting;
-                    export-diagnostics => { root.export-diagnostics(); }
-                    version: root.version;
-                    core-version: root.core-version;
-                    status-text: root.status-text;
-                    data-dir: root.data-dir;
-                    busy: root.busy;
-                    connectivity-text: root.connectivity-text;
-                    running: root.running;
-                    check-lines: root.check-lines;
-                    policy-notes: root.policy-notes;
-                    logs: root.logs;
-                    probing-hosts: root.probing-hosts;
-                    provider-hosts: root.provider-hosts;
-                    check-connectivity => { root.check-connectivity(); }
-                    probe-hosts => { root.probe-hosts(); }
-                    clear-logs => { root.clear-logs(); }
-                }
+                running: root.running;
+                exporting: root.exporting;
+                status: root.log-status;
+                total: root.log-total;
+                connection-logs: root.connection-logs;
+                operation-logs: root.operation-logs;
+                tab <=> root.log-tab;
+                query <=> root.log-query;
+                filter <=> root.log-filter;
+                paused <=> root.log-paused;
+                export-diagnostics => { root.export-diagnostics(); }
+                clear-connection-logs => { root.clear-connection-logs(); }
             }
         }
     }

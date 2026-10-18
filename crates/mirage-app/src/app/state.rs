@@ -230,6 +230,8 @@ pub struct SettingsView {
     /// Start with Windows (§11.6); reflects the saved preference.
     pub autostart: bool,
     pub tun_disable_system_proxy: bool,
+    pub connection_log_limit: usize,
+    pub operation_log_days: usize,
     pub core_path: String,
 }
 
@@ -242,6 +244,7 @@ pub struct TrafficSample {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppStateView {
+    pub logs: std::sync::Arc<super::logs::LogsPage>,
     pub core_version: String,
     pub core_ready: bool,
     pub runtime: RuntimeStatus,

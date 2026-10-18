@@ -4,8 +4,12 @@ use super::{AppCore, Command, Internal, error_notice};
 
 impl AppCore {
     pub(super) fn handle(&mut self, cmd: Command) {
-        tracing::debug!(?cmd, "command");
+        if !matches!(&cmd, Command::QueryLogs(_)) {
+            tracing::debug!(?cmd, "command");
+        }
         match cmd {
+            Command::QueryLogs(query) => self.query_logs(query),
+            Command::ClearConnectionLogs => self.clear_connection_logs(),
             Command::PickAndImport => self.pick_and_import(),
             Command::ImportLocalFile(path) if !self.core_checked() => {
                 self.deferred.push(Command::ImportLocalFile(path));
@@ -29,7 +33,7 @@ impl AppCore {
             }
             Command::ImportLegacyProvider(provider_id) => self.import_legacy(&provider_id),
             Command::ProbeProviderHosts => self.probe_provider_hosts(),
-            Command::Connect => self.connect(),
+            Command::Connect => self.connect(true),
             Command::Disconnect => self.disconnect(),
             Command::SelectNode { group, node } => self.select_node(group, node),
             Command::TestGroupDelay(group) => self.test_delay(group),
@@ -60,6 +64,18 @@ impl AppCore {
 
     pub(super) fn handle_internal(&mut self, msg: Internal) {
         match msg {
+            Internal::Connections(epoch, rows) => self.on_connections(epoch, rows),
+            Internal::LogStreamStatus(generation, status) => {
+                if generation == self.live.epoch {
+                    self.set_log_status(status);
+                }
+            }
+            Internal::NodeSelected {
+                generation,
+                group,
+                node,
+                result,
+            } => self.on_node_selected(generation, group, node, result),
             Internal::ServiceManaged {
                 generation,
                 install,
@@ -67,13 +83,14 @@ impl AppCore {
                 result,
             } => self.on_service_managed(generation, install, enable, result),
             Internal::CoreVerified(result) => self.on_core_verified(result),
-            Internal::Imported(result) => self.on_imported(result),
+            Internal::Imported(object, result) => self.on_imported(object, result),
             Internal::Started(generation, result) => self.on_started(generation, result),
             Internal::CoreExited { generation, detail } => self.on_core_exited(generation, detail),
             Internal::Groups(generation, result) => self.on_groups(generation, result),
             Internal::Stopped(generation) => {
                 if generation == self.generation && self.view.runtime == RuntimeStatus::Stopping {
                     self.view.runtime = RuntimeStatus::Stopped;
+                    self.record_operation("断开连接", "", "系统", "成功", "代理内核已停止");
                 }
             }
             Internal::DelayDone(generation, group, result) => {
@@ -114,7 +131,9 @@ impl AppCore {
                 manual,
             } => self.on_account_refreshed(account_id, result, manual),
             Internal::HostsProbed(result) => self.on_hosts_probed(result),
-            Internal::ModeApplied(generation, result) => self.on_mode_applied(generation, result),
+            Internal::ModeApplied(generation, mode, result) => {
+                self.on_mode_applied(generation, mode, result)
+            }
             Internal::CoreMode(generation, result) => self.on_core_mode(generation, result),
             Internal::GeoUpdated(result) => self.on_geo_updated(result),
             Internal::DiagnosticsExported(result) => self.on_diagnostics_exported(result),

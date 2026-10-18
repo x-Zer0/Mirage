@@ -72,6 +72,13 @@ impl AppCore {
         let outcome = match result {
             Ok(o) => o,
             Err(e) => {
+                self.record_operation(
+                    "新增订阅",
+                    providers::account_name(&provider_id),
+                    "手动 · 账号订阅",
+                    "失败",
+                    &e.user_message(),
+                );
                 self.view.notice = Some(Notice::error(format!(
                     "{}订阅未能导入：{}",
                     providers::account_name(&provider_id),
@@ -169,7 +176,7 @@ impl AppCore {
                 .await
             }
             .await;
-            Internal::Imported(result)
+            Internal::Imported(format!("{}导入", provider.name()), result)
         });
     }
 }

@@ -53,6 +53,9 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     apply_profiles(w, s, prev, &applied.list);
     apply_accounts(w, s, prev);
     apply_settings(w, s);
+    if prev.is_none_or(|p| p.logs != s.logs) {
+        apply_logs(w, &s.logs, prev.map(|p| p.logs.as_ref()));
+    }
     applied.last = Some(s.clone());
 }
 
@@ -191,6 +194,8 @@ fn apply_settings(w: &MainWindow, s: &AppStateView) {
     w.set_settings_close_to_tray(st.close_to_tray);
     w.set_settings_autostart(st.autostart);
     w.set_settings_tun_disable_system_proxy(st.tun_disable_system_proxy);
+    w.set_settings_connection_log_limit(st.connection_log_limit.to_string().into());
+    w.set_settings_operation_log_days(st.operation_log_days.to_string().into());
     w.set_core_path(st.core_path.clone().into());
     w.set_geo_updating(s.geo_updating);
     w.set_exporting(s.exporting);
@@ -396,4 +401,57 @@ pub fn rate(bytes_per_sec: u64) -> String {
 
 pub fn rc<T: Clone + 'static>(items: impl Iterator<Item = T>) -> ModelRc<T> {
     ModelRc::from(Rc::new(VecModel::from(items.collect::<Vec<_>>())))
+}
+
+fn apply_logs(
+    w: &MainWindow,
+    page: &crate::app::logs::LogsPage,
+    prev: Option<&crate::app::logs::LogsPage>,
+) {
+    w.set_log_status(page.status.clone().into());
+    w.set_log_total(page.total as i32);
+    if prev.is_none_or(|p| p.connections != page.connections) {
+        w.set_connection_logs(rc(page.connections.iter().map(|r| super::ConnectionRow {
+            id: r.id.to_string().into(),
+            at: local_time(r.at, "%H:%M:%S").into(),
+            protocol: r.protocol.clone().into(),
+            address: r.address.clone().into(),
+            action: r.action.clone().into(),
+            rule: r.rule.clone().into(),
+            profile: r.profile.clone().into(),
+            node: r.node.clone().into(),
+            details: format!(
+                "时间：{}\n{}",
+                local_time(r.at, "%Y-%m-%d %H:%M:%S"),
+                r.details
+            )
+            .into(),
+        })));
+    }
+    if prev.is_none_or(|p| p.operations != page.operations) {
+        let mut previous_date = String::new();
+        w.set_operation_logs(rc(page.operations.iter().map(|r| {
+            let date = local_time(r.at, "%Y-%m-%d");
+            let heading = if previous_date == date {
+                String::new()
+            } else {
+                date.clone()
+            };
+            previous_date = date;
+            super::OperationRow {
+                at: local_time(r.at, "%H:%M:%S").into(),
+                date: heading.into(),
+                action: r.action.clone().into(),
+                object: r.object.clone().into(),
+                source: r.source.clone().into(),
+                result: r.result.clone().into(),
+                summary: r.summary.clone().into(),
+            }
+        })));
+    }
+}
+fn local_time(at: i64, format: &str) -> String {
+    chrono::DateTime::from_timestamp(at, 0)
+        .map(|t| t.with_timezone(&chrono::Local).format(format).to_string())
+        .unwrap_or_default()
 }

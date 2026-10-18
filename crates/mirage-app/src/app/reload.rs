@@ -35,7 +35,8 @@ impl AppCore {
             self.begin_reload(profile_id, rev);
             return;
         }
-        self.mark_good(profile_id, &rev);
+        let saved = self.mark_good(profile_id, &rev);
+        self.complete_revision_log(profile_id, &rev, saved, "新版本已保存，下次连接使用");
         if manual && let Some(p) = self.profiles.get(profile_id) {
             self.view.notice = Some(info_notice(format!("“{}”已更新", p.name)));
         }
@@ -60,6 +61,7 @@ impl AppCore {
         };
         let generation = self.generation;
         let profile_id = profile_id.clone();
+        self.suspend_connection_stream();
         self.view.runtime = RuntimeStatus::Reloading;
         tracing::info!(profile = %profile_id, "hot reload started");
         self.spawn(async move {
@@ -80,6 +82,9 @@ impl AppCore {
         revision: RevisionId,
         outcome: ReloadOutcome,
     ) {
+        if self.profiles.get(&profile_id).is_none() {
+            return;
+        }
         let current = generation == self.generation;
         if current && self.view.runtime == RuntimeStatus::Reloading {
             self.view.runtime = RuntimeStatus::Running;
@@ -92,7 +97,8 @@ impl AppCore {
         match outcome {
             ReloadOutcome::Applied => {
                 tracing::info!(profile = %profile_id, "hot reload applied");
-                self.mark_good(&profile_id, &revision);
+                let saved = self.mark_good(&profile_id, &revision);
+                self.complete_revision_log(&profile_id, &revision, saved, "新配置已应用");
                 if current {
                     self.view.notice = Some(info_notice(format!(
                         "“{name}”已更新并热重载，节点选择已恢复"
@@ -100,12 +106,22 @@ impl AppCore {
                 }
             }
             ReloadOutcome::RolledBack(reason) => {
+                self.finish_update_log(
+                    &profile_id,
+                    "失败",
+                    &format!("新配置应用失败：{reason}；已回退到原版本"),
+                );
                 self.mark_invalid(&profile_id, &revision, &reason);
                 self.view.notice = Some(Notice::error(format!(
                     "“{name}”新版本应用失败，已回退到上一个可用版本：{reason}"
                 )));
             }
             ReloadOutcome::NeedsRestart(reason) => {
+                self.finish_update_log(
+                    &profile_id,
+                    "失败",
+                    &format!("新配置应用失败：{reason}；正在使用原版本重启"),
+                );
                 self.mark_invalid(&profile_id, &revision, &reason);
                 self.view.notice = Some(Notice::error(format!(
                     "“{name}”新版本应用失败，正在用上一个可用版本重启内核：{reason}"
@@ -117,6 +133,7 @@ impl AppCore {
             }
         }
         if current && self.running.is_some() {
+            self.restart_live_streams();
             self.refresh_groups();
         }
         self.save_profiles();
@@ -131,23 +148,57 @@ impl AppCore {
     }
 
     /// Applied (or not running): becomes active and last_good (§8 step 8).
-    fn mark_good(&mut self, profile_id: &ProfileId, rev: &RevisionId) {
+    fn mark_good(&mut self, profile_id: &ProfileId, rev: &RevisionId) -> bool {
         let Some(profile) = self.profiles.get_mut(profile_id) else {
-            return;
+            return false;
         };
         profile.active_revision = Some(rev.clone());
         profile.last_good_revision = Some(rev.clone());
         profile.updated_at = now();
         let profile = profile.clone();
-        self.save_profiles();
+        let saved = self.save_profiles();
         // Re-prune now that the pinned revisions changed.
         if let Ok(Some(r)) = revisions::find(&self.layout, &profile, rev)
             && let Err(e) = revisions::upsert(&self.layout, &profile, r)
         {
             tracing::warn!(error = %e, "revision prune failed");
         }
+        saved
     }
 
+    fn complete_revision_log(&mut self, id: &str, rev: &str, saved: bool, text: &str) {
+        let summary = self
+            .profiles
+            .get(id)
+            .and_then(|p| {
+                revisions::find(&self.layout, p, &rev.to_owned())
+                    .ok()
+                    .flatten()
+            })
+            .map(|r| {
+                format!(
+                    "{} 个节点 · {} 个组 · {} 条规则 · {text}{}",
+                    r.summary.proxies,
+                    r.summary.groups,
+                    r.summary.rules,
+                    if r.policy_notes.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {}", r.policy_notes.join("；"))
+                    }
+                )
+            })
+            .unwrap_or_else(|| text.into());
+        self.finish_update_log(
+            id,
+            if saved { "成功" } else { "失败" },
+            if saved {
+                &summary
+            } else {
+                "配置保存失败"
+            },
+        );
+    }
     fn mark_invalid(&mut self, profile_id: &ProfileId, rev: &RevisionId, reason: &str) {
         let Some(profile) = self.profiles.get_mut(profile_id) else {
             return;

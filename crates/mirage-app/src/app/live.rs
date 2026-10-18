@@ -1,61 +1,52 @@
-//! Live data from the running core (DESIGN.md §6.5, §17.4): `/traffic`
-//! and `/logs` are only streamed while the main window is visible, so a
-//! hidden window costs no controller traffic and no UI redraws.
-//!
-//! The streams bypass the actor's state snapshot: samples and log batches go
-//! straight to a [`LiveSink`] (the UI bridge), throttled at the source.
-
-use super::AppCore;
+//! Traffic follows window visibility; routing events are collected for the whole session.
+use super::logs::{ConnectionLog, friendly_rule, parse_connection};
 use super::state::TrafficSample;
+use super::{AppCore, Internal};
 use crate::cores::mihomo::controller::Controller;
-use crate::domain::redact::redact_text;
 use serde::Deserialize;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::task::JoinHandle;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::{sync::mpsc, task::JoinHandle};
 
-/// Batched log lines are flushed at most this often.
 const LOG_FLUSH: Duration = Duration::from_millis(500);
-/// Upper bound per batch; a log storm cannot flood the UI queue.
 const LOG_BATCH: usize = 200;
-/// Delay before reopening a stream that ended while the core still runs.
 const RECONNECT: Duration = Duration::from_secs(2);
 
-/// One core log line for the diagnostics page (redacted, §14.3).
-#[derive(Debug, Clone)]
-pub struct UiLogLine {
-    pub level: String,
-    pub text: String,
-}
-
-/// Receiver of live data; implemented by the UI bridge.
 pub trait LiveSink: Send + Sync + std::fmt::Debug {
     fn traffic(&self, sample: TrafficSample);
-    fn log_lines(&self, lines: Vec<UiLogLine>);
 }
 
 #[derive(Default)]
 pub(super) struct LiveStreams {
     sink: Option<Arc<dyn LiveSink>>,
-    visible: bool,
-    tasks: Vec<JoinHandle<()>>,
+    pub visible: bool,
+    pub status: String,
+    pub epoch: u64,
+    traffic: Option<JoinHandle<()>>,
+    logs: Option<JoinHandle<()>>,
 }
-
 impl LiveStreams {
     pub fn set_sink(&mut self, sink: Arc<dyn LiveSink>) {
         self.sink = Some(sink);
     }
-
-    /// Quit: the actor stops; tasks must not outlive the core.
     pub fn set_window_hidden_for_quit(&mut self) {
         self.visible = false;
         self.stop();
     }
-
     fn stop(&mut self) {
-        for task in self.tasks.drain(..) {
+        self.epoch += 1;
+        if let Some(task) = self.logs.take() {
             task.abort();
         }
+        self.stop_traffic();
+    }
+    fn stop_traffic(&mut self) {
+        let Some(task) = self.traffic.take() else {
+            return;
+        };
+        task.abort();
         if let Some(sink) = &self.sink {
             sink.traffic(TrafficSample::default());
         }
@@ -64,38 +55,119 @@ impl LiveStreams {
 
 impl AppCore {
     pub(super) fn set_window_visible(&mut self, visible: bool) {
-        if self.live.visible == visible {
+        self.live.visible = visible;
+        self.refresh_logs();
+    }
+
+    pub(super) fn sync_live_streams(&mut self) {
+        let up = self.view.runtime.is_up() && self.running.is_some();
+        if !up {
+            self.live.stop();
+            if self.live.status != "未连接" {
+                self.set_log_status("未连接".into());
+            }
             return;
         }
-        self.live.visible = visible;
-        self.sync_live_streams();
-    }
-
-    /// Starts or stops the streams to match "window visible and core up".
-    /// Called after every state change that affects either side.
-    pub(super) fn sync_live_streams(&mut self) {
-        let wanted = self.live.visible && self.view.runtime.is_up() && self.running.is_some();
-        let streaming = !self.live.tasks.is_empty();
-        if wanted && !streaming {
-            let (Some(sink), Some(running)) = (self.live.sink.clone(), &self.running) else {
-                return;
+        let running = self.running.as_ref().expect("running core");
+        if self.live.visible && self.live.traffic.is_none() {
+            if let Some(sink) = self.live.sink.clone() {
+                self.live.traffic =
+                    Some(tokio::spawn(traffic_loop(running.controller.clone(), sink)));
+            }
+        } else if !self.live.visible && self.live.traffic.is_some() {
+            self.live.stop_traffic();
+        }
+        if self.live.logs.is_none() && self.view.runtime != super::state::RuntimeStatus::Reloading {
+            self.live.epoch += 1;
+            let profile = self.profiles.get(&running.profile_id);
+            let context = ConnectionContext {
+                profile: profile
+                    .map(|p| format!("{} · {}", p.source.label(), p.name))
+                    .unwrap_or_else(|| "未提供".into()),
+                identity: profile
+                    .map(|p| {
+                        format!(
+                            "配置 ID：{}\n版本：{}",
+                            p.id,
+                            p.active_revision.as_deref().unwrap_or("未提供")
+                        )
+                    })
+                    .unwrap_or_default(),
             };
-            let controller = running.controller.clone();
-            tracing::debug!("live streams started");
-            self.live.tasks = vec![
-                tokio::spawn(traffic_loop(controller.clone(), sink.clone())),
-                tokio::spawn(log_loop(controller, sink)),
-            ];
-        } else if !wanted && streaming {
-            tracing::debug!("live streams stopped");
-            self.live.stop();
+            self.live.logs = Some(tokio::spawn(connection_loop(
+                running.controller.clone(),
+                self.internal_tx.clone(),
+                self.live.epoch,
+                context,
+            )));
+            self.set_log_status("正在连接日志流…".into());
         }
     }
 
-    /// The core changed (stop, restart, profile switch): streams must reconnect.
     pub(super) fn restart_live_streams(&mut self) {
         self.live.stop();
         self.sync_live_streams();
+    }
+    pub(super) fn suspend_connection_stream(&mut self) {
+        self.live.epoch += 1;
+        if let Some(task) = self.live.logs.take() {
+            task.abort();
+        }
+        self.set_log_status("配置正在切换，采集暂时中断".into());
+    }
+}
+
+struct ConnectionContext {
+    profile: String,
+    identity: String,
+}
+impl ConnectionContext {
+    fn parse(&self, payload: &str) -> Option<ConnectionLog> {
+        let event = parse_connection(payload)?;
+        let node = event
+            .route
+            .rsplit_once('[')
+            .and_then(|(_, n)| n.strip_suffix(']'))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| {
+                if event.action == "代理" && event.error.is_empty() {
+                    &event.route
+                } else {
+                    "未提供"
+                }
+            });
+        let node = if matches!(event.action.as_str(), "直连" | "拦截") {
+            "—"
+        } else {
+            node
+        };
+        let details = format!(
+            "{}\n来源：{}\n原始规则：{}\n策略链路：{}{}\n入口 / 进程 / 连接 ID：未提供",
+            self.identity,
+            event.source,
+            event.rule,
+            event.route,
+            if event.error.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n原因：{}",
+                    crate::domain::redact::redact_text(&event.error)
+                )
+            }
+        );
+        Some(ConnectionLog {
+            id: 0,
+            at: event.at,
+            protocol: event.protocol,
+            address: event.address,
+            source: event.source,
+            action: event.action,
+            rule: friendly_rule(&event.rule),
+            profile: self.profile.clone(),
+            node: node.into(),
+            details,
+        })
     }
 }
 
@@ -104,11 +176,9 @@ struct TrafficLine {
     up: u64,
     down: u64,
 }
-
-/// `/traffic` sends one line per second; each becomes one sample.
 async fn traffic_loop(controller: Controller, sink: Arc<dyn LiveSink>) {
     loop {
-        let result = controller
+        let _ = controller
             .stream_lines(&["traffic"], &[], |line| {
                 if let Ok(t) = serde_json::from_slice::<TrafficLine>(line) {
                     sink.traffic(TrafficSample {
@@ -118,66 +188,86 @@ async fn traffic_loop(controller: Controller, sink: Arc<dyn LiveSink>) {
                 }
             })
             .await;
-        if let Err(e) = result {
-            tracing::debug!(error = %e, "traffic stream ended");
-        }
         sink.traffic(TrafficSample::default());
         tokio::time::sleep(RECONNECT).await;
     }
 }
-
 #[derive(Deserialize)]
 struct LogLine {
-    #[serde(rename = "type")]
-    level: String,
     payload: String,
 }
 
-/// `/logs?level=warning`, batched so a burst costs one UI update per flush.
-async fn log_loop(controller: Controller, sink: Arc<dyn LiveSink>) {
-    let level = super::runtime::CORE_LOG_LEVEL;
-    loop {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<UiLogLine>(LOG_BATCH * 2);
-        let flusher = {
-            let sink = sink.clone();
-            tokio::spawn(async move {
-                let mut batch = Vec::new();
-                let mut tick = tokio::time::interval(LOG_FLUSH);
-                loop {
-                    tokio::select! {
-                        line = rx.recv() => match line {
-                            Some(line) if batch.len() < LOG_BATCH => batch.push(line),
-                            Some(_) => {}
-                            None => break,
-                        },
-                        _ = tick.tick() => {
-                            if !batch.is_empty() {
-                                sink.log_lines(std::mem::take(&mut batch));
-                            }
-                        }
-                    }
-                }
-                if !batch.is_empty() {
-                    sink.log_lines(batch);
-                }
-            })
-        };
-        let result = controller
-            .stream_lines(&["logs"], &[("level", level)], |line| {
-                if let Ok(l) = serde_json::from_slice::<LogLine>(line) {
-                    // A full queue drops lines instead of blocking the stream.
-                    let _ = tx.try_send(UiLogLine {
-                        level: l.level,
-                        text: redact_text(&l.payload).into_owned(),
-                    });
-                }
-            })
-            .await;
-        drop(tx);
-        let _ = flusher.await;
-        if let Err(e) = result {
-            tracing::debug!(error = %e, "log stream ended");
+struct ConnectionBatch {
+    rows: Mutex<Vec<ConnectionLog>>,
+    tx: mpsc::UnboundedSender<Internal>,
+    epoch: u64,
+}
+impl ConnectionBatch {
+    fn push(&self, row: ConnectionLog) {
+        let mut rows = self.rows.lock().unwrap_or_else(|p| p.into_inner());
+        rows.push(row);
+        if rows.len() >= LOG_BATCH {
+            let _ = self
+                .tx
+                .send(Internal::Connections(self.epoch, std::mem::take(&mut rows)));
         }
+    }
+    fn flush(&self) {
+        let mut rows = self.rows.lock().unwrap_or_else(|p| p.into_inner());
+        if !rows.is_empty() {
+            let _ = self
+                .tx
+                .send(Internal::Connections(self.epoch, std::mem::take(&mut rows)));
+        }
+    }
+}
+impl Drop for ConnectionBatch {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
+async fn connection_loop(
+    controller: Controller,
+    tx: mpsc::UnboundedSender<Internal>,
+    epoch: u64,
+    context: ConnectionContext,
+) {
+    let batch = ConnectionBatch {
+        rows: Mutex::new(Vec::new()),
+        tx: tx.clone(),
+        epoch,
+    };
+    loop {
+        let mut tick = tokio::time::interval(LOG_FLUSH);
+        let stream = controller.stream_lines_ready(
+            &["logs"],
+            &[("level", "info")],
+            || {
+                let _ = tx.send(Internal::LogStreamStatus(epoch, "正在记录连接".into()));
+            },
+            |line| {
+                if let Ok(line) = serde_json::from_slice::<LogLine>(line)
+                    && let Some(row) = context.parse(&line.payload)
+                {
+                    batch.push(row);
+                }
+            },
+        );
+        {
+            tokio::pin!(stream);
+            loop {
+                tokio::select! {
+                    _ = &mut stream => break,
+                    _ = tick.tick() => batch.flush(),
+                }
+            }
+        }
+        batch.flush();
+        let _ = tx.send(Internal::LogStreamStatus(
+            epoch,
+            "采集暂时中断，正在重连（旧记录保留）".into(),
+        ));
         tokio::time::sleep(RECONNECT).await;
     }
 }

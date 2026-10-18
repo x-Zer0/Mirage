@@ -7,8 +7,8 @@ mod window;
 
 use crate::app::{Command, CoreHandle};
 use crate::storage::layout::Layout;
-use slint::{ComponentHandle, VecModel};
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use slint::ComponentHandle;
+use std::{cell::RefCell, sync::Arc};
 use tokio::sync::mpsc;
 
 slint::include_modules!();
@@ -28,7 +28,6 @@ impl Ui {
         let window = MainWindow::new()?;
         window.set_version(version.into());
         window.set_data_dir(layout.root.display().to_string().into());
-        window.set_logs(Rc::new(VecModel::<LogRow>::default()).into());
 
         let tray = AppTray::new()?;
         let commands = core.sender();

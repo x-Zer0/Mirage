@@ -208,13 +208,19 @@ fn read_tail(mut stream: impl Read + Send + 'static) -> std::thread::JoinHandle<
 fn pump(mut stream: impl Read + Send + 'static, writer: Arc<mirage_ipc::rolling::RollingWriter>) {
     std::thread::spawn(move || {
         let mut buf = [0; 16384];
+        let mut lines = mirage_ipc::core_log::DiagnosticLines::default();
         while let Ok(n) = stream.read(&mut buf) {
             if n == 0 {
                 break;
             }
             // Continue draining if the disk is full so the core cannot block.
-            let _ = writer.append(&buf[..n]);
+            lines.push(&buf[..n], |line| {
+                let _ = writer.append(line);
+            });
         }
+        lines.finish(|line| {
+            let _ = writer.append(line);
+        });
     });
 }
 struct JobHandle(HANDLE);

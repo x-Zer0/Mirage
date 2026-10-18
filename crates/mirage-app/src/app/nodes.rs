@@ -28,21 +28,54 @@ impl AppCore {
     }
 
     pub(super) fn select_node(&mut self, group: String, node: String) {
+        if self
+            .view
+            .groups
+            .iter()
+            .any(|g| g.name == group && g.now == node)
+        {
+            return;
+        }
         let Some(running) = &self.running else { return };
         let controller = running.controller.clone();
         let generation = self.generation;
         let selection_path = self.layout.selection_file(&running.profile_id);
         self.spawn(async move {
-            if let Err(e) = controller.select(&group, &node).await {
-                return Internal::Groups(generation, Err(e));
-            }
-            if let Err(e) = remember_selection(&selection_path, group, node) {
+            let result = controller.select(&group, &node).await;
+            if result.is_ok()
+                && let Err(e) = remember_selection(&selection_path, group.clone(), node.clone())
+            {
                 tracing::warn!(error = %e, "selection not saved");
             }
-            Internal::Groups(generation, controller.groups().await)
+            Internal::NodeSelected {
+                generation,
+                group,
+                node,
+                result,
+            }
         });
     }
 
+    pub(super) fn on_node_selected(
+        &mut self,
+        generation: u64,
+        group: String,
+        node: String,
+        result: Result<(), AppError>,
+    ) {
+        if generation != self.generation {
+            return;
+        }
+        let (status, summary) = match &result {
+            Ok(()) => ("成功", format!("已选择节点：{node}")),
+            Err(e) => ("失败", e.user_message()),
+        };
+        self.record_operation("切换节点", &group, "手动", status, &summary);
+        if let Err(e) = result {
+            self.view.notice = Some(error_notice(&e));
+        }
+        self.refresh_groups();
+    }
     pub(super) fn test_delay(&mut self, group: String) {
         // §10.7: one group at a time, user initiated.
         if self.view.testing_group.is_some() {

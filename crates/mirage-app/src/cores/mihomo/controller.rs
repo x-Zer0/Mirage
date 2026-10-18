@@ -238,6 +238,16 @@ impl Controller {
         &self,
         path: &[&str],
         query: &[(&str, &str)],
+        on_line: impl FnMut(&[u8]),
+    ) -> AppResult<()> {
+        self.stream_lines_ready(path, query, || {}, on_line).await
+    }
+
+    pub async fn stream_lines_ready(
+        &self,
+        path: &[&str],
+        query: &[(&str, &str)],
+        on_ready: impl FnOnce(),
         mut on_line: impl FnMut(&[u8]),
     ) -> AppResult<()> {
         let mut url = self.url(path)?;
@@ -257,6 +267,7 @@ impl Controller {
                 "流式接口请求失败",
             ));
         }
+        on_ready();
         let mut buf: Vec<u8> = Vec::new();
         let mut oversized = false;
         while let Some(chunk) = resp.chunk().await.map_err(map_reqwest)? {

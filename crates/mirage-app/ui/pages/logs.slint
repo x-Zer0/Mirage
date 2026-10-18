@@ -1,0 +1,191 @@
+import { Button, ComboBox, LineEdit, ListView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+
+export struct ConnectionRow {
+    id: string, at: string, protocol: string, address: string, action: string,
+    rule: string, profile: string, node: string, details: string,
+}
+export struct OperationRow {
+    at: string, date: string, action: string, object: string, source: string, result: string, summary: string,
+}
+
+export component LogsPage inherits VerticalLayout {
+    in property <bool> running;
+    in property <bool> exporting;
+    in property <string> status;
+    in property <int> total;
+    in property <[ConnectionRow]> connection-logs;
+    in property <[OperationRow]> operation-logs;
+    in-out property <int> tab;
+    in-out property <string> query;
+    in-out property <int> filter;
+    in-out property <bool> paused;
+    callback clear-connection-logs();
+    callback export-diagnostics();
+    min-width: 0px;
+    min-height: 0px;
+    spacing: 8px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        vertical-stretch: 0;
+        Button { text: "连接日志"; primary: root.tab == 0; clicked => { root.tab = 0; root.query = ""; root.filter = 0; } }
+        Button { text: "配置日志"; primary: root.tab == 1; clicked => { root.tab = 1; root.query = ""; root.filter = 0; } }
+        Text {
+            text: root.status == "" ? "未连接" : root.status;
+            visible: root.tab == 0;
+            color: root.running ? Theme.ok : Theme.text-muted;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            preferred-width: 0px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            overflow: elide;
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        vertical-stretch: 0;
+        LineEdit {
+            text <=> root.query;
+            horizontal-stretch: 1;
+            placeholder-text: root.tab == 0 ? "搜索地址、规则、订阅或节点" : "搜索操作、订阅或结果";
+            accessible-label: "搜索日志";
+        }
+        ComboBox {
+            model: root.tab == 0 ? ["全部方式", "代理", "直连", "拦截", "失败"] : ["全部结果", "成功", "失败", "进行中"];
+            current-index <=> root.filter;
+            width: 104px;
+            accessible-label: "筛选日志";
+        }
+        Button {
+            text: root.paused ? "继续滚动" : "暂停滚动";
+            visible: root.tab == 0;
+            clicked => { root.paused = !root.paused; }
+        }
+        Button {
+            text: "清空";
+            visible: root.tab == 0;
+            clicked => { root.clear-connection-logs(); }
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        min-height: 160px;
+        background: Theme.card;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border;
+        if root.tab == 0: ListView {
+            changed content-y => { root.paused = self.content-y < -1px; }
+            for row in root.connection-logs: VerticalLayout {
+                padding-top: 5px; padding-bottom: 5px; padding-left: 8px; padding-right: 8px;
+                spacing: 1px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        preferred-width: 0px;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        spacing: 1px;
+                        Text { text: row.at; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.protocol; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                    }
+                    VerticalLayout {
+                        preferred-width: 0px;
+                        horizontal-stretch: 3;
+                        min-width: 0px;
+                        spacing: 1px;
+                        Text { text: row.address; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                    }
+                    VerticalLayout {
+                        preferred-width: 0px;
+                        horizontal-stretch: 3;
+                        min-width: 0px;
+                        spacing: 1px;
+                        Text { text: row.action; color: row.action == "直连" ? Theme.ok : row.action == "拦截" || row.action == "失败" ? Theme.danger : Theme.accent; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.rule; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                    }
+                    VerticalLayout {
+                        preferred-width: 0px;
+                        horizontal-stretch: 3;
+                        min-width: 0px;
+                        spacing: 1px;
+                        Text { text: row.profile; color: Theme.text; font-size: 12px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.node; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                    }
+                }
+                Rectangle { height: 1px; background: Theme.border; }
+            }
+        }
+        if root.tab == 1: ListView {
+            for row in root.operation-logs: VerticalLayout {
+                padding-top: 6px; padding-bottom: 6px; padding-left: 8px; padding-right: 8px;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: row.date == "" ? row.at : row.date + " " + row.at;
+                        color: Theme.text-muted;
+                        font-size: 11px;
+                        preferred-width: 0px;
+                        horizontal-stretch: 4;
+                        min-width: 0px;
+                        horizontal-alignment: left;
+                        overflow: elide;
+                    }
+                    VerticalLayout {
+                        preferred-width: 0px;
+                        horizontal-stretch: 5;
+                        min-width: 0px;
+                        spacing: 2px;
+                        Text {
+                            text: row.action + (row.object == "" ? "" : "「" + row.object + "」");
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            preferred-width: 0px;
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            horizontal-alignment: left;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: row.source + " · " + row.summary;
+                            color: Theme.text-muted;
+                            font-size: 11px;
+                            preferred-width: 0px;
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            horizontal-alignment: left;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        text: row.result;
+                        color: row.result == "成功" ? Theme.ok : row.result == "失败" ? Theme.danger : Theme.text-muted;
+                        font-size: 11px;
+                        preferred-width: 0px;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        horizontal-alignment: left;
+                        overflow: elide;
+                    }
+                }
+                Rectangle { height: 1px; background: Theme.border; }
+            }
+        }
+        if root.total == 0: Text {
+            text: root.query != "" || root.filter > 0 ? "没有匹配的日志" : root.tab == 1 ? "从启用此功能后开始记录配置操作" : root.running ? "正在记录，暂无新连接" : "连接后显示连接日志";
+            color: Theme.text-muted; horizontal-alignment: center; vertical-alignment: center;
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        vertical-stretch: 0;
+        Text { text: root.total + " 条记录"; color: Theme.text-muted; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+        Text { text: "排查问题时，可导出脱敏诊断包。"; color: Theme.text-muted; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; wrap: word-wrap; }
+        Button { text: root.exporting ? "正在导出…" : "导出诊断包"; enabled: !root.exporting; clicked => { root.export-diagnostics(); } }
+    }
+}

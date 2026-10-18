@@ -46,6 +46,14 @@ impl AppCore {
         if running.started_at.elapsed() >= STABLE_RUN {
             self.restart_attempts = 0;
         }
+        let name = self.profile_log_name(&running.profile_id);
+        self.record_operation(
+            "内核异常退出",
+            &name,
+            "系统",
+            "失败",
+            "连接中断，准备自动恢复",
+        );
         tracing::warn!(%detail, attempts = self.restart_attempts, "core exited unexpectedly");
         runtime::forget_exited(&self.layout);
         self.view.tun_active = false;
@@ -81,6 +89,7 @@ impl AppCore {
         if generation != self.generation || self.view.runtime != RuntimeStatus::Restarting {
             return; // the user disconnected or reconnected meanwhile
         }
+        self.connection_source = "自动恢复";
         self.start_after(None);
         if self.view.runtime == RuntimeStatus::Starting {
             self.view.runtime = RuntimeStatus::Restarting;
@@ -97,6 +106,13 @@ impl AppCore {
         let e = AppError::new(AppErrorKind::CoreExited, STAGE, detail);
         tracing::error!(error = %e, "core restart limit reached");
         // Short status; the exit code and log tail stay in the log.
+        self.record_operation(
+            "自动恢复连接",
+            "",
+            "系统",
+            "失败",
+            "多次重启失败，已停止重试并恢复系统网络设置",
+        );
         self.view.runtime = RuntimeStatus::Failed("内核多次意外退出".into());
         self.view.notice = Some(
             error_notice(&AppError::new(
@@ -125,10 +141,14 @@ impl AppCore {
                 .as_ref()
                 .map_or(self.view.mixed_port, |r| r.mixed_port);
             if let Err(e) = sysproxy::enable(&self.layout, port, &self.settings.bypass) {
+                self.record_operation("系统代理", "", "系统", "失败", &e.user_message());
                 self.view.notice = Some(error_notice(&e));
                 self.view.system_proxy_active = false;
                 return;
             }
+        }
+        if !self.view.system_proxy_active {
+            self.record_operation("系统代理", "", "系统", "成功", "已开启");
         }
         self.view.system_proxy_active = true;
     }
@@ -141,10 +161,14 @@ impl AppCore {
                     self.view.notice = Some(info_notice(text));
                 }
                 if outcome == Restore::Restored {
+                    self.record_operation("系统代理", "", "系统", "成功", "已关闭并恢复原设置");
                     tracing::info!("system proxy restored");
                 }
             }
-            Err(e) => self.view.notice = Some(error_notice(&e)),
+            Err(e) => {
+                self.record_operation("恢复系统代理", "", "系统", "失败", &e.user_message());
+                self.view.notice = Some(error_notice(&e));
+            }
         }
         self.view.system_proxy_active = false;
     }
@@ -153,9 +177,25 @@ impl AppCore {
         if self.proxy_before_tun.is_some() {
             self.proxy_before_tun = Some(on);
         }
+        let changed = self.settings.system_proxy != on;
         self.settings.system_proxy = on;
         if let Err(e) = meta::save(&self.layout.settings_file(), &mut self.settings, STAGE) {
+            self.record_operation("修改系统代理设置", "", "手动", "失败", &e.user_message());
             self.view.notice = Some(error_notice(&e));
+            return;
+        }
+        if changed {
+            self.record_operation(
+                "修改系统代理设置",
+                "",
+                "手动",
+                "成功",
+                if on {
+                    "已启用，连接后接管系统代理"
+                } else {
+                    "已停用"
+                },
+            );
         }
         self.view.system_proxy_wanted = on;
         if !on {
@@ -178,6 +218,7 @@ impl AppCore {
             Ok(false) => {
                 tracing::warn!("system proxy changed by another program");
                 sysproxy::forget(&self.layout);
+                self.record_operation("系统代理", "", "系统", "成功", "检测到外部修改，已停止接管");
                 self.view.system_proxy_active = false;
                 self.view.system_proxy_wanted = false;
                 self.view.notice = Some(

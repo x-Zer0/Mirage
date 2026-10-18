@@ -13,6 +13,8 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> saved-close-to-tray;
     in property <bool> saved-autostart;
     in property <bool> saved-tun-disable-system-proxy;
+    in property <string> saved-connection-log-limit;
+    in property <string> saved-operation-log-days;
     in property <bool> service-installed;
     in property <bool> service-busy;
     in property <bool> tun-active;
@@ -24,7 +26,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> geo-updating;
     // A start/stop is in flight; saving could restart the core again.
     in property <bool> busy;
-    callback save(string, string, string, int, bool, bool, bool, bool);
+    callback save(string, string, string, int, bool, bool, bool, bool, string, string);
     callback update-geodata();
 
     // Working copies, reset from the saved values whenever the page opens.
@@ -36,6 +38,8 @@ export component SettingsPage inherits VerticalLayout {
     property <bool> close-to-tray: root.saved-close-to-tray;
     property <bool> autostart: root.saved-autostart;
     property <bool> tun-disable-system-proxy: root.saved-tun-disable-system-proxy;
+    property <string> connection-log-limit: root.saved-connection-log-limit;
+    property <string> operation-log-days: root.saved-operation-log-days;
 
     min-width: 0px;
     spacing: 16px;
@@ -90,6 +94,25 @@ export component SettingsPage inherits VerticalLayout {
 
     Card {
         VerticalLayout {
+            spacing: 10px;
+            Text { text: "日志"; font-weight: 600; color: Theme.text; }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "连接日志记录条数"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; }
+                LineEdit { text <=> root.connection-log-limit; input-type: InputType.number; width: 100px; accessible-label: "连接日志记录条数"; }
+                Text { text: "0 不记录，最多 10000 条"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "配置日志保留天数"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; }
+                LineEdit { text <=> root.operation-log-days; input-type: InputType.number; width: 100px; accessible-label: "配置日志保留天数"; }
+                Text { text: "0 不记录，最多 60 天"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
+            }
+        }
+    }
+
+    Card {
+        VerticalLayout {
             spacing: 8px;
             Text { text: "启动与窗口"; font-weight: 600; color: Theme.text; }
             CheckBox { text: "启动后自动连接"; checked <=> root.auto-connect; }
@@ -103,7 +126,6 @@ export component SettingsPage inherits VerticalLayout {
             }
         }
     }
-
     HorizontalLayout {
         spacing: 8px;
         alignment: start;
@@ -114,7 +136,7 @@ export component SettingsPage inherits VerticalLayout {
             icon: @image-url("../../assets/icons/lucide/check.svg");
             colorize-icon: true;
             clicked => {
-                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray, root.autostart, root.tun-disable-system-proxy);
+                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray, root.autostart, root.tun-disable-system-proxy, root.connection-log-limit, root.operation-log-days);
             }
         }
         Button {
@@ -128,6 +150,8 @@ export component SettingsPage inherits VerticalLayout {
                 root.close-to-tray = root.saved-close-to-tray;
                 root.autostart = root.saved-autostart;
                 root.tun-disable-system-proxy = root.saved-tun-disable-system-proxy;
+                root.connection-log-limit = root.saved-connection-log-limit;
+                root.operation-log-days = root.saved-operation-log-days;
             }
         }
     }

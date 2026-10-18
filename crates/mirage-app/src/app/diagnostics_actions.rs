@@ -26,7 +26,7 @@ impl AppCore {
             .unwrap_or_default();
         let core = self.binary.clone();
         let port = self.view.mixed_port;
-        tokio::spawn(async move {
+        self.spawn(async move {
             // §14.2: the user is told what the bundle may contain before it
             // is written, and the default name carries the date.
             let confirmed = rfd::AsyncMessageDialog::new()

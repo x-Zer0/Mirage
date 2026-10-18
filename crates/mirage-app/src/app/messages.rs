@@ -8,6 +8,8 @@ use crate::domain::redact::{Password, SecretString};
 
 #[derive(Debug)]
 pub enum Command {
+    QueryLogs(super::logs::LogQuery),
+    ClearConnectionLogs,
     PickAndImport,
     /// From `--import <path>`; queued until the core binary is verified.
     ImportLocalFile(std::path::PathBuf),
@@ -61,12 +63,12 @@ pub enum Command {
     /// Copies a URL subscription's link to the clipboard on user request.
     CopyProfileUrl(String),
     UpdateGeodata,
-    /// Main window shown/hidden; live streams only run while visible (§17.4).
+    /// Traffic redraws follow visibility; connection collection stays active.
     WindowVisible(bool),
     CloseHintShown,
     /// Writes the diagnostics bundle to a user-chosen file (§18).
     ExportDiagnostics,
-    /// Installs the receiver of traffic samples and log batches.
+    /// Installs the receiver of visible-window traffic samples.
     SetLiveSink(std::sync::Arc<dyn super::live::LiveSink>),
     /// Logoff/shutdown: clean up now and acknowledge when done (§11.5).
     SessionEnding(std::sync::mpsc::Sender<()>),
@@ -74,6 +76,14 @@ pub enum Command {
 }
 
 pub(super) enum Internal {
+    Connections(u64, Vec<super::logs::ConnectionLog>),
+    LogStreamStatus(u64, String),
+    NodeSelected {
+        generation: u64,
+        group: String,
+        node: String,
+        result: Result<(), AppError>,
+    },
     ServiceManaged {
         generation: u64,
         install: bool,
@@ -81,7 +91,7 @@ pub(super) enum Internal {
         result: Result<(), AppError>,
     },
     CoreVerified(Result<CoreBinary, AppError>),
-    Imported(Result<pipeline::ImportOutcome, AppError>),
+    Imported(String, Result<pipeline::ImportOutcome, AppError>),
     Started(u64, Result<Running, AppError>),
     CoreExited {
         generation: u64,
@@ -116,7 +126,7 @@ pub(super) enum Internal {
         manual: bool,
     },
     HostsProbed(Result<crate::providers::ziyoumao::bootstrap::Discovery, AppError>),
-    ModeApplied(u64, Result<(), AppError>),
+    ModeApplied(u64, RoutingMode, Result<(), AppError>),
     CoreMode(u64, Result<String, AppError>),
     GeoUpdated(Result<(), AppError>),
     /// Diagnostics bundle written (or the user cancelled the save dialog).

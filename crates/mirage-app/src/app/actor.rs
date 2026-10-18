@@ -10,6 +10,7 @@ use crate::platform::windows::secret::SecretStore;
 use crate::storage::{
     layout::Layout,
     meta::{self, SettingsFile},
+    operation_logs::OperationLogs,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -41,6 +42,11 @@ impl AppCore {
         view.system_proxy_wanted = settings.system_proxy;
         view.service_installed = crate::platform::windows::service::installed();
         view.routing_mode = settings.routing_mode;
+        let operation_logs = OperationLogs::load(&layout, settings.operation_log_days)
+            .unwrap_or_else(|e| {
+                view.notice = Some(error_notice(&e));
+                OperationLogs::default()
+            });
         let accounts = accounts::Accounts::load(&layout).unwrap_or_else(|e| {
             view.notice = Some(error_notice(&e));
             accounts::Accounts::empty()
@@ -58,6 +64,7 @@ impl AppCore {
             connectivity_task: None,
             settings,
             restart_attempts: 0,
+            connection_source: "系统",
             proxy_before_tun: None,
             deferred: Vec::new(),
             secrets,
@@ -67,6 +74,10 @@ impl AppCore {
             accounts,
             validating_prev: HashMap::new(),
             live: live::LiveStreams::default(),
+            operation_logs,
+            connection_logs: Default::default(),
+            log_query: Default::default(),
+            update_operations: HashMap::new(),
             internal_tx,
             internal_rx: Some(internal_rx),
         }
@@ -94,7 +105,7 @@ impl AppCore {
                 },
                 Some(msg) = internal.recv() => self.handle_internal(msg),
                 _ = watch.tick() => self.watch_sysproxy(),
-                _ = schedule.tick() => self.schedule_due_updates(),
+                _ = schedule.tick() => { self.schedule_due_updates(); self.prune_operation_logs(); },
             }
             self.sync_live_streams();
             self.publish();
@@ -111,8 +122,16 @@ impl AppCore {
         self.generation += 1;
         self.live.set_window_hidden_for_quit();
         self.release_sysproxy();
+        self.interrupt_update_logs();
         if let Some(running) = self.running.take() {
             runtime::stop(running, &self.layout).await;
+            self.record_operation(
+                "断开连接",
+                "",
+                "系统",
+                "成功",
+                "退出 Mirage，代理内核已停止",
+            );
         }
     }
 
@@ -192,7 +211,7 @@ impl AppCore {
         if self.binary.is_some() && self.settings.auto_connect && self.profiles.selected().is_some()
         {
             tracing::info!("auto-connect on startup");
-            self.connect();
+            self.connect(false);
         }
         self.migrate_provider_profiles();
     }

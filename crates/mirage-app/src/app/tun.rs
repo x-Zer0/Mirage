@@ -17,6 +17,15 @@ impl AppCore {
         } else if !active && let Some(previous) = self.proxy_before_tun.take() {
             self.view.system_proxy_wanted = previous;
         }
+        if self.view.tun_active != active {
+            self.record_operation(
+                "TUN",
+                "",
+                "系统",
+                "成功",
+                if active { "已开启" } else { "已关闭" },
+            );
+        }
         self.view.tun_active = active;
     }
 
@@ -40,10 +49,21 @@ impl AppCore {
             return;
         }
         self.view.tun_wanted = on;
+        self.record_operation(
+            "修改 TUN 设置",
+            "",
+            "手动",
+            "成功",
+            if on {
+                "已启用，连接时应用"
+            } else {
+                "已停用"
+            },
+        );
         if let Some(previous) = self.running.take() {
             self.release_sysproxy();
-            self.view.tun_active = false;
             self.view.groups.clear();
+            self.connection_source = "修改 TUN";
             self.start_after(Some(previous));
         } else {
             self.view.notice = Some(info_notice(if on {
@@ -122,6 +142,17 @@ impl AppCore {
         self.view.service_installed = service::installed();
         match result {
             Ok(()) => {
+                self.record_operation(
+                    if install {
+                        "安装 / 更新服务"
+                    } else {
+                        "卸载服务"
+                    },
+                    "TUN 辅助服务",
+                    "手动",
+                    "成功",
+                    "操作完成",
+                );
                 if !install {
                     self.view.tun_wanted = false;
                 }
@@ -135,7 +166,20 @@ impl AppCore {
                 }
             }
             Err(e) if e.kind == AppErrorKind::Cancelled => {}
-            Err(e) => self.view.notice = Some(error_notice(&e)),
+            Err(e) => {
+                self.record_operation(
+                    if install {
+                        "安装 / 更新服务"
+                    } else {
+                        "卸载服务"
+                    },
+                    "TUN 辅助服务",
+                    "手动",
+                    "失败",
+                    &e.user_message(),
+                );
+                self.view.notice = Some(error_notice(&e));
+            }
         }
     }
 }

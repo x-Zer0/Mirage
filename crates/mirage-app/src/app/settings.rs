@@ -15,6 +15,8 @@ const MIN_PORT: u16 = 1024;
 const MAX_BYPASS: usize = 4096;
 const MAX_UA: usize = 256;
 const MAX_INTERVAL_HOURS: u32 = 24 * 30;
+const MAX_CONNECTION_LOG_LIMIT: usize = 10_000;
+const MAX_OPERATION_LOG_DAYS: usize = 60;
 
 /// Edits from the settings page; validated before anything is saved.
 #[derive(Debug, Clone)]
@@ -29,6 +31,8 @@ pub struct SettingsInput {
     /// Start with Windows (§11.6); applied to the Run key, not to the config.
     pub autostart: bool,
     pub tun_disable_system_proxy: bool,
+    pub connection_log_limit: String,
+    pub operation_log_days: String,
 }
 
 impl AppCore {
@@ -47,6 +51,8 @@ impl AppCore {
             close_hint_shown: s.close_hint_shown,
             autostart: s.autostart,
             tun_disable_system_proxy: s.tun_disable_system_proxy,
+            connection_log_limit: s.connection_log_limit,
+            operation_log_days: s.operation_log_days,
             core_path: self
                 .layout
                 .bundled_core
@@ -69,6 +75,7 @@ impl AppCore {
                 return;
             }
         };
+        let changes = setting_changes(&self.settings, &parsed, &input);
         let port_changed = parsed.mixed_port != self.settings.mixed_port;
         let bypass_changed = parsed.bypass != self.settings.bypass;
         let autostart_changed = input.autostart != self.settings.autostart;
@@ -82,9 +89,23 @@ impl AppCore {
         let tun_proxy_changed =
             self.settings.tun_disable_system_proxy != input.tun_disable_system_proxy;
         self.settings.tun_disable_system_proxy = input.tun_disable_system_proxy;
+        self.settings.connection_log_limit = parsed.connection_log_limit;
+        self.settings.operation_log_days = parsed.operation_log_days;
+        self.connection_logs.set_limit(parsed.connection_log_limit);
+        if parsed.operation_log_days == 0 {
+            let _ = self.operation_logs.clear(&self.layout);
+        } else {
+            let _ = self
+                .operation_logs
+                .prune(&self.layout, parsed.operation_log_days);
+        }
         if let Err(e) = self.save_settings_file() {
+            self.record_operation("保存设置", "", "手动", "失败", &e.user_message());
             self.view.notice = Some(error_notice(&e));
             return;
+        }
+        if !changes.is_empty() {
+            self.record_operation("保存设置", "", "手动", "成功", &changes.join("；"));
         }
         self.refresh_settings_view();
         if tun_proxy_changed && self.view.tun_active {
@@ -97,6 +118,9 @@ impl AppCore {
         if self.view.runtime.is_up() {
             self.ensure_sysproxy();
         }
+        if autostart_changed {
+            self.apply_autostart(input.autostart);
+        }
         // The one notice that is shown: a restart, the bypass list, the
         // autostart entry, or a plain confirmation. The earlier branches win
         // because they describe work the user has to wait for.
@@ -107,6 +131,7 @@ impl AppCore {
             self.release_sysproxy();
             if let Some(previous) = self.running.take() {
                 self.view.groups.clear();
+                self.connection_source = "修改端口";
                 self.start_after(Some(previous));
             }
             self.view.notice = Some(info_notice("设置已保存，正在用新端口重启内核"));
@@ -114,9 +139,7 @@ impl AppCore {
             self.release_sysproxy();
             self.ensure_sysproxy();
             self.view.notice = Some(info_notice("设置已保存，系统代理例外列表已更新"));
-        } else if autostart_changed {
-            self.apply_autostart(input.autostart);
-        } else {
+        } else if !autostart_changed {
             self.view.notice = Some(info_notice("设置已保存"));
         }
     }
@@ -137,6 +160,9 @@ impl AppCore {
     /// source of truth, so the registry is repaired whenever it disagrees.
     pub(super) fn apply_autostart(&mut self, wanted: bool) {
         let result = autostart::apply(wanted);
+        if let Err(e) = &result {
+            self.record_operation("设置开机启动", "", "手动", "失败", &e.to_string());
+        }
         if let Err(e) = result.as_ref() {
             tracing::warn!(error = %e, "autostart entry not updated");
         }
@@ -151,12 +177,32 @@ impl AppCore {
     /// User-chosen mode: saved, applied at runtime via `PATCH /configs`, and
     /// written into every later composed config (§9.2).
     pub(super) fn set_routing_mode(&mut self, mode: RoutingMode) {
+        if self.view.routing_mode == Some(mode) {
+            return;
+        }
         self.settings.routing_mode = Some(mode);
         if let Err(e) = self.save_settings_file() {
+            self.record_operation(
+                "修改路由模式",
+                mode.label(),
+                "手动",
+                "失败",
+                &e.user_message(),
+            );
             self.view.notice = Some(error_notice(&e));
+            return;
         }
-        self.view.routing_mode = Some(mode);
-        let Some(running) = &self.running else { return };
+        let Some(running) = &self.running else {
+            self.view.routing_mode = Some(mode);
+            self.record_operation(
+                "修改路由模式",
+                mode.label(),
+                "手动",
+                "成功",
+                "设置已保存，下次连接生效",
+            );
+            return;
+        };
         let controller = running.controller.clone();
         let generation = self.generation;
         self.spawn(async move {
@@ -164,19 +210,33 @@ impl AppCore {
                 .patch_configs(serde_json::json!({ "mode": mode.as_str() }))
                 .await;
             if result.is_ok() {
-                // Rule/global switches keep connections on the old route.
                 let _ = controller.close_all_connections().await;
             }
-            Internal::ModeApplied(generation, result)
+            Internal::ModeApplied(generation, mode, result)
         });
     }
-
-    pub(super) fn on_mode_applied(&mut self, generation: u64, result: AppResult<()>) {
+    pub(super) fn on_mode_applied(
+        &mut self,
+        generation: u64,
+        mode: RoutingMode,
+        result: AppResult<()>,
+    ) {
         if generation != self.generation {
             return;
         }
+        self.record_operation(
+            "修改路由模式",
+            mode.label(),
+            "手动",
+            if result.is_ok() { "成功" } else { "失败" },
+            &result
+                .as_ref()
+                .map(|_| "已生效".to_owned())
+                .unwrap_or_else(|e| e.user_message()),
+        );
         match result {
             Ok(()) => {
+                self.view.routing_mode = Some(mode);
                 if let Some(mode) = self.settings.routing_mode {
                     self.view.notice = Some(info_notice(format!("已切换为{}模式", mode.label())));
                 }
@@ -210,13 +270,30 @@ impl AppCore {
         };
         let egress = EgressPolicy::ALL.get(egress).copied().unwrap_or_default();
         let interval_hours = interval_hours.min(MAX_INTERVAL_HOURS);
+        if profile.update_policy.interval_hours == interval_hours
+            && profile.update_policy.egress == egress
+        {
+            return;
+        }
+        let name = profile.name.clone();
+        let summary = format!(
+            "更新间隔：{} → {} 小时（0 为手动）；出口：{} → {}",
+            profile.update_policy.interval_hours,
+            interval_hours,
+            profile.update_policy.egress.label(),
+            egress.label()
+        );
         let policy = &mut profile.update_policy;
         if policy.interval_hours != interval_hours {
             policy.interval_hours = interval_hours;
             policy.user_set = true;
         }
         policy.egress = egress;
-        self.save_profiles();
+        if !self.save_profiles() {
+            self.record_operation("修改更新策略", &name, "手动", "失败", "配置保存失败");
+            return;
+        }
+        self.record_operation("修改更新策略", &name, "手动", "成功", &summary);
         self.refresh_profiles_view();
         self.view.notice = Some(info_notice("更新设置已保存"));
     }
@@ -262,6 +339,16 @@ impl AppCore {
 
     pub(super) fn on_geo_updated(&mut self, result: AppResult<()>) {
         self.view.geo_updating = false;
+        self.record_operation(
+            "更新规则数据",
+            "geodata",
+            "手动",
+            if result.is_ok() { "成功" } else { "失败" },
+            &result
+                .as_ref()
+                .map(|_| "规则数据已更新".to_owned())
+                .unwrap_or_else(|e| e.user_message()),
+        );
         self.view.notice = Some(match result {
             Ok(()) => info_notice("geodata 已更新"),
             Err(e) => error_notice(&e).with_stage("geodata 更新"),
@@ -293,6 +380,8 @@ impl AppCore {
 }
 
 struct Parsed {
+    connection_log_limit: usize,
+    operation_log_days: usize,
     mixed_port: u16,
     bypass: String,
     default_user_agent: String,
@@ -318,6 +407,16 @@ fn validate(input: &SettingsInput) -> AppResult<Parsed> {
     if bypass.len() > MAX_BYPASS || bypass.chars().any(char::is_control) {
         return Err(invalid("例外列表过长或包含非法字符"));
     }
+    let connection_log_limit = parse_range(
+        &input.connection_log_limit,
+        MAX_CONNECTION_LOG_LIMIT,
+        "连接日志条数",
+    )?;
+    let operation_log_days = parse_range(
+        &input.operation_log_days,
+        MAX_OPERATION_LOG_DAYS,
+        "配置日志保留天数",
+    )?;
     let ua = input.default_user_agent.trim();
     if ua.is_empty() || ua.len() > MAX_UA || !ua.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
         return Err(invalid("User-Agent 不能为空，且只能包含 ASCII 可见字符"));
@@ -326,9 +425,81 @@ fn validate(input: &SettingsInput) -> AppResult<Parsed> {
         mixed_port,
         bypass,
         default_user_agent: ua.to_owned(),
+        connection_log_limit,
+        operation_log_days,
         provider_egress: EgressPolicy::ALL
             .get(input.provider_egress)
             .copied()
             .unwrap_or_default(),
     })
+}
+
+fn parse_range(value: &str, max: usize, label: &str) -> AppResult<usize> {
+    value
+        .trim()
+        .parse()
+        .ok()
+        .filter(|v| *v <= max)
+        .ok_or_else(|| {
+            AppError::new(
+                AppErrorKind::InvalidInput,
+                STAGE,
+                format!("{label}必须是 0–{max} 之间的整数"),
+            )
+        })
+}
+
+fn setting_changes(
+    saved: &meta::SettingsFile,
+    parsed: &Parsed,
+    input: &SettingsInput,
+) -> Vec<String> {
+    let mut changes = Vec::new();
+    if parsed.mixed_port != saved.mixed_port {
+        changes.push(format!("端口 {} → {}", saved.mixed_port, parsed.mixed_port));
+    }
+    if parsed.bypass != saved.bypass {
+        changes.push("系统代理例外列表已修改".into());
+    }
+    if parsed.default_user_agent != saved.default_user_agent {
+        changes.push("订阅 User-Agent 已修改".into());
+    }
+    if parsed.connection_log_limit != saved.connection_log_limit {
+        changes.push(format!(
+            "连接日志条数：{} → {}",
+            saved.connection_log_limit, parsed.connection_log_limit
+        ));
+    }
+    if parsed.operation_log_days != saved.operation_log_days {
+        changes.push(format!(
+            "配置日志保留天数：{} → {}",
+            saved.operation_log_days, parsed.operation_log_days
+        ));
+    }
+    if parsed.provider_egress != saved.provider_egress {
+        changes.push(format!(
+            "账号更新出口：{} → {}",
+            saved.provider_egress.label(),
+            parsed.provider_egress.label()
+        ));
+    }
+    for (label, before, after) in [
+        ("自动连接", saved.auto_connect, input.auto_connect),
+        ("关闭到托盘", saved.close_to_tray, input.close_to_tray),
+        ("开机启动", saved.autostart, input.autostart),
+        (
+            "TUN 自动关闭系统代理",
+            saved.tun_disable_system_proxy,
+            input.tun_disable_system_proxy,
+        ),
+    ] {
+        if before != after {
+            changes.push(format!(
+                "{label}：{} → {}",
+                if before { "开" } else { "关" },
+                if after { "开" } else { "关" }
+            ));
+        }
+    }
+    changes
 }

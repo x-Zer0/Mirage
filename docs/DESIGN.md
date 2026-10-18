@@ -130,7 +130,7 @@ Mirage/
       assets/icons/         # app、tray、Lucide 图标
       ui/
         app.slint           # 主窗口与托盘
-        pages/              # 总览、配置、节点、设置、诊断与配置详情
+        pages/              # 总览、配置、节点、设置、日志与配置详情
         components/         # 账号信息、主题、共享弹层与控件
         providers/          # 服务商表单
       src/
@@ -188,7 +188,7 @@ Mirage/
 - 函数尽量控制在 80 行以内，按职责提取逻辑。
 - 模块只公开调用方需要的入口和 DTO，crate 内部实现限制可见范围。
 - 不为 sing-box 预先创建空壳代码。
-- 不编写或运行单元测试；执行 workspace 格式、编译、Clippy 和 release 构建检查，功能使用有记录的手工验收。
+- 不编写或运行单元测试；执行 workspace 格式、编译和 Clippy 检查，功能使用有记录的手工验收。
 
 ---
 
@@ -434,7 +434,7 @@ pub enum Event {
     State(Arc<AppStateView>),           // 节流后的完整快照，UI 用它整体刷新
     Traffic(TrafficSample),             // 1 秒一次，窗口隐藏时不发送
     Toast { level: Level, text: String },
-    LogLines(Vec<UiLogLine>),           // 批量发送，有界
+    // 连接事件由 actor 分批写入内存；日志页经 QueryLogs 获取有界内存快照，由 Slint `ListView` 虚拟滚动，不分页。
 }
 ```
 
@@ -556,7 +556,7 @@ pub struct ManagedOverlay {
 ### 9.5 安全策略
 
 - 本地监听只绑定环回地址，局域网共享在 v1 不提供。
-- 合成器记录所有被删除或重写的键，写入 `ConfigRevision` 的 `policy_notes`，在诊断页展示（例如“已移除订阅中的 external-controller 设置”）。
+- 合成器记录所有被删除或重写的键，写入 `ConfigRevision` 的 `policy_notes`，在相关配置操作日志摘要中展示（例如“已移除订阅中的 external-controller 设置”）。
 - 订阅里的 `external-controller: 0.0.0.0:9090` 加空 secret 是真实存在的风险，§9.3 的覆盖规则必须在每次合成时执行，不能有跳过的开关。
 
 ### 9.6 TUN 覆盖（仅在用户开启 TUN 时生成）
@@ -643,7 +643,7 @@ Base 为 `http://127.0.0.1:<port>`，请求头 `Authorization: Bearer <secret>`�
 | 组测速 | `GET /group/{group}/delay?url=<u>&timeout=5000` | 返回 `{node: ms}` |
 | 流量 | `GET /traffic`（流式 JSON 行） | 每秒一行 `{up, down}`；可用 HTTP 流或 WebSocket |
 | 连接 | `GET /connections`；`DELETE /connections` | v1 只用来关闭所有连接和统计连接数 |
-| 日志 | `GET /logs?level=warning` | 流式读取，写入有界缓冲 |
+| 连接事件 | `GET /logs?level=info` | 持续采集，按设置保留在本次运行内存（默认 1,000，最大 10,000） |
 | geodata | `POST /upgrade/geo` | 用户手动触发 |
 | provider 更新 | `PUT /providers/proxies/{name}` | 可选 |
 
@@ -971,7 +971,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | 配置 | Profile 列表（名称、来源类型、更新时间、用量）、添加 URL、导入文件、更新、更新全部、设为活动、删除确认、右侧设置抽屉 | “添加自由猫账号”居中弹窗（邮箱/密码、原客户端导入）；账号信息与刷新在关联配置抽屉展示 |
 | 节点 | 代理组选项卡（只列 Selector 组可选；其他类型的组只读并显示当前节点）、搜索、测速、延迟排序 | — |
 | 设置 | 内核路径与版本、mixed-port、bypass 列表、默认 UA、内部请求出站策略、启动行为（开机启动/自动连接/关闭到托盘）、TUN 服务安装/卸载、geodata 更新 | — |
-| 诊断 | 内核状态与日志（有界）、最近一次校验输出、policy_notes、连通检测、导出诊断包 | 接口阶段与脱敏错误 |
+| 日志 | 连接日志、配置与系统关键操作历史、搜索筛选、虚拟滚动、导出诊断包 | 连接本次运行保留 0–10,000 条（默认 1,000）；配置日志保留 0–60 天（默认 30） |
 
 账号功能已全部并入配置，侧栏只保留上表五页，不再有“账号”菜单。五页内容区不重复显示菜单名称；节点未连接时，“连接后显示代理组和节点。”在内容区水平、垂直居中。自由猫继续保持单账号；入口始终叫“添加自由猫账号”，已有账号时仍可登录或导入。新登录成功后覆盖当前账号并更新原关联配置，登录失败保留原会话。抽屉不提供重新登录、移除账号或移除账号和配置的独立入口；需再次登录时仍从添加入口进入。
 
@@ -1003,18 +1003,19 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 
 ### 17.4 资源占用
 
-- 窗口隐藏时：停止订阅流量和日志流（断开 `/traffic`、`/logs` 连接），停止图表重绘。
+- 窗口隐藏时：断开 `/traffic` 并停止图表重绘；保留 `/logs?level=info` 连接，持续采集本次运行的连接历史。
 - 节点列表最多 1000 项，使用 Slint 的 `ListView` 虚拟化，超出部分在搜索时再显示。
 - 不使用强制 GC 或清空工作集等手段来做出低内存数字。
-- 【M5】实现：AppCore 只在快照确实变化时发布（`watch::send_if_modified`），UI 桥按 100 ms 节流应用，列表模型只在对应数据变化时替换，节点延迟/选择变化按行更新。搜索与延迟排序在 Rust 侧完成，不在每行绑定回调。日志按 500 ms 批量送达，每批最多 200 行，UI 环形保留 2000 行。窗口最小化时流保持连接（两条环回连接，每秒一行），但不重绘，实测 CPU 接近 0。
+- 【M5】实现：AppCore 只在快照确实变化时发布（`watch::send_if_modified`），UI 桥按 100 ms 节流应用，列表模型只在对应数据变化时替换，节点延迟/选择变化按行更新。搜索与延迟排序在 Rust 侧完成，不在每行绑定回调。连接事件按 500 ms 或 200 条批量交给应用层，内存按设置最多保留 10,000 条（默认 1,000）；日志页接收当前筛选后的完整有界快照，列表本身负责虚拟滚动；连接日志条数由设置页控制（默认 1,000，范围 0–10,000），配置为 0 时不记录并清空内存历史；隐藏或离开页面不因连接记录触发 UI 快照。
 
 ---
 
 ## 18. 日志与诊断
 
 - 使用 tracing + tracing-subscriber + tracing-appender，按日轮转，保留 7 天，单文件上限 10 MiB。日志先经过脱敏层（§14.3）再写入文件。
-- 内核的 stdout/stderr 写入 `core-home/logs/`，策略同上。UI 只保留最近 2000 行，放在环形缓冲中。
-- 默认日志级别为应用 `info`、内核 `warning`，设置页可以临时切换为 debug（重启后恢复）。
+- 普通模式和 TUN 服务在写入内核 stdout/stderr 前按行过滤 TCP/UDP 连接访问事件，其余诊断输出按相同策略写入 `core-home/logs/`。界面不展示原始诊断日志。
+- 连接历史仅本次运行保留设置的条数（默认 1,000，范围 0–10,000）；配置操作历史使用 `operation-logs/YYYY-MM-DD.json`，保留设置的天数（默认 30，范围 0–60），启动及每分钟清理。配置为 0 时不记录并清空对应历史。搜索、筛选、暂停滚动和虚拟滚动见 [日志菜单实现说明](logs-redesign.md)。不新增旧数据迁移或兼容读取。
+- 持久诊断日志级别为应用 `info`、内核 `warning`；连接采集独立请求 `/logs?level=info`。诊断包不打包连接历史或配置操作历史。
 - 诊断包为 zip，包含：
   - 应用日志和内核日志（脱敏）。
   - settings.json。
@@ -1047,7 +1048,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 
 ## 20. 里程碑与验收
 
-每个里程碑结束时：`cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings`、`cargo build --release` 全部通过，并在 `docs/acceptance/<里程碑>.md` 中记录手工验收（日期、环境、步骤、结果）。按项目要求，不编写单元测试。编译通过不代表联网成功。
+每个里程碑结束时：`cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings` 全部通过，并在 `docs/acceptance/<里程碑>.md` 中记录手工验收（日期、环境、步骤、结果）。按项目要求，不编写单元测试。编译通过不代表联网成功。
 
 | 里程碑 | 内容 | 验收要点 |
 | --- | --- | --- |

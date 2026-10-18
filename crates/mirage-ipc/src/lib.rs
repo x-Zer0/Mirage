@@ -17,6 +17,7 @@ pub use protocol::{
 #[cfg(windows)]
 pub mod atomic;
 pub mod binary;
+pub mod core_log;
 #[cfg(windows)]
 pub mod known_folder;
 pub mod rolling;

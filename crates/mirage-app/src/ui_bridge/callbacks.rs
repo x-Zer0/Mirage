@@ -1,9 +1,8 @@
 //! Window callbacks grouped by feature; each only queues commands or updates UI state.
-use super::{Command, LogRow, MainWindow, SHARED, lifecycle::send_mode, send};
+use super::{Command, MainWindow, SHARED, lifecycle::send_mode, send};
 use crate::app::settings::SettingsInput;
 use crate::domain::redact::{Password, SecretString};
-use slint::{ComponentHandle, VecModel};
-use std::rc::Rc;
+use slint::ComponentHandle;
 use tokio::sync::mpsc;
 
 type Commands = mpsc::Sender<Command>;
@@ -14,7 +13,7 @@ pub(super) fn wire(window: &MainWindow, commands: Commands) {
     wire_nodes(window, &commands);
     wire_accounts(window, &commands);
     wire_settings(window, &commands);
-    wire_diagnostics(window, &commands);
+    wire_logs(window, &commands);
 }
 
 fn wire_connection(window: &MainWindow, commands: &Commands) {
@@ -145,7 +144,9 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
               auto_connect,
               close_to_tray,
               autostart,
-              tun_disable_system_proxy| {
+              tun_disable_system_proxy,
+              connection_log_limit,
+              operation_log_days| {
             send(
                 &c,
                 Command::SaveSettings(SettingsInput {
@@ -157,6 +158,8 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
                     close_to_tray,
                     autostart,
                     tun_disable_system_proxy,
+                    connection_log_limit: connection_log_limit.into(),
+                    operation_log_days: operation_log_days.into(),
                 }),
             )
         },
@@ -165,17 +168,27 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
     window.on_update_geodata(move || send(&c, Command::UpdateGeodata));
 }
 
-fn wire_diagnostics(window: &MainWindow, commands: &Commands) {
+fn wire_logs(window: &MainWindow, commands: &Commands) {
     let c = commands.clone();
     window.on_export_diagnostics(move || send(&c, Command::ExportDiagnostics));
     let c = commands.clone();
     window.on_retry_error(move || send(&c, Command::RetryNotice));
     let c = commands.clone();
     window.on_dismiss_error(move || send(&c, Command::DismissNotice));
-    let w = window.as_weak();
-    window.on_clear_logs(move || {
-        if let Some(w) = w.upgrade() {
-            w.set_logs(Rc::new(VecModel::<LogRow>::default()).into());
-        }
+    let c = commands.clone();
+    window.on_clear_connection_logs(move || send(&c, Command::ClearConnectionLogs));
+    let c = commands.clone();
+    window.on_filter_logs(move |active, operations, text, filter, paused| {
+        send(
+            &c,
+            Command::QueryLogs(crate::app::logs::LogQuery {
+                active,
+                operations,
+                text: text.into(),
+                filter: filter.max(0) as usize,
+                paused,
+                anchor: None,
+            }),
+        );
     });
 }

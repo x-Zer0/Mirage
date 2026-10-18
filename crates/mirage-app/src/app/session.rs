@@ -5,7 +5,7 @@ use crate::domain::error::{AppError, AppErrorKind};
 use crate::platform::windows::conflict::{self, Conflict};
 
 impl AppCore {
-    pub(super) fn connect(&mut self) {
+    pub(super) fn connect(&mut self, manual: bool) {
         if self.view.service_busy {
             return;
         }
@@ -39,6 +39,7 @@ impl AppCore {
         // An explicit connect starts a fresh restart budget and re-reads the
         // saved switch (an external change may have turned it off for this run).
         self.restart_attempts = 0;
+        self.connection_source = if manual { "手动" } else { "自动连接" };
         self.view.system_proxy_wanted = self.settings.system_proxy;
         self.start_after(None);
     }
@@ -85,6 +86,19 @@ impl AppCore {
                     tracing::info!(attempt = self.restart_attempts, "core restarted");
                     self.view.notice = Some(info_notice("内核已自动重启"));
                 }
+                let name = self.profile_log_name(&running.profile_id);
+                let action = if self.view.runtime == RuntimeStatus::Restarting {
+                    "自动恢复连接"
+                } else {
+                    "连接"
+                };
+                self.record_operation(
+                    action,
+                    &name,
+                    self.connection_source,
+                    "成功",
+                    "配置已启动，代理内核运行中",
+                );
                 self.view.runtime = RuntimeStatus::Running;
                 self.view.check_lines = running.check_lines.clone();
                 self.view.policy_notes = running.policy_notes.clone();
@@ -104,6 +118,23 @@ impl AppCore {
                 tokio::spawn(async move { runtime::stop(stale, &layout).await });
             }
             Err(e) if generation == self.generation => {
+                let name = self
+                    .profiles
+                    .selected()
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                let action = if self.view.runtime == RuntimeStatus::Restarting {
+                    "自动恢复连接"
+                } else {
+                    "连接"
+                };
+                self.record_operation(
+                    action,
+                    &name,
+                    self.connection_source,
+                    "失败",
+                    &e.user_message(),
+                );
                 if self.view.tun_wanted && self.view.runtime != RuntimeStatus::Restarting {
                     self.view.tun_wanted = false;
                     self.update_tun_state(false);

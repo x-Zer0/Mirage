@@ -1,14 +1,13 @@
-//! Throttled state snapshots, notices and bounded live traffic/log streams.
-use super::{AppTray, LogRow, MainWindow, SHARED, Shared, models};
-use crate::app::live::{LiveSink, UiLogLine};
+//! Throttled state snapshots, notices and live traffic.
+use super::{AppTray, MainWindow, SHARED, Shared, models};
+use crate::app::live::LiveSink;
 use crate::app::state::{AppStateView, Notice, TrafficSample};
 use crate::platform::windows::tray_balloon;
-use slint::{ComponentHandle, Model, VecModel};
+use slint::ComponentHandle;
 use std::{cell::RefCell, collections::VecDeque, sync::Arc, time::Duration};
 use tokio::sync::watch;
 
 const STATE_THROTTLE: Duration = Duration::from_millis(100);
-const MAX_LOG_LINES: usize = 2000;
 
 /// Pushes state snapshots to the UI thread, at most once per throttle window.
 pub(super) fn forward_state(
@@ -89,27 +88,6 @@ impl LiveSink for UiSink {
                 h.push_back(sample);
                 models::apply_traffic(&w, h);
             });
-        });
-    }
-
-    fn log_lines(&self, lines: Vec<UiLogLine>) {
-        let _ = self.window.upgrade_in_event_loop(move |w| {
-            let model = w.get_logs();
-            let Some(vec) = model.as_any().downcast_ref::<VecModel<LogRow>>() else {
-                return;
-            };
-            let rows = lines.into_iter().map(|line| LogRow {
-                level: line.level.into(),
-                text: line.text.into(),
-            });
-            let excess = (vec.row_count() + rows.len()).saturating_sub(MAX_LOG_LINES);
-            if excess == 0 {
-                vec.extend(rows);
-            } else {
-                // Full ring: keep the newest lines in one model reset.
-                let kept: Vec<LogRow> = vec.iter().skip(excess).chain(rows).collect();
-                vec.set_vec(kept);
-            }
         });
     }
 }

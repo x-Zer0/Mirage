@@ -82,6 +82,12 @@ pub struct SettingsFile {
     /// Start with Windows via the Run key with `--autostart` (§11.6).
     #[serde(default)]
     pub autostart: bool,
+    /// Maximum connection rows kept for the current run (0 disables recording).
+    #[serde(default = "default_connection_log_limit")]
+    pub connection_log_limit: usize,
+    /// Days of operation history to retain (0 disables recording).
+    #[serde(default = "default_operation_log_days")]
+    pub operation_log_days: usize,
 }
 
 impl Default for SettingsFile {
@@ -99,6 +105,8 @@ impl Default for SettingsFile {
             close_to_tray: true,
             close_hint_shown: false,
             autostart: false,
+            connection_log_limit: default_connection_log_limit(),
+            operation_log_days: default_operation_log_days(),
         }
     }
 }
@@ -117,6 +125,14 @@ fn default_ua() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_connection_log_limit() -> usize {
+    1_000
+}
+
+fn default_operation_log_days() -> usize {
+    30
 }
 
 /// Loads a file, migrating an older schema forward and refusing a newer one.

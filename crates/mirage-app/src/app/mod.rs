@@ -7,6 +7,8 @@ mod diagnostics_actions;
 mod handle;
 mod handlers;
 pub mod live;
+mod log_actions;
+pub mod logs;
 mod messages;
 mod nodes;
 mod pipeline;
@@ -59,6 +61,7 @@ struct AppCore {
     settings: SettingsFile,
     /// Consecutive supervised restarts since the core last ran stably (§5.2).
     restart_attempts: u32,
+    connection_source: &'static str,
     proxy_before_tun: Option<bool>,
     /// Commands that need a verified core, held until verification finishes.
     deferred: Vec<Command>,
@@ -72,6 +75,10 @@ struct AppCore {
     /// Status before a running session check, restored on inconclusive errors.
     validating_prev: HashMap<AccountId, AccountStatus>,
     live: live::LiveStreams,
+    operation_logs: crate::storage::operation_logs::OperationLogs,
+    connection_logs: logs::ConnectionHistory,
+    log_query: logs::LogQuery,
+    update_operations: HashMap<ProfileId, String>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
 }
