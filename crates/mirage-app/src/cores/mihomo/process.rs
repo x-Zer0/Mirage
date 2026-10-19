@@ -144,10 +144,22 @@ pub fn spawn(cmd: CoreCommand) -> AppResult<CoreProcess> {
 /// Last lines of the core log, used to explain an early exit. `stem` is the
 /// rolling writer's base path; the newest segment is read.
 pub fn log_tail(stem: &std::path::Path, lines: usize) -> String {
+    use std::io::{BufRead, BufReader, Seek, SeekFrom};
     let path = crate::logging::newest_segment(stem);
-    let text = std::fs::read(path).unwrap_or_default();
-    let text = String::from_utf8_lossy(&text);
-    let all: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    // 尝试 seek 到末尾，如果文件很小就从头读
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(64 * 1024); // 最多读最后 64KB
+    let _ = file.seek(SeekFrom::Start(start));
+
+    let reader = BufReader::new(file);
+    let all: Vec<String> = reader
+        .lines()
+        .map_while(Result::ok)
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     all[all.len().saturating_sub(lines)..].join(" | ")
 }
 

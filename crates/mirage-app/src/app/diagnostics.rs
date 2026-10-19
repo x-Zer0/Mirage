@@ -253,16 +253,16 @@ fn environment_text(version: &str, core: Option<&CoreBinary>, mixed_port: u16) -
             let _ = writeln!(out, "内核版本行：{}", binary.version_line);
             let _ = writeln!(out, "内核路径：{}", binary.exe.display());
             // M23: 真正计算实际文件的 SHA256
-            match std::fs::read(&binary.exe).and_then(|bytes| {
+            match std::fs::read(&binary.exe).map(|bytes| {
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(&bytes);
                 let result = hasher.finalize();
-                Ok(result.iter().fold(String::new(), |mut acc, b| {
+                result.iter().fold(String::new(), |mut acc, b| {
                     use std::fmt::Write;
-                    let _ = write!(acc, "{:02x}", b);
+                    let _ = write!(acc, "{b:02x}");
                     acc
-                }))
+                })
             }) {
                 Ok(actual) => {
                     let _ = writeln!(out, "内核 SHA256（期望）：{}", binary::EXPECTED_SHA256);

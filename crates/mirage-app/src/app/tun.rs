@@ -162,6 +162,8 @@ impl AppCore {
                     "TUN 辅助服务已卸载"
                 }));
                 if enable && generation == self.generation {
+                    // Force restart: tun_wanted was already true during install
+                    self.view.tun_wanted = false;
                     self.set_tun(true);
                 }
             }

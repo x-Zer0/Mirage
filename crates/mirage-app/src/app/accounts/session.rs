@@ -16,11 +16,20 @@ impl AppCore {
         if account.status == AccountStatus::Validating {
             return;
         }
-        let Some(session) = self.load_session(&account) else {
-            if manual {
-                self.view.notice = Some(info_notice("该账号没有已保存的会话，请重新登录"));
+        let session = match self.load_session(&account) {
+            Ok(s) => s,
+            Err(e) => {
+                if manual {
+                    // L6: distinguish storage failure from missing session
+                    if e.kind == AppErrorKind::Storage {
+                        self.view.notice = Some(error_notice(&e));
+                    } else {
+                        self.view.notice =
+                            Some(info_notice("该账号没有已保存的会话，请重新登录"));
+                    }
+                }
+                return;
             }
-            return;
         };
         let provider = match account_provider(&account.provider_id) {
             Ok(p) => p,

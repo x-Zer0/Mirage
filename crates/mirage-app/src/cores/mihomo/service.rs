@@ -130,7 +130,13 @@ async fn own_session(
                 return None;
             }
             call = calls.recv() => {
-                let call = call?;
+                let Some(call) = call else {
+                    // 调用通道关闭，主动发 StopCore
+                    let ack = tokio::time::timeout(Duration::from_secs(3),
+                        exchange(&mut pipe, &Request::StopCore)).await;
+                    cleaned.store(matches!(ack, Ok(Ok(Response::Stopped))), Ordering::SeqCst);
+                    return None;
+                };
                 let result = tokio::select! {
                     biased;
                     _ = &mut stop => return None, // dropping pipe revokes ownership

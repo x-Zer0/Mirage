@@ -2,6 +2,7 @@
 
 use crate::cores::mihomo::controller::ProxyGroupView;
 use crate::domain::model::{AccountStatus, ProviderAccount, RoutingMode};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RuntimeStatus {
@@ -264,7 +265,7 @@ pub struct AppStateView {
     pub groups: Vec<ProxyGroupView>,
     pub groups_revision: u64,
     pub testing_group: Option<String>,
-    pub busy: Option<String>,
+    pub busy_tasks: HashSet<String>,
     /// Set by handlers; moved into `error` or `toast` before publishing.
     pub notice: Option<Notice>,
     /// Error bar: stays until dismissed, retried or replaced by another error.

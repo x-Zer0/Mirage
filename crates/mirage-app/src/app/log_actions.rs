@@ -24,7 +24,8 @@ impl AppCore {
     pub(super) fn clear_connection_logs(&mut self) {
         self.suspend_connection_stream();
         self.connection_logs.clear(self.live.epoch);
-        self.log_query.anchor = self.log_query.paused.then_some(0);
+        // 清空后不再固定 anchor，让新日志正常显示
+        self.log_query.anchor = None;
         self.restart_live_streams();
         self.refresh_logs();
     }
@@ -120,6 +121,7 @@ impl AppCore {
     }
 
     /// Helper: record operation and set error/toast notice from result.
+    #[allow(dead_code)]
     pub(super) fn report_result<T>(
         &mut self,
         action: &str,

@@ -44,7 +44,7 @@ impl AppCore {
             core_port: self.core_port(),
             mixed_port: self.view.mixed_port,
         };
-        self.view.busy = Some(format!(
+        self.view.busy_tasks.insert(format!(
             "正在下载并校验{}订阅…",
             providers::account_name(&provider)
         ));
@@ -64,7 +64,7 @@ impl AppCore {
         account_id: AccountId,
         result: AppResult<RemoteAdded>,
     ) {
-        self.view.busy = None;
+        self.view.busy_tasks.clear();
         let Some(account) = self.accounts.get(&account_id) else {
             return;
         };
@@ -162,7 +162,8 @@ impl AppCore {
         };
         let layout = self.layout.clone();
         let port = self.view.mixed_port;
-        self.view.busy = Some(format!("正在导入原{}客户端配置…", provider.name()));
+        let task_name = format!("正在导入原{}客户端配置…", provider.name());
+        self.view.busy_tasks.insert(task_name);
         self.spawn(async move {
             let result = async {
                 let raw = provider.import_legacy()?;

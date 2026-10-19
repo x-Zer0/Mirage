@@ -35,7 +35,12 @@ fn parse_userinfo(value: &str) -> Option<UsageInfo> {
             continue;
         };
         // Some services send floats ("1.5e10"); round them down.
-        let Some(n) = val.trim().parse::<f64>().ok().filter(|n| *n >= 0.0) else {
+        let Some(n) = val
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite() && *n >= 0.0 && *n <= u64::MAX as f64)
+        else {
             continue;
         };
         let n = n as u64;
@@ -56,8 +61,11 @@ fn parse_filename(value: &str) -> Option<String> {
     let mut plain = None;
     for part in value.split(';').map(str::trim) {
         if let Some(rest) = part.strip_prefix("filename*=") {
-            let encoded = rest.rsplit("''").next().unwrap_or(rest);
-            if let Ok(name) = percent_decode_str(encoded.trim_matches('"')).decode_utf8() {
+            // RFC 5987: charset'lang'percent-encoded
+            // Split on first '' to avoid false match on percent-encoded apostrophe
+            if let Some((_, encoded)) = rest.split_once("''")
+                && let Ok(name) = percent_decode_str(encoded.trim_matches('"')).decode_utf8()
+            {
                 return clean_name(&name);
             }
         } else if let Some(rest) = part.strip_prefix("filename=") {
@@ -68,11 +76,18 @@ fn parse_filename(value: &str) -> Option<String> {
 }
 
 fn clean_name(name: &str) -> Option<String> {
-    let stem = name
+    let mut stem = name.trim();
+    // Remove only one trailing .yaml/.yml to avoid x.yaml.yaml → x.yaml
+    if stem.ends_with(".yaml") {
+        stem = &stem[..stem.len() - 5];
+    } else if stem.ends_with(".yml") {
+        stem = &stem[..stem.len() - 4];
+    }
+    let stem: String = stem
         .trim()
-        .trim_end_matches(".yaml")
-        .trim_end_matches(".yml")
-        .trim();
-    let stem: String = stem.chars().filter(|c| !c.is_control()).take(64).collect();
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect();
     (!stem.is_empty()).then_some(stem)
 }

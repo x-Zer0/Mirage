@@ -14,7 +14,7 @@ impl AppCore {
             return;
         };
         let port = self.view.mixed_port;
-        self.view.busy = Some("正在导入配置…".into());
+        self.view.busy_tasks.insert("正在导入配置…".into());
         tokio::spawn(async move {
             let picked = rfd::AsyncFileDialog::new()
                 .set_title("导入 Mihomo 配置")
@@ -41,7 +41,7 @@ impl AppCore {
         };
         let layout = self.layout.clone();
         let port = self.view.mixed_port;
-        self.view.busy = Some("正在导入配置…".into());
+        self.view.busy_tasks.insert("正在导入配置…".into());
         self.spawn(async move {
             Internal::Imported(
                 path.file_name()
@@ -57,7 +57,7 @@ impl AppCore {
         object: String,
         result: Result<pipeline::ImportOutcome, AppError>,
     ) {
-        self.view.busy = None;
+        self.view.busy_tasks.clear();
         let outcome = match result {
             Ok(outcome) => outcome,
             Err(e) if e.kind == AppErrorKind::Cancelled => return,

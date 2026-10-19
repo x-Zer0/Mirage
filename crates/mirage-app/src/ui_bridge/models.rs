@@ -64,7 +64,7 @@ fn apply_runtime(w: &MainWindow, s: &AppStateView, prev: Option<&AppStateView>) 
     w.set_status_text(status_text(&s.runtime).into());
     w.set_running(s.runtime.is_up());
     w.set_failed(matches!(s.runtime, RuntimeStatus::Failed(_)));
-    let busy = s.busy.is_some()
+    let busy = !s.busy_tasks.is_empty()
         || s.service_busy
         || matches!(
             s.runtime,
@@ -75,8 +75,10 @@ fn apply_runtime(w: &MainWindow, s: &AppStateView, prev: Option<&AppStateView>) 
         );
     w.set_busy(busy);
     w.set_busy_text(
-        s.busy
-            .clone()
+        s.busy_tasks
+            .iter()
+            .next()
+            .cloned()
             .or_else(|| busy.then(|| status_text(&s.runtime)))
             .unwrap_or_default()
             .into(),

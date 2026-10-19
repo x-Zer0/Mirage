@@ -113,7 +113,12 @@ impl Controller {
             .get(GLOBAL_GROUP)
             .and_then(|g| g.all.clone())
             .unwrap_or_default();
-        let mut rest: Vec<&String> = resp.proxies.keys().filter(|k| !order.contains(k)).collect();
+        let order_set: std::collections::HashSet<_> = order.iter().collect();
+        let mut rest: Vec<&String> = resp
+            .proxies
+            .keys()
+            .filter(|k| !order_set.contains(k))
+            .collect();
         rest.sort();
         order.extend(rest.into_iter().cloned());
 
@@ -319,7 +324,13 @@ impl Controller {
             return Ok(());
         }
         let code = resp.status().as_u16();
-        let text = resp.text().await.unwrap_or_default();
+        let text = resp
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(1024)
+            .collect::<String>();
         Err(AppError::new(
             AppErrorKind::Http(code),
             STAGE,
@@ -375,7 +386,13 @@ impl Controller {
             Ok(resp)
         } else {
             let code = resp.status().as_u16();
-            let text = resp.text().await.unwrap_or_default();
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_default()
+                .chars()
+                .take(1024)
+                .collect::<String>();
             Err(AppError::new(
                 AppErrorKind::Http(code),
                 STAGE,

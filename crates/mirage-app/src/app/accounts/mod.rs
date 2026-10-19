@@ -166,6 +166,17 @@ impl AppCore {
         let Some(account) = self.accounts.get(id).cloned() else {
             return Ok(());
         };
+        // Take a snapshot before deleting secrets
+        let identity_val = self.secrets.get(&identity_key(id)).ok().flatten();
+        let session_val = account
+            .session_secret
+            .as_ref()
+            .and_then(|k| self.secrets.get(k).ok().flatten());
+        let subscribe_val = account
+            .subscribe_secret
+            .as_ref()
+            .and_then(|k| self.secrets.get(k).ok().flatten());
+
         self.secrets.delete(&identity_key(id))?;
         for key in [&account.session_secret, &account.subscribe_secret]
             .into_iter()
@@ -182,7 +193,17 @@ impl AppCore {
             .unwrap();
         self.accounts.file.accounts.remove(index);
         if let Err(e) = self.accounts.save(&self.layout) {
-            self.accounts.file.accounts.insert(index, account);
+            // Rollback: restore account and secrets
+            self.accounts.file.accounts.insert(index, account.clone());
+            if let Some(val) = &identity_val {
+                let _ = self.secrets.put(&identity_key(id), val);
+            }
+            if let (Some(key), Some(val)) = (account.session_secret.as_ref(), &session_val) {
+                let _ = self.secrets.put(key, val);
+            }
+            if let (Some(key), Some(val)) = (account.subscribe_secret.as_ref(), &subscribe_val) {
+                let _ = self.secrets.put(key, val);
+            }
             return Err(e);
         }
         self.view.revealed_account = None;
@@ -211,12 +232,16 @@ impl AppCore {
                 ),
             ));
         }
-        let session = self.load_session(account).ok_or_else(|| {
-            AppError::new(
-                AppErrorKind::AuthInvalid,
-                STAGE,
-                "没有已保存的会话，请重新登录",
-            )
+        let session = self.load_session(account).map_err(|e| {
+            if e.kind == AppErrorKind::Storage {
+                e
+            } else {
+                AppError::new(
+                    AppErrorKind::AuthInvalid,
+                    STAGE,
+                    "没有已保存的会话,请重新登录",
+                )
+            }
         })?;
         let cached_url = account
             .subscribe_secret
@@ -233,17 +258,24 @@ impl AppCore {
         })
     }
 
-    pub(super) fn load_session(&self, account: &ProviderAccount) -> Option<SecretString> {
-        let key = account.session_secret.as_ref()?;
+    pub(super) fn load_session(&self, account: &ProviderAccount) -> AppResult<SecretString> {
+        let key = account
+            .session_secret
+            .as_ref()
+            .ok_or_else(|| AppError::new(AppErrorKind::AuthInvalid, STAGE, "无会话凭据"))?;
         match self.secrets.get(key) {
             Ok(Some(bytes)) => String::from_utf8(bytes.to_vec())
                 .ok()
-                .map(SecretString::new),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::warn!(error = %e, "session not readable");
-                None
-            }
+                .map(SecretString::new)
+                .ok_or_else(|| {
+                    AppError::new(AppErrorKind::AuthInvalid, STAGE, "会话格式损坏")
+                }),
+            Ok(None) => Err(AppError::new(
+                AppErrorKind::AuthInvalid,
+                STAGE,
+                "会话不存在",
+            )),
+            Err(e) => Err(e),
         }
     }
 

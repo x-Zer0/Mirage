@@ -13,6 +13,7 @@ fn main() {
         embed_icon();
     }
     println!("cargo:rerun-if-changed=assets/icons/app.svg");
+    println!("cargo:rerun-if-changed=assets/icons/lucide");
     println!("cargo:rerun-if-changed=build.rs");
 }
 

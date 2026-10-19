@@ -130,7 +130,6 @@ fn reject_reparse(path: &Path) -> io::Result<()> {
 pub fn uninstall() -> anyhow::Result<()> {
     stop_service()?;
     remove_service()?;
-    record::remove();
     if let Ok(dir) = paths::install_dir() {
         // Only the dedicated subdirectory is removed; the app install tree
         // (`%ProgramFiles%\Mirage`) is left for the uninstaller.
@@ -145,6 +144,8 @@ pub fn uninstall() -> anyhow::Result<()> {
             std::fs::remove_dir_all(dir)?;
         }
     }
+    // 只在目录删除成功后清除记录
+    record::remove();
     Ok(())
 }
 

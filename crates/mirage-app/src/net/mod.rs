@@ -6,9 +6,13 @@
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::EgressPolicy;
 use reqwest::{Client, Url};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const STAGE: &str = "net";
+
+static DIRECT_CLIENT: OnceLock<Client> = OnceLock::new();
+static SUBSCRIPTION_CLIENT: OnceLock<Client> = OnceLock::new();
 
 /// How a request leaves the machine (§12.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +87,27 @@ where
 }
 
 pub fn client(purpose: &Purpose, route: EgressRoute) -> AppResult<Client> {
+    // Fast path: reuse cached direct clients for common purposes
+    if route == EgressRoute::Direct {
+        if std::ptr::eq(purpose, &SUBSCRIPTION) {
+            return Ok(SUBSCRIPTION_CLIENT
+                .get_or_init(|| build_client(purpose, route).expect("subscription client"))
+                .clone());
+        }
+        if purpose.max_redirects == 0
+            && purpose.connect_timeout == Duration::from_secs(10)
+            && purpose.total_timeout == Duration::from_secs(30)
+        {
+            return Ok(DIRECT_CLIENT
+                .get_or_init(|| build_client(purpose, route).expect("direct client"))
+                .clone());
+        }
+    }
+    // Slow path: build fresh for non-cacheable routes (via core) or custom purposes
+    build_client(purpose, route)
+}
+
+fn build_client(purpose: &Purpose, route: EgressRoute) -> AppResult<Client> {
     let max = purpose.max_redirects;
     let redirect = if max == 0 {
         reqwest::redirect::Policy::none()
@@ -173,6 +198,10 @@ pub fn map_error(e: reqwest::Error) -> AppError {
         AppErrorKind::Timeout
     } else if e.is_redirect() {
         AppErrorKind::InvalidUrl
+    } else if e.is_builder() {
+        // Header or request construction failed (e.g., invalid UA).
+        // This is an internal bug; our UA should be valid.
+        AppErrorKind::Internal
     } else if is_tls(&e) {
         AppErrorKind::Tls
     } else {

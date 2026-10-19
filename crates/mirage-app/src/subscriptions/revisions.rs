@@ -40,8 +40,11 @@ pub fn upsert(layout: &Layout, profile: &Profile, rev: ConfigRevision) -> AppRes
     let mut file = load(layout, profile)?;
     file.revisions.retain(|r| r.id != rev.id);
     file.revisions.push(rev);
-    file.revisions
-        .sort_by_key(|r| std::cmp::Reverse(r.fetched_at));
+    file.revisions.sort_by(|a, b| {
+        b.fetched_at
+            .cmp(&a.fetched_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
 
     let pinned = [&profile.active_revision, &profile.last_good_revision];
     let mut kept = Vec::new();

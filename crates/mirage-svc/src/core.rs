@@ -83,10 +83,7 @@ impl CoreShell {
     }
 
     pub fn stop(&self) -> Result<()> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| fail(ErrorKind::Busy, "服务状态不可用"))?;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(mut running) = state.running.take() {
             running.core.stop(Duration::from_secs(3));
             state.last_exit = running.core.try_exit();
@@ -100,10 +97,7 @@ impl CoreShell {
 
     pub fn start(&self, yaml: &str, port: u16, secret: &str, profile: &str) -> Result<u32> {
         self.status();
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| fail(ErrorKind::Busy, "服务状态不可用"))?;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.running.is_some() {
             return Err(fail(ErrorKind::AlreadyRunning, "已有内核运行"));
         }

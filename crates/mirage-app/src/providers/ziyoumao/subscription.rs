@@ -26,8 +26,11 @@ pub fn decode(raw: &[u8]) -> AppResult<Vec<u8>> {
             "自由猫订阅超过 16 MiB",
         ));
     }
+    // L1: trim trailing whitespace to tolerate newlines, matching generic path
+    let text = std::str::from_utf8(raw).map_err(|_| incompatible("外层内容不是 UTF-8"))?;
+    let trimmed = text.trim();
     let ciphertext = STANDARD
-        .decode(raw)
+        .decode(trimmed)
         .map_err(|_| incompatible("外层 Base64 无效"))?;
     if ciphertext.is_empty() || !ciphertext.len().is_multiple_of(16) {
         return Err(incompatible("AES 密文长度无效"));

@@ -38,7 +38,7 @@ impl AppCore {
         let saved = self.mark_good(profile_id, &rev);
         self.complete_revision_log(profile_id, &rev, saved, "新版本已保存，下次连接使用");
         if manual && let Some(p) = self.profiles.get(profile_id) {
-            self.view.notice = Some(info_notice(format!("“{}”已更新", p.name)));
+            self.view.notice = Some(info_notice(format!("\"{}\" 已更新", p.name)));
         }
     }
 
@@ -101,30 +101,38 @@ impl AppCore {
                 self.complete_revision_log(&profile_id, &revision, saved, "新配置已应用");
                 if current {
                     self.view.notice = Some(info_notice(format!(
-                        "“{name}”已更新并热重载，节点选择已恢复"
+                        "\"{name}\" 已更新并热重载，节点选择已恢复"
                     )));
                 }
             }
             ReloadOutcome::RolledBack(reason) => {
+                if generation != self.generation {
+                    // Disconnected/stopped; the reload task is stale, no notice.
+                    return;
+                }
                 self.finish_update_log(
                     &profile_id,
                     "失败",
-                    &format!("新配置应用失败：{reason}；已回退到原版本"),
+                    &format!("新配置应用失败: {reason}; 已回退到原版本"),
                 );
                 self.mark_invalid(&profile_id, &revision, &reason);
                 self.view.notice = Some(Notice::error(format!(
-                    "“{name}”新版本应用失败，已回退到上一个可用版本：{reason}"
+                    "\"{name}\" 新版本应用失败, 已回退到上一个可用版本: {reason}"
                 )));
             }
             ReloadOutcome::NeedsRestart(reason) => {
+                if generation != self.generation {
+                    // Disconnected/stopped; the reload task is stale, no notice.
+                    return;
+                }
                 self.finish_update_log(
                     &profile_id,
                     "失败",
-                    &format!("新配置应用失败：{reason}；正在使用原版本重启"),
+                    &format!("新配置应用失败: {reason}; 正在使用原版本重启"),
                 );
                 self.mark_invalid(&profile_id, &revision, &reason);
                 self.view.notice = Some(Notice::error(format!(
-                    "“{name}”新版本应用失败，正在用上一个可用版本重启内核：{reason}"
+                    "\"{name}\" 新版本应用失败, 正在用上一个可用版本重启内核: {reason}"
                 )));
                 if current && let Some(previous) = self.running.take() {
                     self.view.groups.clear();

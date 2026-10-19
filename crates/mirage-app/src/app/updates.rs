@@ -62,7 +62,7 @@ impl AppCore {
             core_port: self.core_port(),
             mixed_port: self.view.mixed_port,
         };
-        self.view.busy = Some("正在下载并校验订阅…".into());
+        self.view.busy_tasks.insert("正在下载并校验订阅…".into());
         let permits = self.fetch_permits.clone();
         self.spawn(async move {
             let _permit = permits.acquire_owned().await;
@@ -76,7 +76,7 @@ impl AppCore {
     }
 
     pub(super) fn on_remote_added(&mut self, added: AddedRemote) {
-        self.view.busy = None;
+        self.view.busy_tasks.clear();
         let display_name = if added.name.is_empty() {
             net::parse_url(added.url.expose())
                 .ok()
