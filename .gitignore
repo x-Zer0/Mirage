@@ -5,3 +5,6 @@
 
 # Windows distribution artifacts
 /dist/
+
+# Claude Code session data
+/.claude/

@@ -125,7 +125,8 @@ impl AppCore {
     ) -> AppResult<()> {
         let key = identity_key(id);
         let value = identity.expose().as_bytes();
-        if self.secrets.get(&key)?.as_deref() != Some(value) {
+        let current = self.secrets.get(&key)?;
+        if current.as_ref().map(|z| z.as_slice()) != Some(value) {
             self.secrets.put(&key, value)?;
         }
         Ok(())
@@ -150,7 +151,8 @@ impl AppCore {
     /// §7.2: the token in the URL may rotate; keep the newest one.
     pub(super) fn store_subscribe_url(&self, key: &str, url: &SecretString) {
         let current = self.secrets.get(key).ok().flatten();
-        if current.as_deref() == Some(url.expose().as_bytes()) {
+        let value = url.expose().as_bytes();
+        if current.as_ref().map(|z| z.as_slice()) == Some(value) {
             return;
         }
         tracing::info!("subscription url changed, stored the new one");
@@ -220,7 +222,7 @@ impl AppCore {
             .subscribe_secret
             .as_ref()
             .and_then(|k| self.secrets.get(k).ok().flatten())
-            .and_then(|b| String::from_utf8(b).ok())
+            .and_then(|b| String::from_utf8(b.to_vec()).ok())
             .map(SecretString::new);
         Ok(ProviderPlan {
             account_id: account.id.clone(),
@@ -234,7 +236,9 @@ impl AppCore {
     pub(super) fn load_session(&self, account: &ProviderAccount) -> Option<SecretString> {
         let key = account.session_secret.as_ref()?;
         match self.secrets.get(key) {
-            Ok(Some(bytes)) => String::from_utf8(bytes).ok().map(SecretString::new),
+            Ok(Some(bytes)) => String::from_utf8(bytes.to_vec())
+                .ok()
+                .map(SecretString::new),
             Ok(None) => None,
             Err(e) => {
                 tracing::warn!(error = %e, "session not readable");

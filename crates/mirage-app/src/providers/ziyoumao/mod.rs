@@ -11,7 +11,7 @@ pub mod bootstrap;
 pub mod legacy_import;
 pub mod subscription;
 
-use super::{Egress, LoggedIn, Refreshed, is_unreachable};
+use super::{Egress, LoggedIn, Refreshed};
 
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::DownloadFormat;
@@ -97,8 +97,15 @@ pub async fn refresh(
         };
         match fetch_account(&base, session, egress).await {
             Ok(refreshed) => return Ok(refreshed),
-            Err(e) if is_unreachable(&e) => last_err = Some(e),
-            Err(e) => return Err(e),
+            Err(e)
+                if matches!(
+                    e.kind,
+                    AppErrorKind::AuthInvalid | AppErrorKind::NeedsUserAction
+                ) =>
+            {
+                return Err(e);
+            }
+            Err(e) => last_err = Some(e),
         }
     }
     let err = last_err

@@ -21,6 +21,8 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
             r#"(?i)([?&](?:token|key|auth|password|passwd|pwd|sid|secret|uuid)=)[^&#\s'"]+"#,
             "${1}***",
         ),
+        // URL path token truncation: keep only first 8 chars of path
+        rule(r"(https?://[^/]+/)[^?#]{8,}", "${1}********"),
         // Authorization headers, with or without a Bearer scheme.
         rule(
             r#"(?i)(authorization"?\s*[:=]\s*"?)(?:bearer\s+)?[^\s,'"}]+"#,

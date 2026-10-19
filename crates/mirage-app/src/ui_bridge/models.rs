@@ -49,7 +49,7 @@ impl Applied {
 
 pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut Applied) {
     let prev = applied.last.as_deref();
-    apply_runtime(w, s);
+    apply_runtime(w, s, prev);
     apply_profiles(w, s, prev, &applied.list);
     apply_accounts(w, s, prev);
     apply_settings(w, s);
@@ -59,7 +59,7 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     applied.last = Some(s.clone());
 }
 
-fn apply_runtime(w: &MainWindow, s: &AppStateView) {
+fn apply_runtime(w: &MainWindow, s: &AppStateView, prev: Option<&AppStateView>) {
     w.set_core_version(s.core_version.clone().into());
     w.set_status_text(status_text(&s.runtime).into());
     w.set_running(s.runtime.is_up());
@@ -82,9 +82,14 @@ fn apply_runtime(w: &MainWindow, s: &AppStateView) {
             .into(),
     );
     w.set_mixed_port(i32::from(s.mixed_port));
-    w.set_system_proxy_wanted(s.system_proxy_wanted);
+    // M18: 只在值变化时写入，避免开关回弹
+    if prev.is_none_or(|p| p.system_proxy_wanted != s.system_proxy_wanted) {
+        w.set_system_proxy_wanted(s.system_proxy_wanted);
+    }
     w.set_system_proxy_active(s.system_proxy_active);
-    w.set_tun_wanted(s.tun_wanted);
+    if prev.is_none_or(|p| p.tun_wanted != s.tun_wanted) {
+        w.set_tun_wanted(s.tun_wanted);
+    }
     w.set_tun_active(s.tun_active);
     w.set_service_installed(s.service_installed);
     w.set_service_busy(s.service_busy);
@@ -217,8 +222,11 @@ fn update_groups(w: &MainWindow, groups: &[&ProxyGroupView], list: &ListOptions)
     }
     for (i, g) in groups.iter().enumerate() {
         let row = group_row(g, list);
+        // M16: 条件加入 kind 和 selectable，或直接整行比较
         if let Some(old) = current.row_data(i)
-            && (old.now != row.now
+            && (old.kind != row.kind
+                || old.selectable != row.selectable
+                || old.now != row.now
                 || old.hidden != row.hidden
                 || !same_rows(&old.nodes, &row.nodes))
         {

@@ -4,7 +4,7 @@
 
 use crate::platform::windows::{process, sysproxy};
 use std::collections::BTreeSet;
-use windows::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS};
+use windows::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 use windows::Win32::NetworkManagement::IpHelper::{
     GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
     GAA_FLAG_SKIP_UNICAST, GET_ADAPTERS_ADDRESSES_FLAGS, GetAdaptersAddresses, GetExtendedTcpTable,
@@ -120,7 +120,8 @@ fn adapters() -> Vec<(String, String)> {
         | GAA_FLAG_SKIP_ANYCAST
         | GAA_FLAG_SKIP_MULTICAST
         | GAA_FLAG_SKIP_DNS_SERVER;
-    let mut buf = vec![0u8; size as usize];
+    // M20: 用 Vec<u64> 确保正确对齐
+    let mut buf = vec![0u64; (size as usize).div_ceil(8)];
     // SAFETY: `buf` is a live allocation of `size` bytes; the API writes at most
     // that much and reports the required size when it does not fit.
     let status = unsafe {
@@ -133,7 +134,7 @@ fn adapters() -> Vec<(String, String)> {
         )
     };
     if status == ERROR_BUFFER_OVERFLOW.0 {
-        buf.resize(size as usize, 0);
+        buf.resize((size as usize).div_ceil(8), 0);
         // SAFETY: the buffer now matches the size the API asked for.
         let retry = unsafe {
             GetAdaptersAddresses(
@@ -169,7 +170,8 @@ fn adapters() -> Vec<(String, String)> {
 /// Local address of the process listening on `port`, for a `PortInUse` hint.
 pub fn port_owner(port: u16) -> Option<String> {
     let mut size = 16 * 1024u32;
-    let mut buf = vec![0u8; size as usize];
+    // M20: 用 Vec<u64> 确保正确对齐
+    let mut buf = vec![0u64; (size as usize).div_ceil(8)];
     // SAFETY: sizing call; the table is written into `buf` when it fits.
     let status = unsafe {
         GetExtendedTcpTable(
@@ -181,8 +183,8 @@ pub fn port_owner(port: u16) -> Option<String> {
             0,
         )
     };
-    if status == ERROR_BUFFER_OVERFLOW.0 {
-        buf.resize(size as usize, 0);
+    if status == ERROR_BUFFER_OVERFLOW.0 || status == ERROR_INSUFFICIENT_BUFFER.0 {
+        buf.resize((size as usize).div_ceil(8), 0);
     }
     // SAFETY: `buf` now matches the reported size (or the call fit the first time).
     let status = unsafe {

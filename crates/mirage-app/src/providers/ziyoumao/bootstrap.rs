@@ -190,8 +190,12 @@ async fn fetch_entry_once(url: &Url, route: EgressRoute) -> AppResult<Vec<u8>> {
 /// §4.2: `https://<domain>` without userinfo, query or fragment. IP literals
 /// are skipped — TLS verification is never relaxed to use them.
 fn candidates(hosts: &[String]) -> Vec<Url> {
+    const MAX_CANDIDATES: usize = 16;
     let mut out: Vec<Url> = Vec::new();
     for host in hosts {
+        if out.len() >= MAX_CANDIDATES {
+            break;
+        }
         let Ok(url) = Url::parse(host.trim()) else {
             continue;
         };

@@ -43,14 +43,8 @@ impl AppCore {
         let Some(running) = &self.running else { return };
         let controller = running.controller.clone();
         let generation = self.generation;
-        let selection_path = self.layout.selection_file(&running.profile_id);
         self.spawn(async move {
             let result = controller.select(&group, &node).await;
-            if result.is_ok()
-                && let Err(e) = remember_selection(&selection_path, group.clone(), node.clone())
-            {
-                tracing::warn!(error = %e, "selection not saved");
-            }
             Internal::NodeSelected {
                 generation,
                 group,
@@ -71,7 +65,17 @@ impl AppCore {
             return;
         }
         let (status, summary) = match &result {
-            Ok(()) => ("成功", format!("已选择节点：{node}")),
+            Ok(()) => {
+                // Save selection in actor thread to avoid concurrent writes
+                if let Some(running) = &self.running {
+                    let selection_path = self.layout.selection_file(&running.profile_id);
+                    if let Err(e) = remember_selection(&selection_path, group.clone(), node.clone())
+                    {
+                        tracing::warn!(error = %e, "selection not saved");
+                    }
+                }
+                ("成功", format!("已选择节点：{node}"))
+            }
             Err(e) => ("失败", e.user_message()),
         };
         self.record_operation("切换节点", &group, "手动", status, &summary);

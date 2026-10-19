@@ -109,6 +109,13 @@ impl AppCore {
             .unwrap_or_else(|| host.clone());
         let url_secret = format!("profile/{}/url", outcome.profile_id);
         if let Err(e) = self.secrets.put(&url_secret, added.url.expose().as_bytes()) {
+            // Clean up revision and directory since we're aborting
+            let raw_path = self
+                .layout
+                .raw_revision(&outcome.profile_id, &outcome.revision.id);
+            let _ = std::fs::remove_file(&raw_path);
+            let profile_dir = self.layout.profile_dir(&outcome.profile_id);
+            let _ = std::fs::remove_dir_all(&profile_dir);
             self.record_operation(
                 "新增订阅",
                 &name,
@@ -120,11 +127,14 @@ impl AppCore {
             return;
         }
         let source = SubscriptionSource::RemoteUrl {
-            url_secret,
+            url_secret: url_secret.clone(),
             host,
             user_agent: None,
         };
-        self.store_new_profile(outcome, name, source);
+        if !self.store_new_profile(outcome, name, source) {
+            // Rollback: remove the URL secret we just stored
+            let _ = self.secrets.delete(&url_secret);
+        }
     }
 
     /// Stores the first revision of a downloaded profile and adds it.
@@ -174,8 +184,15 @@ impl AppCore {
                 format!(" · {}", outcome.revision.policy_notes.join("；"))
             }
         );
-        self.profiles.add(profile);
+        self.profiles.add(profile.clone());
         if !self.save_profiles() {
+            // Rollback: remove from profiles list
+            self.profiles.remove(&profile.id);
+            // Clean up stored revision and directory
+            let raw_path = self.layout.raw_revision(&profile.id, &outcome.revision.id);
+            let _ = std::fs::remove_file(&raw_path);
+            let profile_dir = self.layout.profile_dir(&profile.id);
+            let _ = std::fs::remove_dir_all(&profile_dir);
             self.record_operation("新增订阅", &name, "手动", "失败", "配置列表保存失败");
             return false;
         }
@@ -424,7 +441,7 @@ impl AppCore {
                 "找不到已保存的订阅地址，请删除后重新添加",
             )
         })?;
-        let text = String::from_utf8(bytes)
+        let text = String::from_utf8(bytes.to_vec())
             .map_err(|_| AppError::new(AppErrorKind::Storage, STAGE, "订阅地址已损坏"))?;
         net::parse_url(&text)
     }

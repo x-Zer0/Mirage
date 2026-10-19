@@ -30,4 +30,4 @@ activation asks for installation and Windows administrator consent separately.
 
 Installer built with Inno Setup 6.4.3. https://jrsoftware.org/
 See licenses/Inno-Setup.txt. Simplified Chinese translation attribution is
-retained in packaging/ChineseSimplified.isl in the project source.
+retained in packaging/licenses/Inno-ChineseSimplified.isl in the project source.

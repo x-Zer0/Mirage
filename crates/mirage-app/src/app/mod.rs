@@ -91,3 +91,8 @@ fn error_notice(e: &AppError) -> Notice {
 fn info_notice(text: impl Into<String>) -> Notice {
     Notice::info(text)
 }
+
+/// Format bytes as GiB with one decimal place.
+fn format_gib(bytes: u64) -> String {
+    format!("{:.1} GiB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+}

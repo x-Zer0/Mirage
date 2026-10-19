@@ -252,9 +252,27 @@ fn environment_text(version: &str, core: Option<&CoreBinary>, mixed_port: u16) -
             let _ = writeln!(out, "内核：{}", binary.short_version());
             let _ = writeln!(out, "内核版本行：{}", binary.version_line);
             let _ = writeln!(out, "内核路径：{}", binary.exe.display());
-            // The bundled binary is pinned, so the expected hash identifies it
-            // exactly; recomputed here so a replaced file is visible.
-            let _ = writeln!(out, "内核 SHA256（期望）：{}", binary::EXPECTED_SHA256);
+            // M23: 真正计算实际文件的 SHA256
+            match std::fs::read(&binary.exe).and_then(|bytes| {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&bytes);
+                let result = hasher.finalize();
+                Ok(result.iter().fold(String::new(), |mut acc, b| {
+                    use std::fmt::Write;
+                    let _ = write!(acc, "{:02x}", b);
+                    acc
+                }))
+            }) {
+                Ok(actual) => {
+                    let _ = writeln!(out, "内核 SHA256（期望）：{}", binary::EXPECTED_SHA256);
+                    let _ = writeln!(out, "内核 SHA256（实际）：{actual}");
+                }
+                Err(_) => {
+                    let _ = writeln!(out, "内核 SHA256（期望）：{}", binary::EXPECTED_SHA256);
+                    let _ = writeln!(out, "内核 SHA256（实际）：读取失败");
+                }
+            }
         }
         None => out.push_str("内核：未通过校验\n"),
     }

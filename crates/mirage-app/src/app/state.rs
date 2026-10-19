@@ -87,13 +87,12 @@ impl AccountView {
             AccountStatus::NetworkUnavailable(t) => (format!("暂时无法连接服务：{t}"), 2),
         };
         let snap = a.snapshot.clone().unwrap_or_default();
-        let gib = |b: u64| format!("{:.1} GiB", b as f64 / (1024.0 * 1024.0 * 1024.0));
         let usage = match (snap.used_bytes, snap.total_bytes) {
             (None, None) => String::new(),
             (used, total) => format!(
                 "已用 {} / {}",
-                used.map_or_else(|| "未提供".into(), gib),
-                total.map_or_else(|| "未提供".into(), gib)
+                used.map_or_else(|| "未提供".into(), super::format_gib),
+                total.map_or_else(|| "未提供".into(), super::format_gib)
             ),
         };
         let expires = snap

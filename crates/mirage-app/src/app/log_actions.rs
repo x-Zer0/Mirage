@@ -119,6 +119,25 @@ impl AppCore {
         id
     }
 
+    /// Helper: record operation and set error/toast notice from result.
+    pub(super) fn report_result<T>(
+        &mut self,
+        action: &str,
+        object: &str,
+        source: &str,
+        result: &Result<T, crate::domain::error::AppError>,
+    ) {
+        match result {
+            Ok(_) => {
+                self.record_operation(action, object, source, "成功", "");
+            }
+            Err(e) => {
+                self.record_operation(action, object, source, "失败", &e.user_message());
+                self.view.notice = Some(super::error_notice(e));
+            }
+        }
+    }
+
     fn store_operation(&mut self, entry: OperationLog) {
         if let Err(e) = self.operation_logs.store(&self.layout, entry) {
             self.view.notice = Some(super::error_notice(&e));

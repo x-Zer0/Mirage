@@ -14,6 +14,7 @@ use windows::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
 use windows::core::{HRESULT, PCWSTR, PWSTR};
+use zeroize::Zeroizing;
 
 const STAGE: &str = "platform.secret";
 const TARGET_PREFIX: &str = "Mirage/";
@@ -50,15 +51,17 @@ impl SecretStore {
         }
     }
 
-    pub fn get(&self, key: &str) -> AppResult<Option<Vec<u8>>> {
+    // M19: 返回 Zeroizing<Vec<u8>> 确保离开作用域时擦除
+    pub fn get(&self, key: &str) -> AppResult<Option<Zeroizing<Vec<u8>>>> {
         let Some(blob) = cred_read(key)? else {
             return Ok(None);
         };
         if blob != EXTERNAL_MARKER {
-            return Ok(Some(blob));
+            return Ok(Some(Zeroizing::new(blob)));
         }
         let sealed = std::fs::read(self.file_for(key)).map_err(|e| AppError::storage(STAGE, e))?;
-        dpapi(&sealed, false).map(Some)
+        let decrypted = dpapi(&sealed, false)?;
+        Ok(Some(Zeroizing::new(decrypted)))
     }
 
     pub fn delete(&self, key: &str) -> AppResult<()> {

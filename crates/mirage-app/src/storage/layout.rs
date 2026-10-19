@@ -80,6 +80,11 @@ impl Layout {
     }
 
     pub fn profile_dir(&self, id: &ProfileId) -> PathBuf {
+        // M24: 校验 id 形态（防止路径遍历）
+        if id.contains("..") || id.contains('/') || id.contains('\\') {
+            tracing::warn!(id, "profile_dir rejected (invalid id)");
+            return self.profiles.join("invalid");
+        }
         self.profiles.join(id)
     }
 
@@ -117,15 +122,23 @@ impl Layout {
 fn bundled_core_dir() -> io::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let installed = exe.parent().map(|d| d.join("core")).unwrap_or_default();
-    if installed.join("mihomo.exe").is_file() {
-        return Ok(installed);
+    // M15: dev 回退路径只在 debug 构建时编译
+    #[cfg(debug_assertions)]
+    {
+        if installed.join("mihomo.exe").is_file() {
+            return Ok(installed);
+        }
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets")
+            .join("core");
+        Ok(if dev.join("mihomo.exe").is_file() {
+            dev
+        } else {
+            installed
+        })
     }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets")
-        .join("core");
-    Ok(if dev.join("mihomo.exe").is_file() {
-        dev
-    } else {
-        installed
-    })
+    #[cfg(not(debug_assertions))]
+    {
+        Ok(installed)
+    }
 }

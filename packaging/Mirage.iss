@@ -39,7 +39,7 @@ SetupMutex=MirageSetup-598060A7-03BB-4780-AEF5-462FB65B6066
 VersionInfoVersion={#AppVersion}
 
 [Languages]
-Name: chinese; MessagesFile: ChineseSimplified.isl
+Name: chinese; MessagesFile: licenses\Inno-ChineseSimplified.isl
 Name: english; MessagesFile: compiler:Default.isl
 
 [Tasks]

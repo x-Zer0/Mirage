@@ -53,14 +53,33 @@ async fn run(core: &CoreBinary, layout: &Layout, file: &std::path::Path) -> AppR
     .map_err(|_| AppError::new(AppErrorKind::Timeout, STAGE, "配置校验超时"))?
     .map_err(|e| AppError::new(AppErrorKind::CoreBinaryInvalid, STAGE, e.to_string()))?;
 
-    let lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+    let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .chain(String::from_utf8_lossy(&output.stderr).lines())
         .map(str::trim)
         .filter(|l| !l.is_empty())
-        .take(MAX_LINES)
         .map(str::to_owned)
         .collect();
+
+    // Always preserve error lines
+    let errors: Vec<String> = lines
+        .iter()
+        .filter(|l| l.contains("level=error") || l.contains("level=fatal"))
+        .take(3)
+        .cloned()
+        .collect();
+
+    // Keep tail window
+    if lines.len() > MAX_LINES {
+        lines.drain(0..(lines.len() - MAX_LINES));
+    }
+
+    // Append errors that aren't already in the window
+    for error in errors {
+        if !lines.contains(&error) {
+            lines.push(error);
+        }
+    }
 
     if output.status.success() {
         Ok(CheckReport { lines })

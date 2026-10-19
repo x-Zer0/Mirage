@@ -79,6 +79,10 @@ impl AppCore {
         let port_changed = parsed.mixed_port != self.settings.mixed_port;
         let bypass_changed = parsed.bypass != self.settings.bypass;
         let autostart_changed = input.autostart != self.settings.autostart;
+
+        // Snapshot before mutation
+        let snapshot = self.settings.clone();
+
         self.settings.mixed_port = parsed.mixed_port;
         self.settings.bypass = parsed.bypass;
         self.settings.default_user_agent = parsed.default_user_agent;
@@ -91,6 +95,16 @@ impl AppCore {
         self.settings.tun_disable_system_proxy = input.tun_disable_system_proxy;
         self.settings.connection_log_limit = parsed.connection_log_limit;
         self.settings.operation_log_days = parsed.operation_log_days;
+
+        if let Err(e) = self.save_settings_file() {
+            // Rollback on save failure
+            self.settings = snapshot;
+            self.record_operation("保存设置", "", "手动", "失败", &e.user_message());
+            self.view.notice = Some(error_notice(&e));
+            return;
+        }
+
+        // Only execute side effects after successful save
         self.connection_logs.set_limit(parsed.connection_log_limit);
         if parsed.operation_log_days == 0 {
             let _ = self.operation_logs.clear(&self.layout);
@@ -99,11 +113,7 @@ impl AppCore {
                 .operation_logs
                 .prune(&self.layout, parsed.operation_log_days);
         }
-        if let Err(e) = self.save_settings_file() {
-            self.record_operation("保存设置", "", "手动", "失败", &e.user_message());
-            self.view.notice = Some(error_notice(&e));
-            return;
-        }
+
         if !changes.is_empty() {
             self.record_operation("保存设置", "", "手动", "成功", &changes.join("；"));
         }

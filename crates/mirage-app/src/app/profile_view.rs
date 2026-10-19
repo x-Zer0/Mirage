@@ -61,9 +61,9 @@ pub(super) fn profile_view(
 
 /// "已用 1.2 GiB / 100.0 GiB · 到期 2026-12-01"; expiry 0/missing = 未提供 (§15).
 fn usage_text(u: crate::domain::model::UsageInfo) -> String {
-    let used = gib(u.upload.saturating_add(u.download));
+    let used = super::format_gib(u.upload.saturating_add(u.download));
     let total = if u.total > 0 {
-        gib(u.total)
+        super::format_gib(u.total)
     } else {
         "不限".into()
     };
@@ -77,8 +77,4 @@ fn usage_text(u: crate::domain::model::UsageInfo) -> String {
         })
         .unwrap_or_else(|| "未提供".into());
     format!("已用 {used} / {total} · 到期 {expire}")
-}
-
-fn gib(bytes: u64) -> String {
-    format!("{:.1} GiB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }

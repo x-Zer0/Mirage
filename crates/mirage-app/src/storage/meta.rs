@@ -179,10 +179,13 @@ where
 fn read_version(bytes: &[u8]) -> Result<u32, String> {
     let doc: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|e| format!("JSON 解析失败：{e}"))?;
-    Ok(doc
+    let version_u64 = doc
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0) as u32)
+        .unwrap_or(0);
+    // M14: u32::try_from 失败按更新版本拒绝
+    u32::try_from(version_u64)
+        .map_err(|_| format!("schema_version 超出 u32 范围：{version_u64}，可能需要更新应用"))
 }
 
 /// Applies every migration step in order. Each step is a whole-document edit,

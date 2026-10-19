@@ -43,6 +43,11 @@ impl ZipWriter {
 
     /// Adds a text entry; `name` is the in-archive path with `/` separators.
     pub fn add_text(&mut self, name: &str, text: &str) {
+        // M24: 拒绝路径遍历
+        if name.contains("..") || name.starts_with('/') || name.starts_with('\\') {
+            tracing::warn!(name, "zip entry name rejected (path traversal)");
+            return;
+        }
         let bytes = text.as_bytes().to_vec();
         let crc = crc32(&bytes);
         self.entries.push(Entry {
