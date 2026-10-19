@@ -53,7 +53,7 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     apply_profiles(w, s, prev, &applied.list);
     apply_accounts(w, s, prev);
     apply_settings(w, s);
-    if prev.is_none_or(|p| p.logs != s.logs) {
+    if prev.is_none_or(|p| p.logs.revision != s.logs.revision) {
         apply_logs(w, &s.logs, prev.map(|p| p.logs.as_ref()));
     }
     applied.last = Some(s.clone());
@@ -132,7 +132,7 @@ fn apply_profiles(
             policy_notes: rc(p.policy_notes.iter().map(SharedString::from)),
         })));
     }
-    if changed(&|p| p.groups != s.groups || p.routing_mode != s.routing_mode) {
+    if changed(&|p| p.groups_revision != s.groups_revision || p.routing_mode != s.routing_mode) {
         update_groups(w, &shown_groups(s), list);
     }
     w.set_testing_group(s.testing_group.clone().unwrap_or_default().into());

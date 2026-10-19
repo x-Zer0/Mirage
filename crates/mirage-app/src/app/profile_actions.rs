@@ -157,12 +157,20 @@ impl AppCore {
             "已保存选择；运行状态另行记录",
         );
         self.refresh_profiles_view();
-        if let Some(previous) = self.running.take() {
-            // Switching is one commit transaction: the old core must release the
-            // port before the new one starts, so both steps run in one task.
-            self.view.groups.clear();
-            self.connection_source = "切换配置";
-            self.start_after(Some(previous));
+        if self.running.is_some() || self.view.runtime == crate::app::state::RuntimeStatus::Starting
+        {
+            self.generation += 1; // 作废旧启动任务
+            if let Some(previous) = self.running.take() {
+                // Switching is one commit transaction: the old core must release the
+                // port before the new one starts, so both steps run in one task.
+                self.view.groups.clear();
+                self.connection_source = "切换配置";
+                self.start_after(Some(previous));
+            } else {
+                // Starting 期间没有 running，直接启动新配置
+                self.connection_source = "切换配置";
+                self.start_after(None);
+            }
         }
     }
 

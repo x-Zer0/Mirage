@@ -263,6 +263,7 @@ pub struct AppStateView {
     pub profiles: Vec<ProfileView>,
     pub selected_profile: String,
     pub groups: Vec<ProxyGroupView>,
+    pub groups_revision: u64,
     pub testing_group: Option<String>,
     pub busy: Option<String>,
     /// Set by handlers; moved into `error` or `toast` before publishing.

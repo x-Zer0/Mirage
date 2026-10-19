@@ -22,7 +22,11 @@ impl AppCore {
             return;
         }
         match result {
-            Ok(groups) => self.view.groups = groups,
+            Ok(groups) => {
+                self.view.groups = groups;
+                self.view.groups_revision += 1;
+                self.view_dirty = true;
+            }
             Err(e) => self.view.notice = Some(error_notice(&e)),
         }
     }

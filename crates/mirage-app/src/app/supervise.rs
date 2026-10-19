@@ -56,7 +56,7 @@ impl AppCore {
         );
         tracing::warn!(%detail, attempts = self.restart_attempts, "core exited unexpectedly");
         runtime::forget_exited(&self.layout);
-        self.view.tun_active = false;
+        self.update_tun_state(false);
         self.view.groups.clear();
         self.view.testing_group = None;
         self.reset_connectivity();

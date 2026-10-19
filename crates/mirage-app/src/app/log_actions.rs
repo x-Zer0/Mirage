@@ -51,6 +51,7 @@ impl AppCore {
         }
         let q = &self.log_query;
         let mut page = LogsPage {
+            revision: self.view.logs.revision + 1,
             status: self.live.status.clone(),
             ..Default::default()
         };
@@ -91,6 +92,7 @@ impl AppCore {
             page.total = page.connections.len();
         }
         self.view.logs = Arc::new(page);
+        self.view_dirty = true;
     }
 
     pub(super) fn record_operation(

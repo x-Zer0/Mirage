@@ -9,6 +9,22 @@ use serde_yaml_ng::Value;
 
 const STAGE: &str = "subscriptions.detect";
 const MIHOMO_KEYS: [&str; 4] = ["proxies", "proxy-providers", "proxy-groups", "rules"];
+const MAX_YAML_ALIASES: usize = 100;
+
+/// 安全的 YAML 解析，限制别名数量以防止放大攻击
+fn safe_yaml_parse(text: &str) -> AppResult<Value> {
+    // 门控：别名引用总数 ≤ MAX_YAML_ALIASES
+    let alias_count = text.matches(" *").count() + text.matches(" &").count();
+    if alias_count > MAX_YAML_ALIASES {
+        return Err(AppError::new(
+            AppErrorKind::UnsupportedFormat,
+            STAGE,
+            "YAML 别名过多，可能为恶意内容",
+        ));
+    }
+    serde_yaml_ng::from_str(text)
+        .map_err(|e| AppError::new(AppErrorKind::UnsupportedFormat, STAGE, e.to_string()))
+}
 
 /// Detected configuration text, already decoded to UTF-8.
 pub struct Detected {
@@ -77,7 +93,7 @@ fn looks_like_html(text: &str) -> bool {
 }
 
 pub(crate) fn is_mihomo_yaml(text: &str) -> bool {
-    match serde_yaml_ng::from_str::<Value>(text) {
+    match safe_yaml_parse(text) {
         Ok(Value::Mapping(map)) => MIHOMO_KEYS.iter().any(|k| map.contains_key(*k)),
         _ => false,
     }

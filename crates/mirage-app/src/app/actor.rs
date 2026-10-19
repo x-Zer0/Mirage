@@ -56,6 +56,7 @@ impl AppCore {
             layout,
             state_tx,
             view,
+            view_dirty: true,
             binary: None,
             profiles,
             running: None,
@@ -169,19 +170,20 @@ impl AppCore {
     /// every snapshot, so idle ticks (sysproxy watch, schedule) cost nothing.
     fn publish(&mut self) {
         if let Some(n) = self.view.notice.take() {
+            self.view_dirty = true;
             if n.error {
                 self.view.error = Some(n);
             } else {
                 self.view.toast = Some(n);
             }
         }
-        self.state_tx.send_if_modified(|current| {
-            if **current == self.view {
-                return false;
-            }
-            *current = Arc::new(self.view.clone());
-            true
-        });
+        if self.view_dirty {
+            self.state_tx.send_if_modified(|current| {
+                *current = Arc::new(self.view.clone());
+                true
+            });
+            self.view_dirty = false;
+        }
     }
 
     pub(super) fn core_checked(&self) -> bool {

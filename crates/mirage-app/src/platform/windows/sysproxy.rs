@@ -102,9 +102,9 @@ pub fn write(settings: &ProxySettings) -> io::Result<()> {
             size_of::<INTERNET_PER_CONN_OPTION_LISTW>() as u32,
         )
         .map_err(io::Error::other)?;
-        InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0)
-            .map_err(io::Error::other)?;
-        InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0).map_err(io::Error::other)?;
+        // 提交点：设置已写入，通知失败不影响恢复日志
+        let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
+        let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
     }
     Ok(())
 }

@@ -78,7 +78,6 @@ export component LogsPage inherits VerticalLayout {
         border-width: 1px;
         border-color: Theme.border;
         if root.tab == 0: ListView {
-            changed content-y => { root.paused = self.content-y < -1px; }
             for row in root.connection-logs: VerticalLayout {
                 padding-top: 5px; padding-bottom: 5px; padding-left: 8px; padding-right: 8px;
                 spacing: 1px;

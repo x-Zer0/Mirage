@@ -33,14 +33,21 @@ impl SecretStore {
 
     pub fn put(&self, key: &str, value: &[u8]) -> AppResult<()> {
         if value.len() <= CRED_MAX_CREDENTIAL_BLOB_SIZE as usize {
-            self.remove_file(key);
-            return cred_write(key, value);
+            cred_write(key, value)?; // 先写新值
+            self.remove_file(key); // 成功后删旧文件
+            return Ok(());
         }
         let sealed = dpapi(value, true)?;
         std::fs::create_dir_all(&self.dir).map_err(|e| AppError::storage(STAGE, e))?;
         crate::storage::atomic::write(&self.file_for(key), &sealed)
             .map_err(|e| AppError::storage(STAGE, e))?;
-        cred_write(key, EXTERNAL_MARKER)
+        match cred_write(key, EXTERNAL_MARKER) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.remove_file(key); // 回滚：删除刚写的文件
+                Err(e)
+            }
+        }
     }
 
     pub fn get(&self, key: &str) -> AppResult<Option<Vec<u8>>> {

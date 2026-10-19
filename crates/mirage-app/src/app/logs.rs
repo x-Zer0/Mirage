@@ -42,6 +42,7 @@ pub struct OperationLog {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LogsPage {
+    pub revision: u64,
     pub connections: Arc<Vec<ConnectionLog>>,
     pub operations: Arc<Vec<OperationLog>>,
     pub total: usize,

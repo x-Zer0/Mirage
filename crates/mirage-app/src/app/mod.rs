@@ -52,6 +52,7 @@ struct AppCore {
     layout: Layout,
     state_tx: watch::Sender<Arc<AppStateView>>,
     view: AppStateView,
+    view_dirty: bool,
     binary: Option<CoreBinary>,
     profiles: profiles::Profiles,
     running: Option<Running>,
