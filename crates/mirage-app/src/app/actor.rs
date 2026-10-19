@@ -16,6 +16,7 @@ use std::{
 use tokio::sync::{mpsc, watch};
 
 const SYSPROXY_WATCH: Duration = Duration::from_secs(5);
+const CONNECTION_CLOCK: Duration = Duration::from_secs(1);
 const STAGE: &str = "app.handlers";
 
 impl AppCore {
@@ -39,6 +40,7 @@ impl AppCore {
             SettingsFile::default()
         });
         view.system_proxy_wanted = settings.system_proxy;
+        view.tun_wanted = settings.tun_enabled;
         view.service_installed = crate::platform::windows::service::installed();
         view.routing_mode = settings.routing_mode;
         let operation_logs = OperationLogs::load(&layout, settings.operation_log_days)
@@ -67,6 +69,7 @@ impl AppCore {
             restart_attempts: 0,
             connection_source: "系统",
             proxy_before_tun: None,
+            connected_since: None,
             deferred: Vec::new(),
             secrets,
             updating: HashSet::new(),
@@ -93,6 +96,8 @@ impl AppCore {
         // verified and is a no-op, so the first real check is one tick later.
         let mut schedule = tokio::time::interval(updates::SCHEDULE_TICK);
         schedule.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut connection_clock = tokio::time::interval(CONNECTION_CLOCK);
+        connection_clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut ack = None;
         loop {
             let geometry_save_at = self.ui_geometry_save_at;
@@ -109,6 +114,7 @@ impl AppCore {
                 _ = tokio::time::sleep_until(geometry_save_at.unwrap_or_else(tokio::time::Instant::now)),
                     if geometry_save_at.is_some() => self.flush_ui_geometry(),
                 _ = watch.tick() => self.watch_sysproxy(),
+                _ = connection_clock.tick() => self.update_connection_clock(),
                 _ = schedule.tick() => { self.schedule_due_updates(); self.prune_operation_logs(); },
             }
             self.sync_live_streams();
@@ -126,6 +132,15 @@ impl AppCore {
         self.flush_ui_geometry();
         self.generation += 1;
         self.live.set_window_hidden_for_quit();
+        self.settings.resume_connected = self.view.runtime.is_up()
+            || matches!(
+                self.view.runtime,
+                super::state::RuntimeStatus::Starting | super::state::RuntimeStatus::Restarting
+            );
+        self.settings.tun_enabled = self.view.tun_wanted;
+        if let Err(e) = self.save_settings_file() {
+            tracing::warn!(error = %e, "save session state failed");
+        }
         self.release_sysproxy();
         self.interrupt_update_logs();
         if let Some(running) = self.running.take() {
@@ -214,12 +229,25 @@ impl AppCore {
             self.handle(cmd);
         }
         // §16.1: start from the stored revision, never waiting on the network.
-        if self.binary.is_some() && self.settings.auto_connect && self.profiles.selected().is_some()
+        if self.binary.is_some()
+            && (self.settings.auto_connect || self.settings.resume_connected)
+            && self.profiles.selected().is_some()
         {
             tracing::info!("auto-connect on startup");
             self.connect(false);
         }
         self.migrate_provider_profiles();
+    }
+
+    fn update_connection_clock(&mut self) {
+        let Some(started) = self.connected_since else {
+            return;
+        };
+        let seconds = started.elapsed().as_secs().min(99 * 3600 + 59 * 60 + 59) as u32;
+        if self.view.connected_seconds != seconds {
+            self.view.connected_seconds = seconds;
+            self.view_dirty = true;
+        }
     }
 
     pub(super) fn require_binary(&mut self) -> Option<crate::cores::mihomo::binary::CoreBinary> {

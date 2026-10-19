@@ -77,6 +77,10 @@ pub struct SettingsFile {
     pub tun_disable_system_proxy: bool,
     #[serde(default)]
     pub auto_connect: bool,
+    #[serde(default)]
+    pub resume_connected: bool,
+    #[serde(default)]
+    pub tun_enabled: bool,
     #[serde(default = "default_mixed_port")]
     pub mixed_port: u16,
     #[serde(default = "default_bypass")]
@@ -106,6 +110,8 @@ impl Default for SettingsFile {
             system_proxy: true,
             tun_disable_system_proxy: false,
             auto_connect: false,
+            resume_connected: false,
+            tun_enabled: false,
             mixed_port: default_mixed_port(),
             bypass: default_bypass(),
             default_user_agent: default_ua(),

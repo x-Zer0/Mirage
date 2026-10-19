@@ -27,7 +27,7 @@ export component Sidebar inherits Rectangle {
 
     VerticalLayout {
         padding: 12px;
-        spacing: 4px;
+        spacing: 8px;
         Rectangle {
             height: 28px;
             if root.compact: IconButton {
@@ -75,7 +75,7 @@ export component Sidebar inherits Rectangle {
             min-width: 0px;
         }
         if !root.compact && root.running: VerticalLayout {
-            spacing: 1px;
+            spacing: 2px;
             RateText { text: "↑ " + root.up-rate; }
             RateText { text: "↓ " + root.down-rate; }
         }

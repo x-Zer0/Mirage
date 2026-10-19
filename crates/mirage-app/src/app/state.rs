@@ -248,6 +248,7 @@ pub struct AppStateView {
     pub core_version: String,
     pub core_ready: bool,
     pub runtime: RuntimeStatus,
+    pub connected_seconds: u32,
     pub mixed_port: u16,
     /// User intent: point the system proxy at the core while connected.
     pub system_proxy_wanted: bool,

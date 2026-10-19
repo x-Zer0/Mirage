@@ -66,6 +66,7 @@ struct AppCore {
     restart_attempts: u32,
     connection_source: &'static str,
     proxy_before_tun: Option<bool>,
+    connected_since: Option<std::time::Instant>,
     /// Commands that need a verified core, held until verification finishes.
     deferred: Vec<Command>,
     secrets: SecretStore,

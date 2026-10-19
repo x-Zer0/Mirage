@@ -100,6 +100,8 @@ impl AppCore {
     }
 
     fn give_up(&mut self, detail: String) {
+        self.connected_since = None;
+        self.view.connected_seconds = 0;
         self.update_tun_state(false);
         self.restart_attempts = 0;
         self.release_sysproxy();

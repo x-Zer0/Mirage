@@ -49,6 +49,10 @@ impl AppCore {
             return;
         }
         self.view.tun_wanted = on;
+        self.settings.tun_enabled = on;
+        if let Err(e) = self.save_settings_file() {
+            tracing::warn!(error = %e, "save TUN preference failed");
+        }
         self.record_operation(
             "修改 TUN 设置",
             "",

@@ -39,6 +39,12 @@ impl AppCore {
         // An explicit connect starts a fresh restart budget and re-reads the
         // saved switch (an external change may have turned it off for this run).
         self.restart_attempts = 0;
+        self.connected_since = None;
+        self.view.connected_seconds = 0;
+        self.settings.resume_connected = true;
+        if let Err(e) = self.save_settings_file() {
+            tracing::warn!(error = %e, "save connection intent failed");
+        }
         self.connection_source = if manual { "手动" } else { "自动连接" };
         self.view.system_proxy_wanted = self.settings.system_proxy;
         self.start_after(None);
@@ -101,6 +107,10 @@ impl AppCore {
                     "配置已启动，代理内核运行中",
                 );
                 self.view.runtime = RuntimeStatus::Running;
+                if self.connected_since.is_none() {
+                    self.connected_since = Some(std::time::Instant::now());
+                    self.view.connected_seconds = 0;
+                }
                 self.view.check_lines = running.check_lines.clone();
                 self.view.policy_notes = running.policy_notes.clone();
                 self.update_tun_state(running.process.service().is_some());
@@ -171,6 +181,12 @@ impl AppCore {
     /// User disconnect: system proxy first, then the core (§11.4).
     pub(super) fn disconnect(&mut self) {
         self.view_dirty = true;
+        self.connected_since = None;
+        self.view.connected_seconds = 0;
+        self.settings.resume_connected = false;
+        if let Err(e) = self.save_settings_file() {
+            tracing::warn!(error = %e, "save connection intent failed");
+        }
         self.generation += 1;
         self.restart_attempts = 0;
         self.release_sysproxy();

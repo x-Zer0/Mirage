@@ -61,7 +61,16 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
 
 fn apply_runtime(w: &MainWindow, s: &AppStateView, prev: Option<&AppStateView>) {
     w.set_core_version(s.core_version.clone().into());
+    let sidebar_status = if s.runtime.is_up() {
+        let hours = s.connected_seconds / 3600;
+        let minutes = s.connected_seconds % 3600 / 60;
+        let seconds = s.connected_seconds % 60;
+        format!("已连接 · {hours:02}:{minutes:02}:{seconds:02}")
+    } else {
+        status_text(&s.runtime)
+    };
     w.set_status_text(status_text(&s.runtime).into());
+    w.set_sidebar_status_text(sidebar_status.into());
     w.set_running(s.runtime.is_up());
     w.set_failed(matches!(s.runtime, RuntimeStatus::Failed(_)));
     let busy = !s.busy_tasks.is_empty()

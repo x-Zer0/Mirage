@@ -40,6 +40,7 @@ export component MainWindow inherits Window {
     in property <string> data-dir;
     in property <string> core-version;
     in property <string> status-text;
+    in property <string> sidebar-status-text;
     in property <bool> running;
     in property <bool> failed;
     in property <bool> busy;
@@ -201,7 +202,7 @@ export component MainWindow inherits Window {
             page <=> root.page;
             running: root.running;
             failed: root.failed;
-            status-text: root.status-text;
+            status-text: root.sidebar-status-text;
             up-rate: root.up-rate;
             down-rate: root.down-rate;
         }
