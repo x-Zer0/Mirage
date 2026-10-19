@@ -58,7 +58,6 @@ pub fn enable(layout: &Layout, mixed_port: u16, bypass: &str) -> AppResult<()> {
         state: SysProxyState::Pending,
         original,
         applied: applied_settings(mixed_port, bypass),
-        ..Default::default()
     };
     journal::save_sysproxy(layout, &mut journal)?;
     if !port_accepts(mixed_port) {

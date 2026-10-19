@@ -67,12 +67,22 @@ export component Sidebar inherits Rectangle {
             overflow: elide;
             min-width: 0px;
         }
-        if !root.compact && root.running: Text {
-            text: "↑ " + root.up-rate + "  ↓ " + root.down-rate;
-            color: Theme.text-muted;
-            font-size: 12px;
-            overflow: elide;
-            min-width: 0px;
+        if !root.compact && root.running: VerticalLayout {
+            spacing: 1px;
+            Text {
+                text: "↑ " + root.up-rate;
+                color: Theme.text-muted;
+                font-size: 12px;
+                overflow: elide;
+                min-width: 0px;
+            }
+            Text {
+                text: "↓ " + root.down-rate;
+                color: Theme.text-muted;
+                font-size: 12px;
+                overflow: elide;
+                min-width: 0px;
+            }
         }
     }
 

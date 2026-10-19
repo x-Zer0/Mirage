@@ -179,7 +179,7 @@ impl AppCore {
         }
         let changed = self.settings.system_proxy != on;
         self.settings.system_proxy = on;
-        if let Err(e) = meta::save(&self.layout.settings_file(), &mut self.settings, STAGE) {
+        if let Err(e) = meta::save(&self.layout.settings_file(), &self.settings, STAGE) {
             self.record_operation("修改系统代理设置", "", "手动", "失败", &e.user_message());
             self.view.notice = Some(error_notice(&e));
             return;
@@ -254,6 +254,7 @@ impl AppCore {
         let request = self.connectivity_request;
         let tx = self.internal_tx.clone();
         self.view.connectivity = Connectivity::Checking;
+        self.view_dirty = true;
         self.connectivity_task = Some(tokio::spawn(async move {
             let result = connectivity::probe(port, settling).await;
             let _ = tx.send(Internal::Connectivity(generation, request, result));
@@ -277,5 +278,6 @@ impl AppCore {
                 Connectivity::Unreachable(e.user_message())
             }
         };
+        self.view_dirty = true;
     }
 }

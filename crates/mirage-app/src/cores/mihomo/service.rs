@@ -49,8 +49,7 @@ impl ServiceProcess {
     ) -> AppResult<Self> {
         let mut pipe = connect(true).await?;
         // Only StartCore can create a TUN core; failed authentication cannot.
-        atomic::write(journal_path, br#"{"schema_version":1}"#)
-            .map_err(|e| AppError::storage(STAGE, e))?;
+        atomic::write(journal_path, br#"{}"#).map_err(|e| AppError::storage(STAGE, e))?;
         let response = exchange(
             &mut pipe,
             &Request::StartCore {

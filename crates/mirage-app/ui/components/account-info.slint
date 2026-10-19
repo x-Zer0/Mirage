@@ -1,4 +1,5 @@
 import { Button } from "std-widgets.slint";
+import { IconButton } from "icon-button.slint";
 import { Theme } from "../components/theme.slint";
 
 export struct AccountRow {
@@ -23,21 +24,35 @@ export component AccountInfo inherits VerticalLayout {
     Text { text: root.account.provider-name + "账号信息"; font-weight: 600; color: Theme.text; }
     HorizontalLayout {
         spacing: 8px;
-        Text {
-            text: root.revealed-name == "" ? root.account.name : root.revealed-name;
-            color: Theme.text;
-            wrap: word-wrap;
-            vertical-alignment: center;
-            horizontal-stretch: 1;
-            min-width: 0px;
+        HorizontalLayout {
+            spacing: 4px;
+            horizontal-stretch: 0;
+            max-width: self.preferred-width;
+            Text {
+                text: root.revealed-name == "" ? root.account.name : root.revealed-name;
+                color: Theme.text;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                min-width: 0px;
+                horizontal-stretch: 0;
+                max-width: self.preferred-width;
+            }
+            VerticalLayout {
+                alignment: center;
+                vertical-stretch: 1;
+                IconButton {
+                    icon: root.revealed-name == "" ? @image-url("../../assets/icons/lucide/eye.svg") : @image-url("../../assets/icons/lucide/eye-off.svg");
+                    icon-size: 14px;
+                    width: 24px;
+                    height: 24px;
+                    label: root.revealed-name == "" ? "显示完整账号" : "隐藏账号";
+                    show-focus-border: false;
+                    enabled: !root.busy;
+                    clicked => { root.reveal(root.account.id, root.revealed-name == ""); }
+                }
+            }
         }
-        Button {
-            icon: root.revealed-name == "" ? @image-url("../../assets/icons/lucide/eye.svg") : @image-url("../../assets/icons/lucide/eye-off.svg");
-            colorize-icon: true;
-            accessible-label: root.revealed-name == "" ? "显示完整账号" : "隐藏账号";
-            enabled: !root.busy;
-            clicked => { root.reveal(root.account.id, root.revealed-name == ""); }
-        }
+        Rectangle { horizontal-stretch: 1; }
         Button {
             text: root.account.busy ? "验证中…" : "刷新信息";
             icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");

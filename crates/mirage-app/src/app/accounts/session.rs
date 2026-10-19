@@ -24,8 +24,7 @@ impl AppCore {
                     if e.kind == AppErrorKind::Storage {
                         self.view.notice = Some(error_notice(&e));
                     } else {
-                        self.view.notice =
-                            Some(info_notice("该账号没有已保存的会话，请重新登录"));
+                        self.view.notice = Some(info_notice("该账号没有已保存的会话，请重新登录"));
                     }
                 }
                 return;

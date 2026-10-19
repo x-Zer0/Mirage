@@ -91,6 +91,7 @@ impl AppCore {
             Internal::Stopped(generation) => {
                 if generation == self.generation && self.view.runtime == RuntimeStatus::Stopping {
                     self.view.runtime = RuntimeStatus::Stopped;
+                    self.view_dirty = true;
                     self.record_operation("断开连接", "", "系统", "成功", "代理内核已停止");
                 }
             }

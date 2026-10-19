@@ -66,7 +66,7 @@ impl Accounts {
     }
 
     fn save(&mut self, layout: &Layout) -> AppResult<()> {
-        meta::save(&layout.accounts_file(), &mut self.file, STAGE)
+        meta::save(&layout.accounts_file(), &self.file, STAGE)
     }
 }
 
@@ -134,6 +134,7 @@ impl AppCore {
 
     /// Only expose the saved identifier after an explicit UI request.
     pub(in crate::app) fn reveal_account(&mut self, id: &str, visible: bool) {
+        self.view_dirty = true;
         self.view.revealed_account = None;
         if !visible || self.accounts.get(id).is_none() {
             return;
@@ -267,9 +268,7 @@ impl AppCore {
             Ok(Some(bytes)) => String::from_utf8(bytes.to_vec())
                 .ok()
                 .map(SecretString::new)
-                .ok_or_else(|| {
-                    AppError::new(AppErrorKind::AuthInvalid, STAGE, "会话格式损坏")
-                }),
+                .ok_or_else(|| AppError::new(AppErrorKind::AuthInvalid, STAGE, "会话格式损坏")),
             Ok(None) => Err(AppError::new(
                 AppErrorKind::AuthInvalid,
                 STAGE,
@@ -304,6 +303,7 @@ impl AppCore {
     }
 
     pub(in crate::app) fn refresh_accounts_view(&mut self) {
+        self.view_dirty = true;
         self.view.accounts = self
             .accounts
             .all()

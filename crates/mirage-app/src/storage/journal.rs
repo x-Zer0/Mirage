@@ -1,7 +1,7 @@
 //! Recovery journal (DESIGN.md §11.3, §11.5): small files in `recovery/`
 //! written before a system change, so a crash can be undone on next start.
 
-use super::meta::{self, Versioned};
+use super::meta;
 use crate::domain::error::AppResult;
 use crate::platform::windows::process::ProcessIdentity;
 use crate::platform::windows::sysproxy::ProxySettings;
@@ -21,16 +21,16 @@ pub enum SysProxyState {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SysProxyJournal {
-    pub schema_version: u32,
     pub state: SysProxyState,
     pub original: ProxySettings,
     pub applied: ProxySettings,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoreJournal {
-    pub schema_version: u32,
     pub pid: u32,
     pub created: u64,
     pub image: String,
@@ -42,18 +42,6 @@ impl CoreJournal {
             created: self.created,
             image: self.image.clone(),
         }
-    }
-}
-
-impl Versioned for SysProxyJournal {
-    fn set_schema_version(&mut self, v: u32) {
-        self.schema_version = v;
-    }
-}
-
-impl Versioned for CoreJournal {
-    fn set_schema_version(&mut self, v: u32) {
-        self.schema_version = v;
     }
 }
 
@@ -92,7 +80,7 @@ pub fn remove(path: &Path) {
 
 fn load_existing<T>(path: &Path) -> AppResult<Option<T>>
 where
-    T: serde::de::DeserializeOwned + Default + Versioned,
+    T: serde::de::DeserializeOwned + Default,
 {
     if !path.exists() {
         return Ok(None);

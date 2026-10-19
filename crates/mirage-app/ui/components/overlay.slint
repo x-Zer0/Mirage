@@ -20,10 +20,21 @@ export component Overlay inherits PopupWindow {
     }
 
     Rectangle {
+        width: root.width;
+        height: root.height;
         background: #00000060;
-        TouchArea { clicked => { root.dismiss(); } }
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+            clicked => { root.dismiss(); }
+        }
     }
     scope := FocusScope {
+        // Keep pointer focus inside the panel so the backdrop receives outside clicks.
+        x: root.drawer ? root.width - self.width : (root.width - self.width) / 2;
+        y: root.drawer ? 0px : (root.height - self.height) / 2;
+        width: min(root.panel-width, root.width - 48px);
+        height: root.drawer ? root.height : min(content.preferred-height, root.height - 48px);
         key-pressed(event) => {
             if (event.text == Key.Escape) {
                 root.dismiss();
@@ -32,10 +43,8 @@ export component Overlay inherits PopupWindow {
             return reject;
         }
         Rectangle {
-            x: root.drawer ? root.width - self.width : (root.width - self.width) / 2;
-            y: root.drawer ? 0px : (root.height - self.height) / 2;
-            width: min(root.panel-width, root.width - 48px);
-            height: root.drawer ? root.height : min(content.preferred-height, root.height - 48px);
+            width: parent.width;
+            height: parent.height;
             background: Theme.surface;
             border-radius: root.drawer ? 0px : 10px;
             border-width: 1px;

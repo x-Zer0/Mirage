@@ -25,7 +25,7 @@ impl Profiles {
     }
 
     pub fn save(&mut self, layout: &Layout) -> AppResult<()> {
-        meta::save(&layout.profiles_file(), &mut self.file, STAGE)
+        meta::save(&layout.profiles_file(), &self.file, STAGE)
     }
 
     pub fn all(&self) -> &[Profile] {

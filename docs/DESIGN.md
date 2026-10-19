@@ -817,7 +817,7 @@ pub enum EgressRoute { Direct, ViaLocalCore }   // ViaLocalCore = proxy("http://
   logs\mirage-<date>.log                # 应用日志，脱敏，有界
 ```
 
-- 所有 JSON 文件包含 `schema_version` 字段。启动时按版本逐级迁移，迁移前把旧文件备份为 `.bak`。
+- 持久化 JSON 按当前结构直接读写，不维护 schema 版本或自动迁移；结构不匹配时报告错误。
 - 原子写：先写同目录下的 `*.tmp` 并 `FlushFileBuffers`，再用 `ReplaceFileW` 替换目标文件（目标不存在时用 `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`）。
 - 更新活动版本的顺序：先写新的原始版本和 revisions，再写恢复记录，最后修改 `profiles.json` 中的引用。
 - 订阅 URL 不能作为文件名使用，也不能出现在日志中。

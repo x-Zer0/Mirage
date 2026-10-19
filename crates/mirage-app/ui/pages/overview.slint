@@ -69,8 +69,9 @@ export component OverviewPage inherits VerticalLayout {
                 alignment: center;
                 Button {
                     text: root.busy ? "请稍候…" : root.running ? "断开" : "连接";
-                    primary: !root.running;
+                    primary: !root.running && !root.busy;
                     enabled: !root.busy;
+                    opacity: root.busy ? 0.45 : 1;
                     icon: @image-url("../../assets/icons/lucide/power.svg");
                     colorize-icon: true;
                     clicked => { root.running ? root.disconnect() : root.connect(); }

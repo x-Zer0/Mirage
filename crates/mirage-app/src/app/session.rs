@@ -57,6 +57,7 @@ impl AppCore {
         let generation = self.generation;
         self.reset_connectivity();
         self.view.runtime = RuntimeStatus::Starting;
+        self.view_dirty = true;
         self.view.error = None;
         let req = runtime::StartRequest {
             generation,
@@ -169,6 +170,7 @@ impl AppCore {
 
     /// User disconnect: system proxy first, then the core (§11.4).
     pub(super) fn disconnect(&mut self) {
+        self.view_dirty = true;
         self.generation += 1;
         self.restart_attempts = 0;
         self.release_sysproxy();

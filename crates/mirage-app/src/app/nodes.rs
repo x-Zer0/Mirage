@@ -103,5 +103,5 @@ impl AppCore {
 fn remember_selection(path: &std::path::Path, group: String, node: String) -> Result<(), AppError> {
     let mut file: meta::SelectionFile = meta::load(path, STAGE)?;
     file.groups.insert(group, node);
-    meta::save(path, &mut file, STAGE)
+    meta::save(path, &file, STAGE)
 }

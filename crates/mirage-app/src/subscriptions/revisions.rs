@@ -58,7 +58,7 @@ pub fn upsert(layout: &Layout, profile: &Profile, rev: ConfigRevision) -> AppRes
         }
     }
     file.revisions = kept;
-    meta::save(&layout.revisions_file(&profile.id), &mut file, STAGE)
+    meta::save(&layout.revisions_file(&profile.id), &file, STAGE)
 }
 
 pub fn find(

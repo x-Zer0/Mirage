@@ -23,6 +23,7 @@ export struct ProfileRow {
 export component ProfilesPage inherits VerticalLayout {
     in property <[ProfileRow]> profiles;
     in property <bool> busy;
+    in property <int> drawer-dismissed-count;
     in property <[string]> policy-notes;
     in-out property <string> new-name;
     in-out property <string> new-url;
@@ -35,12 +36,14 @@ export component ProfilesPage inherits VerticalLayout {
     callback show-details(string);
     callback open-accounts();
 
+    changed drawer-dismissed-count => { url-input.clear-focus(); }
+
     min-width: 0px;
     spacing: 12px;
 
     HorizontalLayout {
         spacing: 8px;
-        LineEdit {
+        url-input := LineEdit {
             min-width: 80px;
             placeholder-text: "订阅链接（https://…）";
             text <=> root.new-url;

@@ -282,7 +282,6 @@ fn record_core(layout: &Layout, pid: u32) {
         pid,
         created: identity.created,
         image: identity.image,
-        ..Default::default()
     };
     if let Err(e) = journal::save_core(layout, &mut entry) {
         tracing::warn!(error = %e, "core journal not written");

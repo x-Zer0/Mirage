@@ -30,17 +30,11 @@ struct BootstrapDoc {
 
 /// `providers-cache/ziyoumao/bootstrap.json`; never holds a token.
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootstrapCache {
-    pub schema_version: u32,
     pub hosts: Vec<String>,
     pub selected: Option<String>,
     pub fetched_at: Timestamp,
-}
-
-impl meta::Versioned for BootstrapCache {
-    fn set_schema_version(&mut self, v: u32) {
-        self.schema_version = v;
-    }
 }
 
 /// Result of probing one host, shown on the diagnostics page.
@@ -103,7 +97,6 @@ pub async fn discover(layout: &Layout, egress: Egress) -> AppResult<Discovery> {
         result: r.as_ref().map(|_| ()).map_err(|e| e.user_message()),
     }));
     let mut cache = BootstrapCache {
-        schema_version: meta::SCHEMA_VERSION,
         hosts,
         selected: selected.as_ref().map(|(b, _)| origin(b)),
         fetched_at: now(),

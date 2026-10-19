@@ -81,7 +81,7 @@ impl AppCore {
         }
     }
     pub(super) fn save_settings_file(&mut self) -> AppResult<()> {
-        meta::save(&self.layout.settings_file(), &mut self.settings, STAGE)
+        meta::save(&self.layout.settings_file(), &self.settings, STAGE)
     }
 
     pub(super) fn save_settings(&mut self, input: SettingsInput) {

@@ -115,6 +115,7 @@ export component MainWindow inherits Window {
     in-out property <int> node-group;
 
     private property <string> details-id;
+    private property <int> profile-drawer-dismissed-count: 0;
     private property <ProfileRow> delete-target;
 
     public function close-account-login() {
@@ -255,6 +256,7 @@ export component MainWindow inherits Window {
                 vertical-stretch: 1;
                 profiles: root.profiles;
                 busy: root.busy;
+                drawer-dismissed-count: root.profile-drawer-dismissed-count;
                 policy-notes: root.policy-notes;
                 import-file => { root.import-file(); }
                 add-remote(name, url) => { root.add-remote(name, url); }
@@ -262,7 +264,11 @@ export component MainWindow inherits Window {
                 update-all => { root.update-all(); }
                 select(id) => { root.select-profile(id); }
                 remove(profile) => { root.confirm-delete(profile); }
-                show-details(id) => { root.reveal-account("", false); root.details-id = id; profile-drawer.show(); }
+                show-details(id) => {
+                    root.reveal-account("", false);
+                    root.details-id = id;
+                    profile-drawer.show();
+                }
                 open-accounts => { account-dialog.show(); }
             }
             if root.page == 2: ProxiesPage {
@@ -340,7 +346,7 @@ export component MainWindow inherits Window {
         title: "配置设置";
         drawer: true;
         panel-width: 400px;
-        dismissed => { root.details-id = ""; root.reveal-account("", false); }
+        dismissed => { root.profile-drawer-dismissed-count += 1; root.details-id = ""; root.reveal-account("", false); }
         // Put the scrollbar in the outer gutter; align content with the header.
         Rectangle {
             min-height: 0px;
