@@ -46,7 +46,7 @@ cargo run -p mirage-app --bin Mirage --locked
 
 首次下载内核资源需要联网。workspace 构建同时生成 `target/debug/Mirage.exe` 和 `target/debug/mirage-svc.exe`，便于调试 TUN；运行 TUN 仍需在界面中完成服务安装。
 
-内核资源优先读取 `Mirage.exe` 同级的 `core/`；该目录没有 `mihomo.exe` 时回退到仓库根目录的 `assets/core/`。Slint 源码和图标位于本 crate，内核与 geodata 由根目录脚本准备。
+内核资源优先读取 `Mirage.exe` 同级的 `core/`；仅 debug 构建在该目录没有 `mihomo.exe` 时回退到仓库根目录的 `assets/core/`。release 构建需准备 EXE 同级的 `core/`，开发环境执行 `Copy-Item -Path assets/core -Destination target/release -Recurse -Force` 即可复制内核和四份 geodata，目录结构与分发包一致。Slint 源码和图标位于本 crate，内核与 geodata 由根目录脚本准备。
 
 静态检查：
 

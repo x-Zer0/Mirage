@@ -5,9 +5,10 @@ export component NavItem inherits Rectangle {
     in property <image> icon;
     in property <string> label;
     in property <bool> selected;
+    in property <bool> compact;
     callback clicked();
 
-    height: 36px;
+    height: 40px;
     border-radius: 6px;
     background: root.selected ? Theme.nav-selected : touch.has-hover ? Theme.nav-hover : transparent;
     accessible-role: button;
@@ -15,24 +16,31 @@ export component NavItem inherits Rectangle {
     accessible-action-default => { root.clicked(); }
 
     touch := TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
-
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-        spacing: 10px;
-        Image {
-            source: root.icon;
-            width: 18px;
-            height: 18px;
-            y: (parent.height - self.height) / 2;
-            colorize: root.selected ? Theme.accent : Theme.text-muted;
-        }
-        Text {
-            text: root.label;
-            vertical-alignment: center;
-            color: root.selected ? Theme.accent : Theme.text;
+    Image {
+        source: root.icon;
+        x: root.compact ? (parent.width - self.width) / 2 : 10px;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        colorize: root.selected ? Theme.accent : Theme.text-muted;
+    }
+    if !root.compact: Text {
+        x: 40px;
+        width: max(0px, parent.width - self.x - 10px);
+        height: parent.height;
+        text: root.label;
+        font-size: 14px;
+        vertical-alignment: center;
+        overflow: elide;
+        color: root.selected ? Theme.accent : Theme.text;
+    }
+    Tooltip {
+        VerticalLayout {
+            padding: 8px;
+            Text { text: root.label; color: Theme.text; font-size: 12px; }
         }
     }
 }

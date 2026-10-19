@@ -46,10 +46,41 @@ pub struct SelectionFile {
     pub groups: BTreeMap<String, String>,
 }
 
+/// UI dimensions in logical pixels; restored before the first window is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiGeometry {
+    pub window_width: u32,
+    pub window_height: u32,
+    pub sidebar_width: u32,
+}
+
+impl Default for UiGeometry {
+    fn default() -> Self {
+        Self {
+            window_width: 900,
+            window_height: 680,
+            sidebar_width: 150,
+        }
+    }
+}
+
+impl UiGeometry {
+    pub fn normalized(self) -> Self {
+        Self {
+            window_width: self.window_width.clamp(700, 16384),
+            window_height: self.window_height.clamp(460, 16384),
+            sidebar_width: self.sidebar_width.clamp(64, 200),
+        }
+    }
+}
+
 /// User preferences (DESIGN.md §13 `settings.json`). Fields added after M2
 /// carry serde defaults, so older files load unchanged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsFile {
+    #[serde(default)]
+    pub ui_geometry: UiGeometry,
     #[serde(default)]
     pub schema_version: u32,
     #[serde(default = "default_true")]
@@ -93,6 +124,7 @@ pub struct SettingsFile {
 impl Default for SettingsFile {
     fn default() -> Self {
         Self {
+            ui_geometry: UiGeometry::default(),
             schema_version: SCHEMA_VERSION,
             system_proxy: true,
             tun_disable_system_proxy: false,

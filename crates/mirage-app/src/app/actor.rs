@@ -5,13 +5,9 @@ use super::{
     runtime, updates,
 };
 use crate::cores::mihomo::binary;
-use crate::domain::error::{AppError, AppErrorKind};
+use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::platform::windows::secret::SecretStore;
-use crate::storage::{
-    layout::Layout,
-    meta::{self, SettingsFile},
-    operation_logs::OperationLogs,
-};
+use crate::storage::{layout::Layout, meta::SettingsFile, operation_logs::OperationLogs};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -23,7 +19,11 @@ const SYSPROXY_WATCH: Duration = Duration::from_secs(5);
 const STAGE: &str = "app.handlers";
 
 impl AppCore {
-    pub(super) fn new(layout: Layout, state_tx: watch::Sender<Arc<AppStateView>>) -> Self {
+    pub(super) fn new(
+        layout: Layout,
+        state_tx: watch::Sender<Arc<AppStateView>>,
+        settings: AppResult<SettingsFile>,
+    ) -> Self {
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
         let mut view = AppStateView {
             mixed_port: DEFAULT_MIXED_PORT,
@@ -34,11 +34,10 @@ impl AppCore {
             view.notice = Some(error_notice(&e));
             profiles::Profiles::empty()
         });
-        let settings: SettingsFile = meta::load(&layout.settings_file(), "app.settings")
-            .unwrap_or_else(|e| {
-                view.notice = Some(error_notice(&e));
-                SettingsFile::default()
-            });
+        let settings = settings.unwrap_or_else(|e| {
+            view.notice = Some(error_notice(&e));
+            SettingsFile::default()
+        });
         view.system_proxy_wanted = settings.system_proxy;
         view.service_installed = crate::platform::windows::service::installed();
         view.routing_mode = settings.routing_mode;
@@ -64,6 +63,7 @@ impl AppCore {
             connectivity_request: 0,
             connectivity_task: None,
             settings,
+            ui_geometry_dirty: false,
             restart_attempts: 0,
             connection_source: "系统",
             proxy_before_tun: None,
@@ -93,6 +93,8 @@ impl AppCore {
         // verified and is a no-op, so the first real check is one tick later.
         let mut schedule = tokio::time::interval(updates::SCHEDULE_TICK);
         schedule.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut geometry_save = tokio::time::interval(Duration::from_millis(500));
+        geometry_save.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut ack = None;
         loop {
             tokio::select! {
@@ -105,6 +107,7 @@ impl AppCore {
                     Some(cmd) => self.handle(cmd),
                 },
                 Some(msg) = internal.recv() => self.handle_internal(msg),
+                _ = geometry_save.tick(), if self.ui_geometry_dirty => self.flush_ui_geometry(),
                 _ = watch.tick() => self.watch_sysproxy(),
                 _ = schedule.tick() => { self.schedule_due_updates(); self.prune_operation_logs(); },
             }
@@ -120,6 +123,7 @@ impl AppCore {
 
     /// Quit and logoff path: system proxy first, then the core (§11.4, §11.5).
     async fn shutdown_cleanup(&mut self) {
+        self.flush_ui_geometry();
         self.generation += 1;
         self.live.set_window_hidden_for_quit();
         self.release_sysproxy();

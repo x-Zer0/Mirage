@@ -42,7 +42,7 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 cargo build --workspace --release -j 1
 ```
 
-`target/release/Mirage.exe` 与 `target/release/mirage-svc.exe` 必须配套放置；分发时还需同目录的 `core/`（官方内核与四份 geodata）。开发环境可复用 `assets/core/`。在设置页安装 / 更新服务时才请求 UAC；TUN 默认关闭。
+`target/release/Mirage.exe` 与 `target/release/mirage-svc.exe` 必须配套放置；release 构建运行时还需同目录的 `core/`（官方内核与四份 geodata）。开发环境在仓库根目录执行 `Copy-Item -Path assets/core -Destination target/release -Recurse -Force` 准备资源；仅 debug 构建会自动回退到 `assets/core/`。在设置页安装 / 更新服务时才请求 UAC；TUN 默认关闭。
 
 
 ## 工程组织

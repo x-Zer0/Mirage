@@ -3,7 +3,10 @@ use super::{
     AppCore, Command,
     state::{AppStateView, Notice},
 };
-use crate::storage::layout::Layout;
+use crate::storage::{
+    layout::Layout,
+    meta::{self, SettingsFile, UiGeometry},
+};
 use std::{sync::Arc, thread::JoinHandle, time::Duration};
 use tokio::sync::{mpsc, watch};
 
@@ -12,12 +15,17 @@ const COMMAND_QUEUE: usize = 64;
 const SESSION_END_WAIT: Duration = Duration::from_secs(5);
 
 pub struct CoreHandle {
+    initial_ui_geometry: UiGeometry,
     tx: mpsc::Sender<Command>,
     state: watch::Receiver<Arc<AppStateView>>,
     thread: JoinHandle<()>,
 }
 
 impl CoreHandle {
+    pub fn initial_ui_geometry(&self) -> UiGeometry {
+        self.initial_ui_geometry
+    }
+
     pub fn sender(&self) -> mpsc::Sender<Command> {
         self.tx.clone()
     }
@@ -66,12 +74,19 @@ pub fn spawn(layout: Layout, startup_notice: Option<String>) -> std::io::Result<
         .enable_all()
         .build()?;
     let _ = RUNTIME.set(runtime.handle().clone());
+    // Read once, synchronously, before the UI is constructed or shown.
+    let settings = meta::load::<SettingsFile>(&layout.settings_file(), "app.settings");
+    let initial_ui_geometry = settings
+        .as_ref()
+        .map(|s| s.ui_geometry)
+        .unwrap_or_default()
+        .normalized();
     let (tx, rx) = mpsc::channel(COMMAND_QUEUE);
     let (state_tx, state_rx) = watch::channel(Arc::new(AppStateView::default()));
     let thread = std::thread::Builder::new()
         .name("mirage-core".into())
         .spawn(move || {
-            let mut core = AppCore::new(layout, state_tx);
+            let mut core = AppCore::new(layout, state_tx, settings);
             if let Some(text) = startup_notice {
                 core.view.notice = Some(Notice::error(text).with_stage("启动恢复"));
             }
@@ -79,6 +94,7 @@ pub fn spawn(layout: Layout, startup_notice: Option<String>) -> std::io::Result<
             runtime.shutdown_timeout(Duration::from_secs(2));
         })?;
     Ok(CoreHandle {
+        initial_ui_geometry,
         tx,
         state: state_rx,
         thread,

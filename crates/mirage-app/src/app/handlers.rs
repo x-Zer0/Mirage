@@ -46,6 +46,7 @@ impl AppCore {
             Command::RetryNotice => self.retry(),
             Command::SetRoutingMode(mode) => self.set_routing_mode(mode),
             Command::SaveSettings(input) => self.save_settings(input),
+            Command::SetUiGeometry(geometry) => self.set_ui_geometry(geometry),
             Command::SetUpdatePolicy {
                 id,
                 interval_hours,

@@ -25,12 +25,21 @@ impl Ui {
         core: &CoreHandle,
         start_hidden: bool,
     ) -> Result<Self, slint::PlatformError> {
+        let geometry = core.initial_ui_geometry();
         let window = MainWindow::new()?;
+        window.set_initial_window_width(geometry.window_width as f32);
+        window.set_initial_window_height(geometry.window_height as f32);
+        window.set_sidebar_width(geometry.sidebar_width as f32);
+        window.window().set_size(slint::LogicalSize::new(
+            geometry.window_width as f32,
+            geometry.window_height as f32,
+        ));
         window.set_version(version.into());
         window.set_data_dir(layout.root.display().to_string().into());
 
         let tray = AppTray::new()?;
         let commands = core.sender();
+        window::wire_geometry(&window, commands.clone());
         window::wire_restore(&window);
         callbacks::wire(&window, commands.clone());
         lifecycle::wire_tray(&window, &tray, commands.clone());

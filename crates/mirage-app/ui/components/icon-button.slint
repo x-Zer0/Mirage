@@ -1,0 +1,53 @@
+import { Theme } from "theme.slint";
+
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <length> icon-size: 16px;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <color> icon-color: Theme.text-muted;
+    callback clicked();
+    forward-focus: focus;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border-radius: 4px;
+    border-width: focus.has-focus ? 1px : 0px;
+    border-color: Theme.accent;
+    opacity: root.enabled ? 1 : 0.35;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+
+    Image {
+        source: root.icon;
+        width: root.icon-size;
+        height: root.icon-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        colorize: touch.has-hover && root.enabled ? Theme.accent : root.icon-color;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.clicked(); }
+    }
+    focus := FocusScope {
+        // Match Slint's standard Button: keyboard focus must not intercept pointer presses.
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Tooltip {
+        VerticalLayout {
+            padding: 8px;
+            Text { text: root.label; color: Theme.text; font-size: 12px; }
+        }
+    }
+}

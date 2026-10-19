@@ -1,0 +1,98 @@
+import { Theme } from "theme.slint";
+import { NavItem } from "nav.slint";
+import { IconButton } from "icon-button.slint";
+
+export component Sidebar inherits Rectangle {
+    in-out property <length> sidebar-width: 150px;
+    in-out property <int> page;
+    in property <bool> running;
+    in property <bool> failed;
+    in property <string> status-text;
+    in property <string> up-rate;
+    in property <string> down-rate;
+    private property <length> collapsed-width: 64px;
+    private property <length> expanded-limit: 200px;
+    private property <bool> compact: root.sidebar-width <= root.collapsed-width;
+
+    width: clamp(root.sidebar-width, root.collapsed-width, root.expanded-limit);
+    background: Theme.sidebar;
+    clip: true;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+        Rectangle {
+            height: 28px;
+            if root.compact: IconButton {
+                icon: @image-url("../../assets/icons/lucide/menu.svg");
+                label: "展开菜单";
+                icon-size: 20px;
+                width: 36px;
+                height: 28px;
+                x: (parent.width - self.width) / 2;
+                clicked => { root.sidebar-width = 150px; }
+            }
+            if !root.compact: HorizontalLayout {
+                spacing: 8px;
+                Image {
+                    source: root.running ? @image-url("../../assets/icons/tray/connected.svg")
+                        : root.failed ? @image-url("../../assets/icons/tray/error.svg")
+                        : @image-url("../../assets/icons/tray/idle.svg");
+                    width: 22px;
+                    height: 22px;
+                    y: (parent.height - self.height) / 2;
+                }
+                Text {
+                    text: "Mirage";
+                    vertical-alignment: center;
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    min-width: 0px;
+                    overflow: elide;
+                }
+            }
+        }
+        Rectangle { height: 12px; }
+        NavItem { icon: @image-url("../../assets/icons/lucide/layout-dashboard.svg"); label: "总览"; compact: root.compact; selected: root.page == 0; clicked => { root.page = 0; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/layers.svg"); label: "配置"; compact: root.compact; selected: root.page == 1; clicked => { root.page = 1; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/globe.svg"); label: "节点"; compact: root.compact; selected: root.page == 2; clicked => { root.page = 2; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/settings.svg"); label: "设置"; compact: root.compact; selected: root.page == 3; clicked => { root.page = 3; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/scroll-text.svg"); label: "日志"; compact: root.compact; selected: root.page == 4; clicked => { root.page = 4; } }
+        Rectangle { vertical-stretch: 1; }
+        if !root.compact: Text {
+            text: root.status-text;
+            color: root.running ? Theme.ok : root.failed ? Theme.danger : Theme.text-muted;
+            font-size: 12px;
+            overflow: elide;
+            min-width: 0px;
+        }
+        if !root.compact && root.running: Text {
+            text: "↑ " + root.up-rate + "  ↓ " + root.down-rate;
+            color: Theme.text-muted;
+            font-size: 12px;
+            overflow: elide;
+            min-width: 0px;
+        }
+    }
+
+    // Keep the drag target inside the sidebar so it does not consume content space.
+    resize := TouchArea {
+        x: parent.width - self.width;
+        width: 6px;
+        height: parent.height;
+        mouse-cursor: ew-resize;
+        moved => {
+            if self.pressed {
+                root.sidebar-width = clamp(root.sidebar-width + self.mouse-x - self.pressed-x,
+                    root.collapsed-width, root.expanded-limit);
+            }
+        }
+        Rectangle {
+            x: parent.width - self.width;
+            width: 1px;
+            height: parent.height;
+            background: resize.has-hover || resize.pressed ? Theme.accent : transparent;
+        }
+    }
+}

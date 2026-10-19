@@ -1,7 +1,7 @@
 // Main window, navigation shell and system tray (DESIGN.md §17).
 import { PageScroll, PageViewport } from "components/page-scroll.slint";
 import { Theme } from "components/theme.slint";
-import { NavItem } from "components/nav.slint";
+import { Sidebar } from "components/sidebar.slint";
 import { ErrorBar, Toast } from "components/error-bar.slint";
 import { OverviewPage } from "pages/overview.slint";
 import { ProfilesPage, ProfileRow } from "pages/profiles.slint";
@@ -21,10 +21,19 @@ export enum TrayState { idle, connected, restarting, error }
 export component MainWindow inherits Window {
     title: "Mirage";
     icon: @image-url("../assets/icons/app.svg");
-    preferred-width: 1000px;
-    preferred-height: 680px;
-    min-width: 760px;
-    min-height: 520px;
+    in property <length> initial-window-width: 900px;
+    in property <length> initial-window-height: 680px;
+    in-out property <length> sidebar-width: 150px;
+    out property <length> window-width: root.width;
+    out property <length> window-height: root.height;
+    callback geometry-changed();
+    changed width => { if root.width >= 700px && root.height >= 460px { root.geometry-changed(); } }
+    changed height => { if root.width >= 700px && root.height >= 460px { root.geometry-changed(); } }
+    changed sidebar-width => { root.geometry-changed(); }
+    preferred-width: root.initial-window-width;
+    preferred-height: root.initial-window-height;
+    min-width: 700px;
+    min-height: 460px;
     background: root.surface-refresh ? Theme.surface : #FFFFFE;
 
     in property <string> version;
@@ -185,48 +194,14 @@ export component MainWindow inherits Window {
     }
 
     HorizontalLayout {
-        Rectangle {
-            width: 200px;
-            background: Theme.sidebar;
-            VerticalLayout {
-                padding: 12px;
-                spacing: 4px;
-                HorizontalLayout {
-                    spacing: 8px;
-                    Image {
-                        source: root.running ? @image-url("../assets/icons/tray/connected.svg")
-                        : root.failed ? @image-url("../assets/icons/tray/error.svg")
-                        : @image-url("../assets/icons/tray/idle.svg");
-                        width: 22px;
-                        height: 22px;
-                        y: (parent.height - self.height) / 2;
-                    }
-                    Text {
-                        text: "Mirage";
-                        font-size: 20px;
-                        font-weight: 700;
-                        color: Theme.text;
-                    }
-                }
-                Rectangle { height: 12px; }
-                NavItem { icon: @image-url("../assets/icons/lucide/layout-dashboard.svg"); label: "总览"; selected: root.page == 0; clicked => { root.page = 0; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/layers.svg"); label: "配置"; selected: root.page == 1; clicked => { root.page = 1; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/globe.svg"); label: "节点"; selected: root.page == 2; clicked => { root.page = 2; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/settings.svg"); label: "设置"; selected: root.page == 3; clicked => { root.page = 3; } }
-                NavItem { icon: @image-url("../assets/icons/lucide/scroll-text.svg"); label: "日志"; selected: root.page == 4; clicked => { root.page = 4; } }
-                Rectangle { vertical-stretch: 1; }
-                Text {
-                    text: root.status-text;
-                    color: root.running ? Theme.ok : root.failed ? Theme.danger : Theme.text-muted;
-                    font-size: 12px;
-                    overflow: elide;
-                }
-                if root.running: Text {
-                    text: "↑ " + root.up-rate + "  ↓ " + root.down-rate;
-                    color: Theme.text-muted;
-                    font-size: 12px;
-                }
-            }
+        Sidebar {
+            sidebar-width <=> root.sidebar-width;
+            page <=> root.page;
+            running: root.running;
+            failed: root.failed;
+            status-text: root.status-text;
+            up-rate: root.up-rate;
+            down-rate: root.down-rate;
         }
 
         VerticalLayout {

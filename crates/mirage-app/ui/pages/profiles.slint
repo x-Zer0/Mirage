@@ -1,5 +1,6 @@
 import { Button, ListView, LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
+import { IconButton } from "../components/icon-button.slint";
 
 export struct ProfileRow {
     id: string,
@@ -118,48 +119,59 @@ export component ProfilesPage inherits VerticalLayout {
             accessible-item-selected: p.selected;
             accessible-action-default => { if (!root.busy) { root.select(p.id); } }
             // No switching while a start/stop or import is in flight.
-            touch := TouchArea { enabled: !root.busy; clicked => { root.select(p.id); } }
-            row-layout := VerticalLayout {
-                padding: 10px;
-                spacing: 8px;
-                HorizontalLayout {
-                    spacing: 12px;
-                    col := VerticalLayout {
-                        alignment: center;
-                        spacing: 2px;
-                        horizontal-stretch: 1;
-                        Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; overflow: elide; min-width: 0px; }
-                        Text { text: p.source + " · " + p.detail + " · 更新于 " + p.updated; color: Theme.text-muted; font-size: 12px; overflow: elide; min-width: 0px; }
-                        if p.usage != "": Text { text: p.usage; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; min-width: 0px; }
-                        if p.updating: Text { text: "正在更新…"; color: Theme.accent; font-size: 12px; wrap: word-wrap; min-width: 0px; }
-                        if !p.updating && p.fetch-error != "": Text { text: p.fetch-error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
+            touch := TouchArea {
+                clicked => { if !root.busy { root.select(p.id); } }
+                row-layout := VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        col := VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            horizontal-stretch: 1;
+                            Text { text: p.name; font-weight: 600; color: p.selected ? Theme.accent : Theme.text; overflow: elide; min-width: 0px; }
+                            Text { text: p.source + " · " + p.detail + " · 更新于 " + p.updated; color: Theme.text-muted; font-size: 12px; overflow: elide; min-width: 0px; }
+                            if p.usage != "": Text { text: p.usage; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; min-width: 0px; }
+                            if p.updating: Text { text: "正在更新…"; color: Theme.accent; font-size: 12px; wrap: word-wrap; min-width: 0px; }
+                            if !p.updating && p.fetch-error != "": Text { text: p.fetch-error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
 
-                    }
-                    if p.selected: Image {
-                        source: @image-url("../../assets/icons/lucide/check.svg");
-                        width: 18px; height: 18px;
-                        y: (parent.height - self.height) / 2;
-                        colorize: Theme.accent;
-                    }
-                    Button {
-                        icon: @image-url("../../assets/icons/lucide/settings.svg");
-                        colorize-icon: true;
-                        accessible-label: "设置 " + p.name;
-                        clicked => { root.show-details(p.id); }
-                    }
-                    if p.remote: Button {
-                        icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-                        colorize-icon: true;
-                        accessible-label: "更新 " + p.name;
-                        enabled: !p.updating;
-                        clicked => { root.update(p.id); }
-                    }
-                    Button {
-                        icon: @image-url("../../assets/icons/lucide/trash-2.svg");
-                        colorize-icon: true;
-                        accessible-label: "删除 " + p.name;
-                        enabled: !root.busy;
-                        clicked => { root.remove(p); }
+                        }
+                        if p.selected: Image {
+                            source: @image-url("../../assets/icons/lucide/check.svg");
+                            width: 18px; height: 18px;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Theme.accent;
+                        }
+                        HorizontalLayout {
+                            height: 28px;
+                            y: (parent.height - self.height) / 2;
+                            spacing: 2px;
+                            IconButton {
+                                icon: @image-url("../../assets/icons/lucide/settings.svg");
+                                label: "设置 " + p.name;
+                                icon-size: 20px;
+                                visible: touch.has-hover;
+                                clicked => { root.show-details(p.id); }
+                            }
+                            if p.remote: IconButton {
+                                icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                                label: "更新 " + p.name;
+                                icon-size: 20px;
+                                visible: touch.has-hover;
+                                enabled: !p.updating;
+                                clicked => { root.update(p.id); }
+                            }
+                            IconButton {
+                                icon: @image-url("../../assets/icons/lucide/trash-2.svg");
+                                label: "删除 " + p.name;
+                                icon-size: 20px;
+                                visible: touch.has-hover;
+                                icon-color: Theme.danger;
+                                enabled: !root.busy;
+                                clicked => { root.remove(p); }
+                            }
+                        }
                     }
                 }
             }

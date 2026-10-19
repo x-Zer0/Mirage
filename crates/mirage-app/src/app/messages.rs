@@ -54,6 +54,7 @@ pub enum Command {
     RetryNotice,
     SetRoutingMode(RoutingMode),
     SaveSettings(super::settings::SettingsInput),
+    SetUiGeometry(crate::storage::meta::UiGeometry),
     /// Interval (hours, 0 = manual) and egress index for one profile.
     SetUpdatePolicy {
         id: String,

@@ -63,6 +63,23 @@ impl AppCore {
         self.view.mixed_port = s.mixed_port;
     }
 
+    pub(super) fn set_ui_geometry(&mut self, geometry: meta::UiGeometry) {
+        let geometry = geometry.normalized();
+        if self.settings.ui_geometry != geometry {
+            self.settings.ui_geometry = geometry;
+            self.ui_geometry_dirty = true;
+        }
+    }
+
+    pub(super) fn flush_ui_geometry(&mut self) {
+        if !self.ui_geometry_dirty {
+            return;
+        }
+        match self.save_settings_file() {
+            Ok(()) => self.ui_geometry_dirty = false,
+            Err(e) => tracing::warn!(error = %e, "save UI geometry failed"),
+        }
+    }
     pub(super) fn save_settings_file(&mut self) -> AppResult<()> {
         meta::save(&self.layout.settings_file(), &mut self.settings, STAGE)
     }
