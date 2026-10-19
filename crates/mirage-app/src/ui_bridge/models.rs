@@ -9,9 +9,12 @@ use crate::app::state::{AppStateView, Connectivity, RuntimeStatus, TrafficSample
 use crate::app::status_text;
 use crate::cores::mihomo::controller::{GLOBAL_GROUP, NodeView, ProxyGroupView};
 use crate::domain::model::{EgressPolicy, RoutingMode};
-use slint::{Model, ModelRc, SharedString, VecModel};
-use std::collections::VecDeque;
+use slint::{Image, Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
+};
 
 const SLOW_MS: u32 = 500;
 /// §17.4: at most this many nodes per group are listed; the rest are found
@@ -19,6 +22,11 @@ const SLOW_MS: u32 = 500;
 const MAX_LISTED_NODES: usize = 1000;
 /// Seconds shown in the traffic chart.
 pub const HISTORY: usize = 60;
+const TRAY_ICON_SVG: &str = include_str!("../../assets/icons/tray/connected.svg");
+
+thread_local! {
+    static TRAY_ICONS: RefCell<HashMap<(String, bool), Image>> = RefCell::new(HashMap::new());
+}
 
 /// Previous snapshot, to skip unchanged models.
 #[derive(Default)]
@@ -251,23 +259,45 @@ fn same_rows(a: &ModelRc<NodeRow>, b: &ModelRc<NodeRow>) -> bool {
 }
 
 pub fn apply_tray(t: &AppTray, s: &AppStateView) {
-    t.set_state(match s.runtime {
+    let state = match s.runtime {
         RuntimeStatus::Running | RuntimeStatus::Reloading => TrayState::Connected,
         RuntimeStatus::Restarting => TrayState::Restarting,
         RuntimeStatus::Failed(_) => TrayState::Error,
-        _ => TrayState::Idle,
-    });
+        RuntimeStatus::Starting => TrayState::Starting,
+        RuntimeStatus::Stopping => TrayState::Stopping,
+        RuntimeStatus::Stopped => TrayState::Idle,
+    };
+    t.set_state(state);
+    let color = tray_color(state, s.routing_mode);
+    t.set_state_icon(tray_icon(&color, s.tun_active));
     let selected = s.profiles.iter().find(|p| p.selected);
-    let detail = match (&s.runtime, selected) {
-        (r, Some(p)) if r.is_up() => {
-            let node = exit_node(s);
-            if node.is_empty() {
-                p.name.clone()
+    let detail = match &s.runtime {
+        RuntimeStatus::Failed(reason) => reason.clone(),
+        runtime if runtime.is_up() => {
+            let mode = s.routing_mode.map_or("未知模式", RoutingMode::label);
+            let access = match (s.tun_active, s.system_proxy_active) {
+                (true, true) => "TUN + 系统代理",
+                (true, false) => "TUN",
+                (false, true) => "系统代理",
+                (false, false) => "仅本地内核",
+            };
+            let profile = selected.map_or_else(String::new, |p| {
+                let node = exit_node(s);
+                if node.is_empty() {
+                    p.name.clone()
+                } else {
+                    format!("{} · {node}", p.name)
+                }
+            });
+            if profile.is_empty() {
+                format!("{mode}模式 · {access}")
             } else {
-                format!("{} · {node}", p.name)
+                format!("{mode}模式 · {access}\n{profile}")
             }
         }
-        _ => String::new(),
+        _ => s
+            .routing_mode
+            .map_or_else(String::new, |mode| format!("{}模式", mode.label())),
     };
     t.set_detail(detail.into());
     t.set_system_proxy(s.system_proxy_wanted);
@@ -284,6 +314,53 @@ pub fn apply_tray(t: &AppTray, s: &AppStateView) {
             ),
     );
     t.set_routing_mode(mode_index(s.routing_mode));
+}
+
+fn tray_color(state: TrayState, mode: Option<RoutingMode>) -> String {
+    match state {
+        TrayState::Error => "#DC2626".into(),
+        TrayState::Starting | TrayState::Stopping | TrayState::Restarting => "#D97706".into(),
+        TrayState::Connected => match mode {
+            Some(RoutingMode::Rule) => "#2563EB".into(),
+            Some(RoutingMode::Global) => "#9333EA".into(),
+            Some(RoutingMode::Direct) => "#16A34A".into(),
+            None => "#8A8F98".into(),
+        },
+        TrayState::Idle => "#8A8F98".into(),
+    }
+}
+
+fn tray_icon(color: &str, tun_active: bool) -> Image {
+    TRAY_ICONS.with_borrow_mut(|icons| {
+        icons
+            .entry((color.to_owned(), tun_active))
+            .or_insert_with(|| {
+                let mut svg = TRAY_ICON_SVG.replace("#16A34A", color);
+                if tun_active {
+                    svg = svg.replace(
+                        "</svg>",
+                        "<circle cx=\"790\" cy=\"790\" r=\"195\" fill=\"#111827\" stroke=\"#FFFFFF\" stroke-width=\"48\"/><path d=\"M675 665h230v68h-81v185h-68V733h-81z\" fill=\"#FFFFFF\"/></svg>",
+                    );
+                }
+                render_tray_icon(&svg)
+            })
+            .clone()
+    })
+}
+
+fn render_tray_icon(svg: &str) -> Image {
+    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &resvg::usvg::Options::default())
+        .expect("parse tray icon SVG");
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(64, 64).expect("allocate tray icon pixels");
+    let scale = 64.0 / tree.size().width();
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let pixels =
+        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(pixmap.data(), 64, 64);
+    Image::from_rgba8_premultiplied(pixels)
 }
 
 pub fn mode_index(mode: Option<RoutingMode>) -> i32 {

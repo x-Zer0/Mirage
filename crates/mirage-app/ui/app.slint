@@ -16,7 +16,7 @@ import { LogsPage, ConnectionRow, OperationRow } from "pages/logs.slint";
 
 export { ProfileRow, GroupRow, NodeRow, AccountRow, ConnectionRow, OperationRow }
 
-export enum TrayState { idle, connected, restarting, error }
+export enum TrayState { idle, connected, starting, stopping, restarting, error }
 
 export component MainWindow inherits Window {
     title: "Mirage";
@@ -421,6 +421,7 @@ export component MainWindow inherits Window {
 
 export component AppTray inherits SystemTrayIcon {
     in property <TrayState> state: TrayState.idle;
+    in property <image> state-icon: @image-url("../assets/icons/tray/idle.svg");
     in property <string> detail;
     in property <bool> window-visible: true;
     in property <bool> running;
@@ -436,12 +437,12 @@ export component AppTray inherits SystemTrayIcon {
     callback set-routing-mode(int);
     callback quit-app();
 
-    icon: state == TrayState.connected ? @image-url("../assets/icons/tray/connected.svg")
-    : state == TrayState.error || state == TrayState.restarting ? @image-url("../assets/icons/tray/error.svg")
-    : @image-url("../assets/icons/tray/idle.svg");
+    icon: root.state-icon;
     tooltip: (state == TrayState.connected ? "Mirage - 已连接"
     : state == TrayState.error ? "Mirage - 错误"
     : state == TrayState.restarting ? "Mirage - 正在重启内核"
+    : state == TrayState.starting ? "Mirage - 正在连接"
+    : state == TrayState.stopping ? "Mirage - 正在断开"
     : "Mirage - 未连接") + (root.detail == "" ? "" : "\n" + root.detail);
 
     clicked => { root.toggle-window(); }
