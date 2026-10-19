@@ -115,6 +115,7 @@ export component MainWindow inherits Window {
     in-out property <int> node-group;
 
     private property <string> details-id;
+    // ProfilesPage sits in an `if`, so the drawer cannot reach its LineEdit by id.
     private property <int> profile-drawer-dismissed-count: 0;
     private property <ProfileRow> delete-target;
 

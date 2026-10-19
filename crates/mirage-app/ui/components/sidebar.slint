@@ -2,6 +2,13 @@ import { Theme } from "theme.slint";
 import { NavItem } from "nav.slint";
 import { IconButton } from "icon-button.slint";
 
+component RateText inherits Text {
+    color: Theme.text-muted;
+    font-size: 12px;
+    overflow: elide;
+    min-width: 0px;
+}
+
 export component Sidebar inherits Rectangle {
     in-out property <length> sidebar-width: 150px;
     in-out property <int> page;
@@ -69,20 +76,8 @@ export component Sidebar inherits Rectangle {
         }
         if !root.compact && root.running: VerticalLayout {
             spacing: 1px;
-            Text {
-                text: "↑ " + root.up-rate;
-                color: Theme.text-muted;
-                font-size: 12px;
-                overflow: elide;
-                min-width: 0px;
-            }
-            Text {
-                text: "↓ " + root.down-rate;
-                color: Theme.text-muted;
-                font-size: 12px;
-                overflow: elide;
-                min-width: 0px;
-            }
+            RateText { text: "↑ " + root.up-rate; }
+            RateText { text: "↓ " + root.down-rate; }
         }
     }
 

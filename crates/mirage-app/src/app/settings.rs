@@ -17,6 +17,8 @@ const MAX_UA: usize = 256;
 const MAX_INTERVAL_HOURS: u32 = 24 * 30;
 const MAX_CONNECTION_LOG_LIMIT: usize = 10_000;
 const MAX_OPERATION_LOG_DAYS: usize = 60;
+/// Window/sidebar size is saved once resizing has been idle this long.
+const GEOMETRY_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(800);
 
 /// Edits from the settings page; validated before anything is saved.
 #[derive(Debug, Clone)]
@@ -67,19 +69,24 @@ impl AppCore {
         let geometry = geometry.normalized();
         if self.settings.ui_geometry != geometry {
             self.settings.ui_geometry = geometry;
-            self.ui_geometry_dirty = true;
+            // Each change pushes the deadline back, so only the settled size is written.
+            self.ui_geometry_save_at = Some(tokio::time::Instant::now() + GEOMETRY_DEBOUNCE);
         }
     }
 
     pub(super) fn flush_ui_geometry(&mut self) {
-        if !self.ui_geometry_dirty {
+        if self.ui_geometry_save_at.is_none() {
             return;
         }
         match self.save_settings_file() {
-            Ok(()) => self.ui_geometry_dirty = false,
-            Err(e) => tracing::warn!(error = %e, "save UI geometry failed"),
+            Ok(()) => self.ui_geometry_save_at = None,
+            Err(e) => {
+                tracing::warn!(error = %e, "save UI geometry failed");
+                self.ui_geometry_save_at = Some(tokio::time::Instant::now() + GEOMETRY_DEBOUNCE);
+            }
         }
     }
+
     pub(super) fn save_settings_file(&mut self) -> AppResult<()> {
         meta::save(&self.layout.settings_file(), &self.settings, STAGE)
     }

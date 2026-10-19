@@ -63,7 +63,7 @@ impl AppCore {
             connectivity_request: 0,
             connectivity_task: None,
             settings,
-            ui_geometry_dirty: false,
+            ui_geometry_save_at: None,
             restart_attempts: 0,
             connection_source: "系统",
             proxy_before_tun: None,
@@ -93,10 +93,9 @@ impl AppCore {
         // verified and is a no-op, so the first real check is one tick later.
         let mut schedule = tokio::time::interval(updates::SCHEDULE_TICK);
         schedule.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut geometry_save = tokio::time::interval(Duration::from_millis(500));
-        geometry_save.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut ack = None;
         loop {
+            let geometry_save_at = self.ui_geometry_save_at;
             tokio::select! {
                 cmd = commands.recv() => match cmd {
                     Some(Command::Quit) | None => break,
@@ -107,7 +106,8 @@ impl AppCore {
                     Some(cmd) => self.handle(cmd),
                 },
                 Some(msg) = internal.recv() => self.handle_internal(msg),
-                _ = geometry_save.tick(), if self.ui_geometry_dirty => self.flush_ui_geometry(),
+                _ = tokio::time::sleep_until(geometry_save_at.unwrap_or_else(tokio::time::Instant::now)),
+                    if geometry_save_at.is_some() => self.flush_ui_geometry(),
                 _ = watch.tick() => self.watch_sysproxy(),
                 _ = schedule.tick() => { self.schedule_due_updates(); self.prune_operation_logs(); },
             }

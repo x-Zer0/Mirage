@@ -60,7 +60,8 @@ struct AppCore {
     connectivity_request: u64,
     connectivity_task: Option<tokio::task::JoinHandle<()>>,
     settings: SettingsFile,
-    ui_geometry_dirty: bool,
+    /// Pending UI geometry save, deferred until resizing settles.
+    ui_geometry_save_at: Option<tokio::time::Instant>,
     /// Consecutive supervised restarts since the core last ran stably (§5.2).
     restart_attempts: u32,
     connection_source: &'static str,
