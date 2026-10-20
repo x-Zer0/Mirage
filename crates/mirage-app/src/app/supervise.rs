@@ -58,7 +58,7 @@ impl AppCore {
         runtime::forget_exited(&self.layout);
         self.update_tun_state(false);
         self.view.groups.clear();
-        self.view.testing_group = None;
+        self.reset_delay_tests();
         self.reset_connectivity();
         self.schedule_restart(detail);
     }

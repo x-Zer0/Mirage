@@ -263,6 +263,8 @@ pub struct AppStateView {
     pub groups: Vec<ProxyGroupView>,
     pub groups_revision: u64,
     pub testing_group: Option<String>,
+    pub testing_completed: usize,
+    pub testing_total: usize,
     pub busy_tasks: HashSet<String>,
     /// Set by handlers; moved into `error` or `toast` before publishing.
     pub notice: Option<Notice>,

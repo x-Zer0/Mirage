@@ -3,6 +3,7 @@ use super::{AppCore, Internal, error_notice};
 use crate::cores::mihomo::node_metadata;
 use crate::domain::error::AppError;
 use crate::storage::meta;
+use std::collections::HashMap;
 
 const STAGE: &str = "app.handlers";
 
@@ -11,6 +12,7 @@ impl AppCore {
         let Some(running) = &self.running else { return };
         let controller = running.controller.clone();
         let generation = self.generation;
+        let epoch = self.delay_tests.groups_epoch;
         let layout = self.layout.clone();
         let service = running.process.service().is_some();
         self.spawn(async move {
@@ -18,20 +20,37 @@ impl AppCore {
             if let Ok(groups) = &mut result {
                 node_metadata::apply(groups, &layout, service).await;
             }
-            Internal::Groups(generation, result)
+            Internal::Groups(generation, epoch, result)
         });
     }
 
     pub(super) fn on_groups(
         &mut self,
         generation: u64,
+        epoch: u64,
         result: Result<Vec<crate::cores::mihomo::controller::ProxyGroupView>, AppError>,
     ) {
-        if generation != self.generation || self.running.is_none() {
+        if generation != self.generation
+            || epoch != self.delay_tests.groups_epoch
+            || self.running.is_none()
+        {
             return;
         }
         match result {
-            Ok(groups) => {
+            Ok(mut groups) => {
+                let previous: HashMap<_, _> = self
+                    .view
+                    .groups
+                    .iter()
+                    .flat_map(|g| &g.nodes)
+                    .map(|n| (n.name.as_str(), n))
+                    .collect();
+                for node in groups.iter_mut().flat_map(|g| &mut g.nodes) {
+                    if let Some(old) = previous.get(node.name.as_str()) {
+                        node.delay = old.delay.clone().filter(|d| d.is_fresh());
+                        node.test_state = old.test_state;
+                    }
+                }
                 self.view.groups = groups;
                 self.view.groups_revision += 1;
                 self.view_dirty = true;
@@ -92,20 +111,6 @@ impl AppCore {
             self.view.notice = Some(error_notice(&e));
         }
         self.refresh_groups();
-    }
-    pub(super) fn test_delay(&mut self, group: String) {
-        // §10.7: one group at a time, user initiated.
-        if self.view.testing_group.is_some() {
-            return;
-        }
-        let Some(running) = &self.running else { return };
-        let controller = running.controller.clone();
-        let generation = self.generation;
-        self.view.testing_group = Some(group.clone());
-        self.spawn(async move {
-            let result = controller.test_group_delay(&group).await;
-            Internal::DelayDone(generation, group, result)
-        });
     }
 }
 

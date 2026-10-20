@@ -59,6 +59,7 @@ impl AppCore {
             self.view.notice = Some(info_notice("请先导入并选择一个配置"));
             return;
         };
+        self.reset_delay_tests();
         self.generation += 1;
         let generation = self.generation;
         self.reset_connectivity();
@@ -193,7 +194,7 @@ impl AppCore {
         self.release_sysproxy();
         self.update_tun_state(false);
         self.view.groups.clear();
-        self.view.testing_group = None;
+        self.reset_delay_tests();
         self.reset_connectivity();
         let Some(running) = self.running.take() else {
             self.view.runtime = RuntimeStatus::Stopped;

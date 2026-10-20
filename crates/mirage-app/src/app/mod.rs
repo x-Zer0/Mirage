@@ -2,6 +2,7 @@
 mod accounts;
 mod actor;
 mod connectivity;
+mod delays;
 pub mod diagnostics;
 mod diagnostics_actions;
 mod handle;
@@ -57,6 +58,7 @@ struct AppCore {
     profiles: profiles::Profiles,
     running: Option<Running>,
     generation: u64,
+    delay_tests: delays::DelayTests,
     connectivity_request: u64,
     connectivity_task: Option<tokio::task::JoinHandle<()>>,
     settings: SettingsFile,

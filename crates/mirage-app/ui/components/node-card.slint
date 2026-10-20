@@ -8,6 +8,7 @@ export component NodeCard inherits Rectangle {
     in property <string> details;
     in property <string> delay;
     in property <int> delay-level;
+    in property <string> delay-detail;
     in property <bool> current;
     in property <bool> selectable;
     callback selected();
@@ -61,6 +62,13 @@ export component NodeCard inherits Rectangle {
             padding: 8px;
             Text { text: root.name; color: Theme.text; }
             Text { text: root.details; color: Theme.text-muted; font-size: 12px; }
+            if root.delay-detail != "": Text {
+                text: root.delay-detail;
+                color: Theme.text-muted;
+                font-size: 12px;
+                max-width: 340px;
+                wrap: word-wrap;
+            }
         }
     }
 }

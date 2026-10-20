@@ -6,7 +6,7 @@ use reqwest::{Client, Method, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const STAGE: &str = "mihomo.controller";
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -32,8 +32,9 @@ pub struct NodeView {
     pub name: String,
     pub protocol: String,
     pub transport: String,
-    /// Latest delay in ms; `Some(0)` means the last test failed (not necessarily a timeout).
-    pub delay: Option<u32>,
+    /// Last manually measured result; core health-check history is kept separate.
+    pub delay: Option<NodeDelay>,
+    pub test_state: NodeTestState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,13 +59,34 @@ struct ProxyEntry {
     now: Option<String>,
     #[serde(default)]
     all: Option<Vec<String>>,
-    #[serde(default)]
-    history: Vec<DelayRecord>,
 }
 
-#[derive(Deserialize)]
-struct DelayRecord {
-    delay: u32,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NodeTestState {
+    #[default]
+    Idle,
+    Queued,
+    Testing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DelayOutcome {
+    Reachable(u32),
+    Timeout,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeDelay {
+    pub outcome: DelayOutcome,
+    pub detail: String,
+    pub measured_at: Instant,
+}
+
+impl NodeDelay {
+    pub fn is_fresh(&self) -> bool {
+        self.measured_at.elapsed() < Duration::from_secs(30 * 60)
+    }
 }
 
 impl Controller {
@@ -144,7 +166,8 @@ impl Controller {
                                 name: m.clone(),
                                 protocol: proxy.map(|p| p.kind.clone()).unwrap_or_default(),
                                 transport: String::new(),
-                                delay: proxy.and_then(|p| p.history.last()).map(|h| h.delay),
+                                delay: None,
+                                test_state: NodeTestState::Idle,
                             }
                         })
                         .collect(),
@@ -160,8 +183,8 @@ impl Controller {
             .await
     }
 
-    pub async fn test_group_delay(&self, group: &str) -> AppResult<()> {
-        let mut url = self.url(&["group", group, "delay"])?;
+    pub async fn test_node_delay(&self, node: &str) -> AppResult<u32> {
+        let mut url = self.url(&["proxies", node, "delay"])?;
         url.query_pairs_mut()
             .append_pair("url", DELAY_TEST_URL)
             .append_pair("timeout", &DELAY_TIMEOUT_MS.to_string());
@@ -173,26 +196,35 @@ impl Controller {
             .send()
             .await
             .map_err(map_reqwest)?;
-        // History can still update on failure; preserve the HTTP error for the UI.
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            let code = resp.status().as_u16();
-            let detail = crate::net::read_bounded(resp, 16 * 1024)
-                .await
-                .map(|body| {
-                    String::from_utf8_lossy(&body)
-                        .chars()
-                        .take(200)
-                        .collect::<String>()
-                })
-                .unwrap_or_else(|e| format!("无法读取错误详情：{}", e.kind.label()));
-            Err(AppError::new(
-                AppErrorKind::Http(code),
+        let status = resp.status();
+        let body = crate::net::read_bounded(resp, 16 * 1024).await?;
+        if !status.is_success() {
+            let kind = if status.as_u16() == 504 {
+                AppErrorKind::Timeout
+            } else {
+                AppErrorKind::Http(status.as_u16())
+            };
+            let detail: String = String::from_utf8_lossy(&body).chars().take(200).collect();
+            return Err(AppError::new(
+                kind,
                 STAGE,
-                format!("节点测速失败（HTTP {code}）：{detail}"),
-            ))
+                format!("节点测速失败：{detail}"),
+            ));
         }
+        #[derive(Deserialize)]
+        struct Response {
+            delay: u32,
+        }
+        let response: Response = serde_json::from_slice(&body)
+            .map_err(|e| AppError::new(AppErrorKind::CoreNotReady, STAGE, e.to_string()))?;
+        if response.delay == 0 {
+            return Err(AppError::new(
+                AppErrorKind::Network,
+                STAGE,
+                "节点测速未返回有效延迟",
+            ));
+        }
+        Ok(response.delay)
     }
 
     /// Current `mode` from `GET /configs`.

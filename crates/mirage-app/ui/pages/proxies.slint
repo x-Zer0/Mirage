@@ -10,7 +10,8 @@ export struct NodeRow {
     flag: image,
     details: string,
     delay: string,
-    delay-level: int, // 0 unknown, 1 good, 2 slow, 3 failed
+    delay-level: int, // 0 unknown/pending, 1 good, 2 slow, 3 failed
+    delay-detail: string,
     current: bool,
 }
 
@@ -31,6 +32,8 @@ export component ProxiesPage inherits VerticalLayout {
     in property <[GroupRow]> groups;
     in property <bool> running;
     in property <string> testing-group;
+    in property <int> testing-completed;
+    in property <int> testing-total;
     in-out property <int> current-group: 0;
     in-out property <string> filter;
     in-out property <bool> sort-by-delay;
@@ -127,13 +130,15 @@ export component ProxiesPage inherits VerticalLayout {
                 ToggleButton {
                     text: "延迟排序";
                     checked <=> root.sort-by-delay;
+                    enabled: root.testing-group == "";
                     toggled(on) => { root.sort-changed(on); }
                 }
                 Button {
-                    text: root.testing-group == group.name ? "测速中…" : "测速";
-                    icon: @image-url("../../assets/icons/lucide/activity.svg");
+                    width: 80px;
+                    text: root.testing-group == group.name ? root.testing-completed + "/" + root.testing-total : "测速";
+                    icon: root.testing-group == group.name ? @image-url("") : @image-url("../../assets/icons/lucide/activity.svg");
                     colorize-icon: true;
-                    enabled: root.testing-group == "";
+                    enabled: root.testing-group == "" && group.nodes.length + group.hidden > 0;
                     clicked => { root.test-delay(group.name); }
                 }
             }
@@ -180,6 +185,7 @@ export component ProxiesPage inherits VerticalLayout {
                         details: node.details;
                         delay: node.delay;
                         delay-level: node.delay-level;
+                        delay-detail: node.delay-detail;
                         current: node.current;
                         selectable: group.selectable;
                         selected => { root.select-node(group.name, node.name); }

@@ -1,6 +1,6 @@
 //! Dispatches UI commands and background completions to feature modules.
 use super::state::RuntimeStatus;
-use super::{AppCore, Command, Internal, error_notice};
+use super::{AppCore, Command, Internal};
 
 impl AppCore {
     pub(super) fn handle(&mut self, cmd: Command) {
@@ -86,7 +86,9 @@ impl AppCore {
             Internal::Imported(object, result) => self.on_imported(object, result),
             Internal::Started(generation, result) => self.on_started(generation, result),
             Internal::CoreExited { generation, detail } => self.on_core_exited(generation, detail),
-            Internal::Groups(generation, result) => self.on_groups(generation, result),
+            Internal::Groups(generation, epoch, result) => {
+                self.on_groups(generation, epoch, result)
+            }
             Internal::Stopped(generation) => {
                 if generation == self.generation && self.view.runtime == RuntimeStatus::Stopping {
                     self.view.runtime = RuntimeStatus::Stopped;
@@ -94,18 +96,8 @@ impl AppCore {
                     self.record_operation("断开连接", "", "系统", "成功", "代理内核已停止");
                 }
             }
-            Internal::DelayDone(generation, group, result) => {
-                if self.view.testing_group.as_deref() == Some(group.as_str()) {
-                    self.view.testing_group = None;
-                }
-                match result {
-                    Ok(()) if generation == self.generation => self.refresh_groups(),
-                    Err(e) if generation == self.generation => {
-                        self.refresh_groups();
-                        self.view.notice = Some(error_notice(&e));
-                    }
-                    _ => {}
-                }
+            Internal::NodeDelay(generation, batch, event) => {
+                self.on_node_delay(generation, batch, event);
             }
             Internal::RestartDue(generation) => self.on_restart_due(generation),
             Internal::Connectivity(generation, request, result) => {

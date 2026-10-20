@@ -2,6 +2,7 @@ import { Theme } from "theme.slint";
 
 export component ToggleButton inherits Rectangle {
     in property <string> text;
+    in property <bool> enabled: true;
     in-out property <bool> checked;
     callback toggled(bool);
     forward-focus: focus;
@@ -13,15 +14,19 @@ export component ToggleButton inherits Rectangle {
     border-width: 1px;
     border-color: root.checked || focus.has-focus ? Theme.accent : Theme.border;
     background: root.checked ? Theme.accent : Theme.surface;
+    opacity: root.enabled ? 1 : 0.5;
     accessible-role: button;
+    accessible-enabled: root.enabled;
     accessible-label: root.text;
     accessible-checkable: true;
     accessible-checked: root.checked;
     accessible-action-default => { root.toggle(); }
 
     function toggle() {
-        root.checked = !root.checked;
-        root.toggled(root.checked);
+        if root.enabled {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
     }
     label := Text {
         text: root.text;
@@ -30,11 +35,13 @@ export component ToggleButton inherits Rectangle {
         vertical-alignment: center;
     }
     TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { focus.focus(); root.toggle(); }
     }
     focus := FocusScope {
         width: 0px;
+        enabled: root.enabled;
         key-pressed(event) => {
             if event.text == " " || event.text == Key.Return {
                 root.toggle();

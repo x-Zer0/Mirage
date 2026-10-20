@@ -62,6 +62,7 @@ impl AppCore {
             profiles,
             running: None,
             generation: 0,
+            delay_tests: Default::default(),
             connectivity_request: 0,
             connectivity_task: None,
             settings,
@@ -113,7 +114,10 @@ impl AppCore {
                 _ = tokio::time::sleep_until(geometry_save_at.unwrap_or_else(tokio::time::Instant::now)),
                     if geometry_save_at.is_some() => self.flush_ui_geometry(),
                 _ = watch.tick() => self.watch_sysproxy(),
-                _ = connection_clock.tick() => self.update_connection_clock(),
+                _ = connection_clock.tick() => {
+                    self.update_connection_clock();
+                    self.expire_node_delays();
+                },
                 _ = schedule.tick() => { self.schedule_due_updates(); self.prune_operation_logs(); },
             }
             self.sync_live_streams();
@@ -129,6 +133,7 @@ impl AppCore {
     /// Quit and logoff path: system proxy first, then the core (§11.4, §11.5).
     async fn shutdown_cleanup(&mut self) {
         self.flush_ui_geometry();
+        self.reset_delay_tests();
         self.generation += 1;
         self.live.set_window_hidden_for_quit();
         self.settings.resume_connected = self.view.runtime.is_up()

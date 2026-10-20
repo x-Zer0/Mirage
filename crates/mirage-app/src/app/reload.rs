@@ -62,6 +62,7 @@ impl AppCore {
         };
         let generation = self.generation;
         let profile_id = profile_id.clone();
+        self.reset_delay_tests();
         self.suspend_connection_stream();
         self.view.runtime = RuntimeStatus::Reloading;
         tracing::info!(profile = %profile_id, "hot reload started");

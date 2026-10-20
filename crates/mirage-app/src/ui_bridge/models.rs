@@ -7,7 +7,9 @@
 use super::{AccountRow, AppTray, GroupRow, MainWindow, NodeRow, ProfileRow, TrayState, flags};
 use crate::app::state::{AppStateView, Connectivity, RuntimeStatus, TrafficSample};
 use crate::app::status_text;
-use crate::cores::mihomo::controller::{GLOBAL_GROUP, NodeView, ProxyGroupView};
+use crate::cores::mihomo::controller::{
+    DelayOutcome, GLOBAL_GROUP, NodeTestState, NodeView, ProxyGroupView,
+};
 use crate::domain::model::{EgressPolicy, RoutingMode};
 use slint::{Image, Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
@@ -42,6 +44,8 @@ pub struct ListOptions {
     pub sort_by_delay: bool,
     /// Lower-cased search text; empty = no filter.
     pub filter: String,
+    /// Full group order at batch start, independent of the search and display cap.
+    frozen_order: HashMap<String, HashMap<String, usize>>,
 }
 
 impl Applied {
@@ -57,6 +61,7 @@ impl Applied {
 
 pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut Applied) {
     let prev = applied.last.as_deref();
+    applied.list.sync_test_order(s, prev);
     apply_runtime(w, s, prev);
     apply_profiles(w, s, prev, &applied.list);
     apply_accounts(w, s, prev);
@@ -160,6 +165,8 @@ fn apply_profiles(
         update_groups(w, &shown_groups(s), list);
     }
     w.set_testing_group(s.testing_group.clone().unwrap_or_default().into());
+    w.set_testing_completed(i32::try_from(s.testing_completed).unwrap_or(i32::MAX));
+    w.set_testing_total(i32::try_from(s.testing_total).unwrap_or(i32::MAX));
     if changed(&|p| p.policy_notes != s.policy_notes) {
         w.set_policy_notes(rc(s.policy_notes.iter().map(SharedString::from)));
     }
@@ -223,8 +230,7 @@ fn apply_settings(w: &MainWindow, s: &AppStateView) {
     w.set_exporting(s.exporting);
 }
 
-/// Replaces the group model only when the group list changed shape; delay
-/// and selection changes are written row by row into the existing model.
+/// Keeps nested node models alive when only latency or selection changes.
 fn update_groups(w: &MainWindow, groups: &[&ProxyGroupView], list: &ListOptions) {
     let current = w.get_groups();
     let same_groups = current.row_count() == groups.len()
@@ -238,22 +244,43 @@ fn update_groups(w: &MainWindow, groups: &[&ProxyGroupView], list: &ListOptions)
         return;
     }
     for (i, g) in groups.iter().enumerate() {
-        let row = group_row(g, list);
-        // M16: 条件加入 kind 和 selectable，或直接整行比较
-        if let Some(old) = current.row_data(i)
-            && (old.kind != row.kind
-                || old.selectable != row.selectable
-                || old.now != row.now
-                || old.hidden != row.hidden
-                || !same_rows(&old.nodes, &row.nodes))
+        let mut row = group_row(g, list);
+        let Some(old) = current.row_data(i) else {
+            continue;
+        };
+        let same_nodes = update_node_rows(&old.nodes, &row.nodes);
+        if same_nodes {
+            row.nodes = old.nodes.clone();
+        }
+        if !same_nodes
+            || old.kind != row.kind
+            || old.selectable != row.selectable
+            || old.now != row.now
+            || old.hidden != row.hidden
+            || old.current_label != row.current_label
+            || old.current_flag != row.current_flag
+            || old.current_node_index != row.current_node_index
         {
             current.set_row_data(i, row);
         }
     }
 }
 
-fn same_rows(a: &ModelRc<NodeRow>, b: &ModelRc<NodeRow>) -> bool {
-    a.row_count() == b.row_count() && a.iter().zip(b.iter()).all(|(x, y)| x == y)
+fn update_node_rows(current: &ModelRc<NodeRow>, next: &ModelRc<NodeRow>) -> bool {
+    if current.row_count() != next.row_count()
+        || current
+            .iter()
+            .zip(next.iter())
+            .any(|(a, b)| a.name != b.name)
+    {
+        return false;
+    }
+    for (i, row) in next.iter().enumerate() {
+        if current.row_data(i).is_none_or(|old| old != row) {
+            current.set_row_data(i, row);
+        }
+    }
+    true
 }
 
 pub fn apply_tray(t: &AppTray, s: &AppStateView) {
@@ -419,13 +446,10 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
         .iter()
         .filter(|n| list.filter.is_empty() || n.name.to_lowercase().contains(&list.filter))
         .collect();
-    if list.sort_by_delay {
-        // Measured first (fastest on top), then timeouts, then untested.
-        nodes.sort_by_key(|n| match n.delay {
-            Some(0) => (1, 0),
-            Some(ms) => (0, ms),
-            None => (2, 0),
-        });
+    if let Some(order) = list.frozen_order.get(&g.name) {
+        nodes.sort_by_key(|n| order.get(&n.name).copied().unwrap_or(usize::MAX));
+    } else if list.sort_by_delay {
+        nodes.sort_by_key(|n| delay_sort_key(n));
     }
     let hidden = g.nodes.len() - nodes.len().min(MAX_LISTED_NODES);
     // Keep the current node reachable even when the unfiltered list hits its cap.
@@ -451,28 +475,82 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
         current_node_index,
         selectable: g.selectable,
         hidden: i32::try_from(hidden).unwrap_or(i32::MAX),
-        nodes: rc(nodes.into_iter().map(|n| {
-            let (delay, level) = match n.delay {
-                None => (SharedString::new(), 0),
-                Some(0) => ("失败".into(), 3),
-                Some(ms) => (format!("{ms} ms").into(), if ms <= SLOW_MS { 1 } else { 2 }),
-            };
-            let (display_name, flag) = flags::label(&n.name);
-            NodeRow {
-                name: n.name.clone().into(),
-                display_name: display_name.into(),
-                flag,
-                details: if n.transport.is_empty() {
-                    n.protocol.clone()
-                } else {
-                    format!("{} · {}", n.protocol, n.transport)
+        nodes: rc(nodes.into_iter().map(|n| node_row(n, &g.now))),
+    }
+}
+
+fn node_row(node: &NodeView, current: &str) -> NodeRow {
+    let (delay, delay_level, delay_detail) = node_delay_text(node);
+    let (display_name, flag) = flags::label(&node.name);
+    NodeRow {
+        name: node.name.clone().into(),
+        display_name: display_name.into(),
+        flag,
+        details: if node.transport.is_empty() {
+            node.protocol.clone()
+        } else {
+            format!("{} · {}", node.protocol, node.transport)
+        }
+        .into(),
+        delay,
+        delay_level,
+        delay_detail,
+        current: node.name == current,
+    }
+}
+
+fn node_delay_text(node: &NodeView) -> (SharedString, i32, SharedString) {
+    let cached = node.delay.as_ref().filter(|d| d.is_fresh());
+    let result = cached.map(|d| delay_result_text(d.outcome));
+    let pending = match node.test_state {
+        NodeTestState::Queued => "等待中",
+        NodeTestState::Testing => "测试中…",
+        NodeTestState::Idle => "",
+    };
+    if !pending.is_empty() {
+        let previous = result.map(|(text, _)| format!("上次：{text}"));
+        let detail = previous.map_or_else(|| pending.to_owned(), |p| format!("{pending} · {p}"));
+        return (pending.into(), 0, detail.into());
+    }
+    let (text, level) = result.unwrap_or_default();
+    let detail = cached.map_or_else(String::new, |d| d.detail.clone());
+    (text.into(), level, detail.into())
+}
+
+fn delay_result_text(outcome: DelayOutcome) -> (String, i32) {
+    match outcome {
+        DelayOutcome::Reachable(ms) => (format!("{ms} ms"), if ms <= SLOW_MS { 1 } else { 2 }),
+        DelayOutcome::Timeout => ("超时".into(), 3),
+        DelayOutcome::Failed => ("失败".into(), 3),
+    }
+}
+
+fn delay_sort_key(node: &NodeView) -> (u8, u32) {
+    match node.delay.as_ref().map(|d| d.outcome) {
+        Some(DelayOutcome::Reachable(ms)) => (0, ms),
+        Some(_) => (1, 0),
+        None => (2, 0),
+    }
+}
+
+impl ListOptions {
+    fn sync_test_order(&mut self, state: &AppStateView, prev: Option<&AppStateView>) {
+        if state.testing_group.is_none() {
+            self.frozen_order.clear();
+        } else if self.frozen_order.is_empty() {
+            for group in &prev.unwrap_or(state).groups {
+                let mut nodes: Vec<_> = group.nodes.iter().collect();
+                if self.sort_by_delay {
+                    nodes.sort_by_key(|n| delay_sort_key(n));
                 }
-                .into(),
-                delay,
-                delay_level: level,
-                current: n.name == g.now,
+                let order = nodes
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, n)| (n.name.clone(), i))
+                    .collect();
+                self.frozen_order.insert(group.name.clone(), order);
             }
-        })),
+        }
     }
 }
 
