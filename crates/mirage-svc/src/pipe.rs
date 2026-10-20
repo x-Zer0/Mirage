@@ -142,10 +142,11 @@ fn dispatch_sync(shell: &CoreShell, request: Request) -> Result<Response, (Error
         Request::StartCore {
             config_yaml,
             ext_ctl_port,
+            allow_lan,
             secret,
             profile_id,
         } => {
-            let pid = shell.start(&config_yaml, ext_ctl_port, &secret, &profile_id)?;
+            let pid = shell.start(&config_yaml, ext_ctl_port, &secret, &profile_id, allow_lan)?;
             Ok(Response::Started {
                 pid,
                 status: shell.status(),

@@ -1,6 +1,24 @@
-import { Button, CheckBox, ComboBox, LineEdit, TextEdit } from "std-widgets.slint";
+import { Button, CheckBox, LineEdit, TextEdit } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 import { Card } from "../components/card.slint";
+import { HelpIcon } from "../components/help-icon.slint";
+
+component SettingLabel inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> help-text;
+    spacing: 4px;
+    alignment: start;
+    horizontal-stretch: 0;
+    Text {
+        text: root.text;
+        color: Theme.text;
+        vertical-alignment: center;
+        horizontal-stretch: 0;
+        min-width: 0px;
+        wrap: word-wrap;
+    }
+    HelpIcon { text: root.help-text; }
+}
 
 // Settings (DESIGN.md §17.1). Edits stay local until "保存"; the core
 // validates them and answers with a toast or the error bar.
@@ -8,36 +26,32 @@ export component SettingsPage inherits VerticalLayout {
     in property <int> saved-port;
     in property <string> saved-bypass;
     in property <string> saved-user-agent;
-    in property <int> saved-provider-egress;
+    in property <bool> saved-allow-lan;
     in property <bool> saved-auto-connect;
     in property <bool> saved-close-to-tray;
     in property <bool> saved-autostart;
-    in property <bool> saved-tun-disable-system-proxy;
     in property <string> saved-connection-log-limit;
     in property <string> saved-operation-log-days;
     in property <bool> service-installed;
     in property <bool> service-busy;
     in property <bool> tun-active;
     callback manage-service(bool);
-    in property <[string]> egress-options;
     in property <string> core-version;
-    in property <string> core-path;
     in property <bool> running;
     in property <bool> geo-updating;
     // A start/stop is in flight; saving could restart the core again.
     in property <bool> busy;
-    callback save(string, string, string, int, bool, bool, bool, bool, string, string);
+    callback save(string, string, string, bool, bool, bool, bool, string, string);
     callback update-geodata();
 
     // Working copies, reset from the saved values whenever the page opens.
     property <string> port: root.saved-port;
     property <string> bypass: root.saved-bypass;
     property <string> user-agent: root.saved-user-agent;
-    property <int> provider-egress: root.saved-provider-egress;
+    property <bool> allow-lan: root.saved-allow-lan;
     property <bool> auto-connect: root.saved-auto-connect;
     property <bool> close-to-tray: root.saved-close-to-tray;
     property <bool> autostart: root.saved-autostart;
-    property <bool> tun-disable-system-proxy: root.saved-tun-disable-system-proxy;
     property <string> connection-log-limit: root.saved-connection-log-limit;
     property <string> operation-log-days: root.saved-operation-log-days;
 
@@ -51,7 +65,12 @@ export component SettingsPage inherits VerticalLayout {
             Text { text: "网络"; font-weight: 600; color: Theme.text; }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "本地代理端口（mixed-port）"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
+                alignment: start;
+                SettingLabel {
+                    text: "本地代理端口（mixed-port）";
+                    help-text: "修改端口后，保存设置会重启运行中的内核。";
+                    width: root.width < 660px ? 160px : 220px;
+                }
                 LineEdit {
                     text <=> root.port;
                     input-type: InputType.number;
@@ -60,7 +79,17 @@ export component SettingsPage inherits VerticalLayout {
                     accessible-label: "本地代理端口";
                 }
             }
-            Text { text: "仅监听 127.0.0.1；修改端口后内核会重启"; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                CheckBox { text: "允许局域网代理"; checked <=> root.allow-lan; horizontal-stretch: 0; }
+                HelpIcon {
+                    text: (root.allow-lan
+                        ? "局域网设备可通过本机局域网 IP 和代理端口连接；请在 Windows 防火墙中允许该端口入站。"
+                        : "仅允许本机通过 127.0.0.1 访问代理。")
+                        + "\n修改局域网代理选项后，保存设置会重启运行中的内核。";
+                }
+            }
             Text { text: "系统代理例外（分号或换行分隔）"; color: Theme.text; }
             TextEdit {
                 text <=> root.bypass;
@@ -74,21 +103,6 @@ export component SettingsPage inherits VerticalLayout {
                 Text { text: "订阅默认 User-Agent"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
                 LineEdit { min-width: 80px; text <=> root.user-agent; accessible-label: "订阅默认 User-Agent"; }
             }
-            HorizontalLayout {
-                spacing: 8px;
-                Text { text: "自由猫账号请求出站"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
-                ComboBox {
-                    model: root.egress-options;
-                    current-index <=> root.provider-egress;
-                    accessible-label: "自由猫账号请求出站";
-                }
-            }
-            Text {
-                text: "内部请求默认直连并忽略系统代理；“经本地内核”会按订阅规则分流，可能经过某个节点。";
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
         }
     }
 
@@ -98,15 +112,23 @@ export component SettingsPage inherits VerticalLayout {
             Text { text: "日志"; font-weight: 600; color: Theme.text; }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "连接日志记录条数"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; }
+                alignment: start;
+                SettingLabel {
+                    text: "连接日志记录条数";
+                    help-text: "0 不记录，最多 10000 条";
+                    width: root.width < 660px ? 160px : 220px;
+                }
                 LineEdit { text <=> root.connection-log-limit; input-type: InputType.number; width: 100px; accessible-label: "连接日志记录条数"; }
-                Text { text: "0 不记录，最多 10000 条"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
             }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "配置日志保留天数"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; }
+                alignment: start;
+                SettingLabel {
+                    text: "配置日志保留天数";
+                    help-text: "0 不记录，最多 60 天";
+                    width: root.width < 660px ? 160px : 220px;
+                }
                 LineEdit { text <=> root.operation-log-days; input-type: InputType.number; width: 100px; accessible-label: "配置日志保留天数"; }
-                Text { text: "0 不记录，最多 60 天"; color: Theme.text-muted; font-size: 12px; vertical-alignment: center; }
             }
         }
     }
@@ -117,12 +139,11 @@ export component SettingsPage inherits VerticalLayout {
             Text { text: "启动与窗口"; font-weight: 600; color: Theme.text; }
             CheckBox { text: "启动后自动连接"; checked <=> root.auto-connect; }
             CheckBox { text: "关闭窗口时最小化到托盘（取消则关闭即退出）"; checked <=> root.close-to-tray; }
-            CheckBox { text: "开机启动（登录后最小化到托盘运行）"; checked <=> root.autostart; }
-            Text {
-                text: "开机启动写入当前用户的启动项（Run 键），不需要管理员权限；取消勾选并保存即移除。";
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                CheckBox { text: "开机启动（登录后最小化到托盘运行）"; checked <=> root.autostart; horizontal-stretch: 0; }
+                HelpIcon { text: "开机启动写入当前用户的启动项（Run 键），不需要管理员权限；取消勾选并保存即移除。"; }
             }
         }
     }
@@ -136,20 +157,19 @@ export component SettingsPage inherits VerticalLayout {
             icon: @image-url("../../assets/icons/lucide/check.svg");
             colorize-icon: true;
             clicked => {
-                root.save(root.port, root.bypass, root.user-agent, root.provider-egress, root.auto-connect, root.close-to-tray, root.autostart, root.tun-disable-system-proxy, root.connection-log-limit, root.operation-log-days);
+                root.save(root.port, root.bypass, root.user-agent, root.allow-lan, root.auto-connect, root.close-to-tray, root.autostart, root.connection-log-limit, root.operation-log-days);
             }
         }
         Button {
-            text: "还原";
+            text: "放弃修改";
             clicked => {
                 root.port = root.saved-port;
                 root.bypass = root.saved-bypass;
                 root.user-agent = root.saved-user-agent;
-                root.provider-egress = root.saved-provider-egress;
+                root.allow-lan = root.saved-allow-lan;
                 root.auto-connect = root.saved-auto-connect;
                 root.close-to-tray = root.saved-close-to-tray;
                 root.autostart = root.saved-autostart;
-                root.tun-disable-system-proxy = root.saved-tun-disable-system-proxy;
                 root.connection-log-limit = root.saved-connection-log-limit;
                 root.operation-log-days = root.saved-operation-log-days;
             }
@@ -161,26 +181,12 @@ export component SettingsPage inherits VerticalLayout {
             spacing: 8px;
             Text { text: "内核"; font-weight: 600; color: Theme.text; }
             Text { text: "版本：" + root.core-version; color: Theme.text; }
-            Text { text: "路径：" + root.core-path; color: Theme.text-muted; font-size: 12px; wrap: word-wrap; }
             HorizontalLayout {
                 spacing: 8px;
                 alignment: start;
-                Button {
-                    text: root.geo-updating ? "正在更新 geodata…" : "更新 geodata";
-                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-                    colorize-icon: true;
-                    enabled: root.running && !root.geo-updating;
-                    clicked => { root.update-geodata(); }
-                }
-                Text {
-                    text: root.running ? "通过运行中的内核下载" : "连接后可用";
-                    color: Theme.text-muted;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                }
+                Text { text: root.service-installed ? "TUN 辅助服务：已安装" : "TUN 辅助服务：未安装"; color: Theme.text; vertical-alignment: center; horizontal-stretch: 0; }
+                HelpIcon { text: "安装、更新和卸载需要管理员授权。TUN 开关会重启内核；更改服务前请关闭 TUN。"; }
             }
-            Text { text: root.service-installed ? "TUN 辅助服务：已安装" : "TUN 辅助服务：未安装"; color: Theme.text; }
-            CheckBox { text: "开启 TUN 时自动关闭系统代理"; checked <=> root.tun-disable-system-proxy; }
             HorizontalLayout {
                 alignment: start;
                 spacing: 8px;
@@ -194,10 +200,13 @@ export component SettingsPage inherits VerticalLayout {
                     enabled: root.service-installed && !root.busy && !root.tun-active;
                     clicked => { root.manage-service(false); }
                 }
-            }
-            Text {
-                text: "安装、更新和卸载需要管理员授权。TUN 开关会重启内核；更改服务前请关闭 TUN。";
-                color: Theme.text-muted; font-size: 12px; wrap: word-wrap;
+                Button {
+                    text: root.geo-updating ? "正在更新 geodata…" : "更新 geodata";
+                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                    colorize-icon: true;
+                    enabled: root.running && !root.geo-updating;
+                    clicked => { root.update-geodata(); }
+                }
             }
         }
     }

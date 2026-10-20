@@ -222,17 +222,14 @@ pub struct SettingsView {
     pub mixed_port: u16,
     pub bypass: String,
     pub default_user_agent: String,
-    /// Index into [`EgressPolicy::ALL`].
-    pub provider_egress: usize,
+    pub allow_lan: bool,
     pub auto_connect: bool,
     pub close_to_tray: bool,
     pub close_hint_shown: bool,
     /// Start with Windows (§11.6); reflects the saved preference.
     pub autostart: bool,
-    pub tun_disable_system_proxy: bool,
     pub connection_log_limit: usize,
     pub operation_log_days: usize,
-    pub core_path: String,
 }
 
 /// Bytes per second from `/traffic` (§6.5 `Event::Traffic`).

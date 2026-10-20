@@ -74,8 +74,6 @@ pub struct SettingsFile {
     #[serde(default = "default_true")]
     pub system_proxy: bool,
     #[serde(default)]
-    pub tun_disable_system_proxy: bool,
-    #[serde(default)]
     pub auto_connect: bool,
     #[serde(default)]
     pub resume_connected: bool,
@@ -83,6 +81,8 @@ pub struct SettingsFile {
     pub tun_enabled: bool,
     #[serde(default = "default_mixed_port")]
     pub mixed_port: u16,
+    #[serde(default)]
+    pub allow_lan: bool,
     #[serde(default = "default_bypass")]
     pub bypass: String,
     #[serde(default = "default_ua")]
@@ -108,11 +108,11 @@ impl Default for SettingsFile {
         Self {
             ui_geometry: UiGeometry::default(),
             system_proxy: true,
-            tun_disable_system_proxy: false,
             auto_connect: false,
             resume_connected: false,
             tun_enabled: false,
             mixed_port: default_mixed_port(),
+            allow_lan: false,
             bypass: default_bypass(),
             default_user_agent: default_ua(),
             provider_egress: EgressPolicy::default(),

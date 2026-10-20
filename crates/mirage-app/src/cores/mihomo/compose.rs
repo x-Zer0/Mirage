@@ -9,6 +9,7 @@ const STAGE: &str = "mihomo.compose";
 
 pub struct ManagedOverlay<'a> {
     pub mixed_port: u16,
+    pub allow_lan: bool,
     pub controller: SocketAddr,
     pub secret: &'a str,
     pub log_level: &'a str,
@@ -29,6 +30,7 @@ pub fn compose(text: &str, overlay: &ManagedOverlay<'_>) -> AppResult<Composed> 
         text,
         &mirage_ipc::ManagedOverlay {
             mixed_port: overlay.mixed_port,
+            allow_lan: overlay.allow_lan,
             controller: overlay.controller,
             secret: overlay.secret,
             log_level: overlay.log_level,

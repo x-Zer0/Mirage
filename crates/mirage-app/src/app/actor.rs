@@ -68,7 +68,6 @@ impl AppCore {
             ui_geometry_save_at: None,
             restart_attempts: 0,
             connection_source: "系统",
-            proxy_before_tun: None,
             connected_since: None,
             deferred: Vec::new(),
             secrets,

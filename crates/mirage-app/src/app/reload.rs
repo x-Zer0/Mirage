@@ -53,6 +53,7 @@ impl AppCore {
             controller_addr: running.controller_addr,
             secret: running.secret.clone(),
             mixed_port: running.mixed_port,
+            allow_lan: running.allow_lan,
             mode: self.settings.routing_mode,
             fallback: profile.last_good_revision.clone(),
             candidate: candidate.clone(),

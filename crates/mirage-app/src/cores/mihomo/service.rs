@@ -45,6 +45,7 @@ impl ServiceProcess {
         profile: String,
         port: u16,
         secret: String,
+        allow_lan: bool,
         journal_path: &std::path::Path,
     ) -> AppResult<Self> {
         let mut pipe = connect(true).await?;
@@ -56,6 +57,7 @@ impl ServiceProcess {
                 config_yaml: yaml,
                 profile_id: profile,
                 ext_ctl_port: port,
+                allow_lan,
                 secret,
             },
         )

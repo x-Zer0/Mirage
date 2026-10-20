@@ -1,5 +1,5 @@
 //! Settings page and per-profile options (DESIGN.md §17.1): ports, bypass,
-//! default UA, provider egress, startup behaviour, routing mode, geodata.
+//! LAN access, default UA, startup behaviour, routing mode, geodata.
 
 use super::state::{Retry, RuntimeStatus, SettingsView};
 use super::{AppCore, Command, Internal, error_notice, info_notice};
@@ -26,13 +26,11 @@ pub struct SettingsInput {
     pub mixed_port: String,
     pub bypass: String,
     pub default_user_agent: String,
-    /// Index into [`EgressPolicy::ALL`].
-    pub provider_egress: usize,
+    pub allow_lan: bool,
     pub auto_connect: bool,
     pub close_to_tray: bool,
     /// Start with Windows (§11.6); applied to the Run key, not to the config.
     pub autostart: bool,
-    pub tun_disable_system_proxy: bool,
     pub connection_log_limit: String,
     pub operation_log_days: String,
 }
@@ -44,23 +42,13 @@ impl AppCore {
             mixed_port: s.mixed_port,
             bypass: s.bypass.clone(),
             default_user_agent: s.default_user_agent.clone(),
-            provider_egress: EgressPolicy::ALL
-                .iter()
-                .position(|e| *e == s.provider_egress)
-                .unwrap_or(0),
+            allow_lan: s.allow_lan,
             auto_connect: s.auto_connect,
             close_to_tray: s.close_to_tray,
             close_hint_shown: s.close_hint_shown,
             autostart: s.autostart,
-            tun_disable_system_proxy: s.tun_disable_system_proxy,
             connection_log_limit: s.connection_log_limit,
             operation_log_days: s.operation_log_days,
-            core_path: self
-                .layout
-                .bundled_core
-                .join("mihomo.exe")
-                .display()
-                .to_string(),
         };
         self.view.mixed_port = s.mixed_port;
     }
@@ -100,81 +88,82 @@ impl AppCore {
             }
         };
         let changes = setting_changes(&self.settings, &parsed, &input);
-        let port_changed = parsed.mixed_port != self.settings.mixed_port;
+        let listener_changed = parsed.mixed_port != self.settings.mixed_port
+            || input.allow_lan != self.settings.allow_lan;
         let bypass_changed = parsed.bypass != self.settings.bypass;
         let autostart_changed = input.autostart != self.settings.autostart;
 
-        // Snapshot before mutation
-        let snapshot = self.settings.clone();
-
-        self.settings.mixed_port = parsed.mixed_port;
-        self.settings.bypass = parsed.bypass;
-        self.settings.default_user_agent = parsed.default_user_agent;
-        self.settings.provider_egress = parsed.provider_egress;
-        self.settings.auto_connect = input.auto_connect;
-        self.settings.close_to_tray = input.close_to_tray;
-        self.settings.autostart = input.autostart;
-        let tun_proxy_changed =
-            self.settings.tun_disable_system_proxy != input.tun_disable_system_proxy;
-        self.settings.tun_disable_system_proxy = input.tun_disable_system_proxy;
-        self.settings.connection_log_limit = parsed.connection_log_limit;
-        self.settings.operation_log_days = parsed.operation_log_days;
-
-        if let Err(e) = self.save_settings_file() {
-            // Rollback on save failure
-            self.settings = snapshot;
+        if let Err(e) = self.store_settings(&input, parsed) {
             self.record_operation("保存设置", "", "手动", "失败", &e.user_message());
             self.view.notice = Some(error_notice(&e));
             return;
         }
 
-        // Only execute side effects after successful save
-        self.connection_logs.set_limit(parsed.connection_log_limit);
-        if parsed.operation_log_days == 0 {
+        self.connection_logs
+            .set_limit(self.settings.connection_log_limit);
+        if self.settings.operation_log_days == 0 {
             let _ = self.operation_logs.clear(&self.layout);
         } else {
             let _ = self
                 .operation_logs
-                .prune(&self.layout, parsed.operation_log_days);
+                .prune(&self.layout, self.settings.operation_log_days);
         }
-
         if !changes.is_empty() {
             self.record_operation("保存设置", "", "手动", "成功", &changes.join("；"));
         }
         self.refresh_settings_view();
-        if tun_proxy_changed && self.view.tun_active {
-            self.view.system_proxy_wanted = !input.tun_disable_system_proxy
-                && self.proxy_before_tun.unwrap_or(self.settings.system_proxy);
-            if !self.view.system_proxy_wanted {
-                self.release_sysproxy();
-            }
+        self.apply_saved_settings(listener_changed, bypass_changed, autostart_changed);
+    }
+
+    fn store_settings(&mut self, input: &SettingsInput, parsed: Parsed) -> AppResult<()> {
+        let snapshot = self.settings.clone();
+        self.settings.mixed_port = parsed.mixed_port;
+        self.settings.allow_lan = input.allow_lan;
+        self.settings.bypass = parsed.bypass;
+        self.settings.default_user_agent = parsed.default_user_agent;
+        self.settings.auto_connect = input.auto_connect;
+        self.settings.close_to_tray = input.close_to_tray;
+        self.settings.autostart = input.autostart;
+        self.settings.connection_log_limit = parsed.connection_log_limit;
+        self.settings.operation_log_days = parsed.operation_log_days;
+        if let Err(e) = self.save_settings_file() {
+            self.settings = snapshot;
+            return Err(e);
         }
-        if self.view.runtime.is_up() {
-            self.ensure_sysproxy();
-        }
+        Ok(())
+    }
+
+    fn apply_saved_settings(
+        &mut self,
+        listener_changed: bool,
+        bypass_changed: bool,
+        autostart_changed: bool,
+    ) {
         if autostart_changed {
-            self.apply_autostart(input.autostart);
+            self.apply_autostart(self.settings.autostart);
         }
-        // The one notice that is shown: a restart, the bypass list, the
-        // autostart entry, or a plain confirmation. The earlier branches win
-        // because they describe work the user has to wait for.
-        let up = self.view.runtime.is_up();
-        if port_changed && up {
-            // §10.6: a new mixed-port needs a process restart. The system
-            // proxy is withdrawn first and re-applied for the new port.
+        if listener_changed && self.view.runtime.is_up() {
+            // Reuse the port-change restart for a new listener scope.
             self.release_sysproxy();
             if let Some(previous) = self.running.take() {
                 self.view.groups.clear();
-                self.connection_source = "修改端口";
+                self.connection_source = "修改代理监听";
                 self.start_after(Some(previous));
             }
-            self.view.notice = Some(info_notice("设置已保存，正在用新端口重启内核"));
-        } else if bypass_changed && self.view.system_proxy_active {
+            self.view.notice = Some(info_notice("设置已保存，正在按新的代理监听设置重启内核"));
+            return;
+        }
+        if bypass_changed && self.view.system_proxy_active {
             self.release_sysproxy();
             self.ensure_sysproxy();
             self.view.notice = Some(info_notice("设置已保存，系统代理例外列表已更新"));
-        } else if !autostart_changed {
-            self.view.notice = Some(info_notice("设置已保存"));
+        } else {
+            if self.view.runtime.is_up() {
+                self.ensure_sysproxy();
+            }
+            if !autostart_changed {
+                self.view.notice = Some(info_notice("设置已保存"));
+            }
         }
     }
 
@@ -419,7 +408,6 @@ struct Parsed {
     mixed_port: u16,
     bypass: String,
     default_user_agent: String,
-    provider_egress: EgressPolicy,
 }
 
 fn validate(input: &SettingsInput) -> AppResult<Parsed> {
@@ -461,10 +449,6 @@ fn validate(input: &SettingsInput) -> AppResult<Parsed> {
         default_user_agent: ua.to_owned(),
         connection_log_limit,
         operation_log_days,
-        provider_egress: EgressPolicy::ALL
-            .get(input.provider_egress)
-            .copied()
-            .unwrap_or_default(),
     })
 }
 
@@ -510,22 +494,11 @@ fn setting_changes(
             saved.operation_log_days, parsed.operation_log_days
         ));
     }
-    if parsed.provider_egress != saved.provider_egress {
-        changes.push(format!(
-            "账号更新出口：{} → {}",
-            saved.provider_egress.label(),
-            parsed.provider_egress.label()
-        ));
-    }
     for (label, before, after) in [
+        ("允许局域网代理", saved.allow_lan, input.allow_lan),
         ("自动连接", saved.auto_connect, input.auto_connect),
         ("关闭到托盘", saved.close_to_tray, input.close_to_tray),
         ("开机启动", saved.autostart, input.autostart),
-        (
-            "TUN 自动关闭系统代理",
-            saved.tun_disable_system_proxy,
-            input.tun_disable_system_proxy,
-        ),
     ] {
         if before != after {
             changes.push(format!(

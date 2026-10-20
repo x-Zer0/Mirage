@@ -6,17 +6,8 @@ use crate::{
 };
 
 impl AppCore {
-    /// Auto-disable is an entry action; a later manual proxy toggle still wins.
+    /// Publishes the actual TUN state and records changes.
     pub(super) fn update_tun_state(&mut self, active: bool) {
-        if active && self.proxy_before_tun.is_none() {
-            self.proxy_before_tun = Some(self.view.system_proxy_wanted);
-            if self.settings.tun_disable_system_proxy {
-                self.view.system_proxy_wanted = false;
-                self.release_sysproxy();
-            }
-        } else if !active && let Some(previous) = self.proxy_before_tun.take() {
-            self.view.system_proxy_wanted = previous;
-        }
         if self.view.tun_active != active {
             self.record_operation(
                 "TUN",

@@ -37,7 +37,6 @@
 - Mihomo YAML 与 sing-box JSON 互转。
 - 内核自动更新（可手动替换并重新校验，见 §10.1）。
 - 运行时动态插件、独立后台 Web 服务、多核心同时运行。
-- 局域网共享代理（`allow-lan` 强制关闭，见 §9.5）。
 
 ---
 
@@ -508,6 +507,7 @@ resolve_source → fetch（有界）→ detect → store raw candidate → compo
 ```rust
 pub struct ManagedOverlay {
     pub mixed_port: u16,
+    pub allow_lan: bool,                     // 用户设置，默认 false
     pub controller: SocketAddr,
     pub secret: SecretString,
     pub log_level: LogLevel,                 // 默认 warning
@@ -524,8 +524,8 @@ pub struct ManagedOverlay {
 | --- | --- |
 | `mixed-port` | 设为 overlay 值 |
 | `port` `socks-port` `redir-port` `tproxy-port` | 删除 |
-| `allow-lan` | `false` |
-| `bind-address` | `"127.0.0.1"` |
+| `allow-lan` | 用户设置 `allow_lan`，默认 `false`；不采用订阅值 |
+| `bind-address` | `allow_lan = true` 时为 `"*"`，否则为 `"127.0.0.1"` |
 | `lan-allowed-ips` `lan-disallowed-ips` `authentication` `skip-auth-prefixes` | 删除 |
 | `external-controller` | overlay 值（同时通过 CLI `-ext-ctl` 传入） |
 | `secret` | overlay 值（同时通过 CLI `-secret` 传入） |
@@ -543,7 +543,7 @@ pub struct ManagedOverlay {
 
 其余字段原样保留，包括 `proxies`、`proxy-groups`、`proxy-providers`、`rule-providers`、`rules`、`sub-rules`、`dns`、`hosts`、`sniffer`、`ipv6`、`unified-delay`、`tcp-concurrent`、`find-process-mode`、`geodata-mode`、`experimental`、`keep-alive-*`、`interface-name`。
 
-上表对应 `overlay_version = 2`（M7：TUN 覆盖、DNS 环回约束与 provider 路径复检）。规则变更时 `overlay_version` 加 1，下一次启动时自动重新合成所有 Valid 版本。
+上表对应 `overlay_version = 3`（增加用户明确开启局域网代理；保留 TUN 覆盖、DNS 环回约束与 provider 路径复检）。规则变更时 `overlay_version` 加 1，下一次启动时自动重新合成所有 Valid 版本。
 
 ### 9.4 Provider 路径隔离
 
@@ -555,7 +555,7 @@ pub struct ManagedOverlay {
 
 ### 9.5 安全策略
 
-- 本地监听只绑定环回地址，局域网共享在 v1 不提供。
+- 代理默认只监听环回地址；用户在设置中开启“允许局域网代理”后，mixed-port 监听所有接口。控制器和 DNS 仍仅绑定环回地址；订阅无法改变此开关。局域网设备使用本机局域网 IP 和代理端口连接，Windows 防火墙需允许入站；应用不自动修改防火墙。
 - 合成器记录所有被删除或重写的键，写入 `ConfigRevision` 的 `policy_notes`，在相关配置操作日志摘要中展示（例如“已移除订阅中的 external-controller 设置”）。
 - 订阅里的 `external-controller: 0.0.0.0:9090` 加空 secret 是真实存在的风险，§9.3 的覆盖规则必须在每次合成时执行，不能有跳过的开关。
 
@@ -584,7 +584,7 @@ tun:
 - 版本固定为 Mihomo Meta v1.19.32 windows-amd64（with_gvisor）。来源：https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.32 。
 - 【已验证】exe 的 SHA256 为 `BEB9878924D7BD38C67176B441AB5E668CC378BFE751C8DC8FEF3EB5AAF566D5`，`-v` 输出 `Mihomo Meta v1.19.32 windows amd64 with go1.26.8 ... Use tags: with_gvisor`。
 - 安装位置是 `<安装目录>\core\mihomo.exe`，不入 git 仓库。由 `scripts/fetch-core.ps1` 下载官方发布包，校验 SHA256 后放入 `assets/core/`，打包时一并带上。
-- 启动前执行 `verify_binary`：计算 SHA256，与内置期望值比对，再运行 `-v` 解析版本。不一致时报 `CoreBinaryInvalid`。设置页允许用户指定其他内核路径，此时只做 `-v` 检查，并标记为“未验证的内核”。
+- 启动前执行 `verify_binary`：计算 SHA256，与内置期望值比对，再运行 `-v` 解析版本。不一致时报 `CoreBinaryInvalid`。设置页仅展示内核版本，不展示内核路径或提供自定义内核入口。
 - 分发前需核对 Mihomo 的许可证（GPL-3.0）及其分发义务，附带许可证文本并指向源码位置。
 
 ### 10.2 目录布局与 geodata
@@ -653,7 +653,7 @@ Base 为 `http://127.0.0.1:<port>`，请求头 `Authorization: Bearer <secret>`�
 ### 10.6 应用配置的方式与节点选择记忆
 
 - `reload` 只用于更新订阅或切换 Profile，且端口和 TUN 都不变的情况。热重载不会重启进程，但会重建出站，现有连接可能中断。
-- 以下情况必须重启进程：mixed-port 变化、控制器变化、TUN 开或关、更换内核二进制。
+- 以下情况必须重启进程：mixed-port 变化、允许局域网代理开或关、控制器变化、TUN 开或关、更换内核二进制。
 - 内核自带的 `store-selected` 被关闭（§9.3），节点选择由应用自己保存在 `profiles/<id>/selection.json`，格式为 `{group: node}`。用户每次成功选择节点后立即写入。内核启动或重载后，对所有 `type == Selector` 的组逐个调用 `PUT /proxies/{group}` 恢复选择；已经不存在的节点直接跳过。这样选择记录按 Profile 隔离，也不依赖 `cache.db`。
 
 ### 10.7 测速
@@ -670,7 +670,7 @@ Base 为 `http://127.0.0.1:<port>`，请求头 `Authorization: Bearer <secret>`�
 - “连接”指启动内核。系统代理和 TUN 是两个独立开关，叠加在已运行的内核之上。
 - 默认行为：点击“连接”后启动内核并开启系统代理，TUN 保持关闭。
 - 用户可以单独关闭系统代理（只保留本地端口，供手动配置代理的程序使用），也可以手动开启 TUN。
-- 开启 TUN 时系统代理默认保持开启：只走系统代理的应用依然可用，其余流量由 TUN 接管。是否在开启 TUN 时自动关闭系统代理做成设置项，默认不关闭。
+- TUN 与系统代理是独立开关；开启或关闭 TUN 保持系统代理的当前偏好，是否接管系统代理由用户手动选择。
 - 系统代理只对读取 WinINet 代理设置的程序生效，界面上不能写成“接管全部流量”。
 
 ### 11.2 系统代理的读写
@@ -741,10 +741,10 @@ TUN 在 Windows 上需要管理员权限，用来创建 wintun 网卡和写路�
   - 安装服务时（已提权），把 `mirage-svc.exe`、`mihomo.exe` 和 geodata 复制到 `%ProgramFiles%\Mirage\mirage-svc\`，该目录只有管理员可写。
   - 服务的工作目录是 `%ProgramData%\Mirage\tun-home\`，ACL 为 SYSTEM 和 Administrators 完全控制，安装用户只读。
 - 服务只接受固定的几条命令，没有执行任意命令的入口：
-  - `StartCore { profile_id, config_yaml: String, ext_ctl_port: u16, secret }`：配置内容通过管道传入，不传路径。服务收到后重新执行一遍 §9.3/§9.4 的策略检查，强制环回监听、拒绝 file provider，并把 provider 路径限制在 tun-home 内。检查通过后写入 tun-home，执行 `-t` 校验，最后用 `%ProgramFiles%` 下、SHA256 校验通过的 `mihomo.exe` 启动内核。
+  - `StartCore { profile_id, config_yaml: String, ext_ctl_port: u16, secret, allow_lan: bool }`：配置内容通过管道传入，不传路径。服务收到后重新执行一遍 §9.3/§9.4 的策略检查，保持控制器和 DNS 环回监听，代理监听范围只取明确传入的 allow_lan；拒绝 file provider，并把 provider 路径限制在 tun-home 内。检查通过后写入 tun-home，执行 `-t` 校验，最后用 `%ProgramFiles%` 下、SHA256 校验通过的 `mihomo.exe` 启动内核。
   - `StopCore`、`Status`、`Cleanup`。
-- M7 增加固定的 `ReloadCore { config_yaml }` 命令：重用当前会话的 profile_id、控制器和 secret，重新执行策略与 `-t` 后写入服务目录，再从该受保护文件发起 REST 热重载；UI 不向 SYSTEM 内核传入用户目录路径。失败沿用应用已有的 last_good 回退流程。
-- IPC 协议版本为 2，长度前缀 JSON 帧限制为 32 MiB。Hello 同时核对协议版本与应用版本；不兼容时拒绝 StartCore/ReloadCore，保留 StopCore/Cleanup。profile_id 限制为不超过 64 字符的 ASCII 字母、数字和连字符。
+- M7 增加固定的 `ReloadCore { config_yaml }` 命令：重用当前会话的 profile_id、控制器、secret 和 allow_lan，重新执行策略与 `-t` 后写入服务目录，再从该受保护文件发起 REST 热重载；UI 不向 SYSTEM 内核传入用户目录路径。失败沿用应用已有的 last_good 回退流程。
+- IPC 协议版本为 3（StartCore 增加独立的 allow_lan 参数，已有服务需更新），长度前缀 JSON 帧限制为 32 MiB。Hello 同时核对协议版本与应用版本；不兼容时拒绝 StartCore/ReloadCore，保留 StopCore/Cleanup。profile_id 限制为不超过 64 字符的 ASCII 字母、数字和连字符。
 - 服务采用单个所有者管道连接，拒绝远程管道客户端。UI 反向校验管道服务进程来自受保护安装目录；状态每秒轮询，15 秒没有请求或管道断开时停止所属内核。正在执行的配置校验有 60 秒上限，重载 REST 有 30 秒上限。停止服务不依赖新客户端连接来唤醒。
 - 服务以 SYSTEM 身份启动内核，并把它放入服务自己的 Job Object。UI 通过控制器 REST 接口管理内核，与直连模式一致。服务通过 `Status` 响应报告退出，应用转换为原有监督重启事件。
 - 节点选择记忆和测速等功能都由 UI 端通过 REST 接口完成，与内核是否在服务中运行无关。
@@ -752,7 +752,7 @@ TUN 在 Windows 上需要管理员权限，用来创建 wintun 网卡和写路�
 - 开启 TUN = 停止直连模式的内核 → 合成带 TUN 覆盖的配置（§9.6）→ 校验 → 通过 ServiceLauncher 启动。关闭 TUN 走相反的流程。只要有一步失败，就回到直连模式并显示原因。
 - 服务启动时会清理残留的 TUN 内核。恢复记录包含 PID、创建时间和映像路径，在同一个进程句柄上核对后才终止，避免 PID 复用误杀。
 - 安装目录和数据目录通过 Windows Known Folder API 定位；复制前设置受保护 ACL，拒绝重解析点，复制后的官方内核再核对固定 SHA256。geodata 同时进入 tun-home，校验进程也放入 Job Object；普通安装用户仅获 SCM 启动与查询权限，安装、升级、卸载仍走 UAC。
-- TUN 开关是本次应用会话的选择，新启动默认关闭；“开启 TUN 时自动关闭系统代理”是持久化设置，默认关闭。此自动动作不阻止随后手动开启系统代理，关闭 TUN 时恢复进入前的代理偏好。
+- 系统代理由独立开关控制，切换 TUN 时保留当前系统代理偏好。
 - TUN 与 IPv6、UDP、DNS 劫持的组合，只有在 M7 实测通过后才能在 UI 上标记为“支持”。
 
 ### 11.8 与原自由猫客户端的冲突
@@ -970,7 +970,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | 总览 | 连接按钮（大）、系统代理开关、TUN 开关（默认关闭）、路由模式（规则/全局/直连）、当前 Profile、当前出口节点、实时速率、连通状态 | 套餐、剩余流量、到期时间（有数据时显示） |
 | 配置 | Profile 列表（名称、来源类型、更新时间、用量）、添加 URL、导入文件、更新、更新全部、设为活动、删除确认、右侧设置抽屉 | “添加自由猫账号”居中弹窗（邮箱/密码、原客户端导入）；账号信息与刷新在关联配置抽屉展示 |
 | 节点 | 代理组选项卡（只列 Selector 组可选；其他类型的组只读并显示当前节点）、搜索、测速、延迟排序 | — |
-| 设置 | 内核路径与版本、mixed-port、bypass 列表、默认 UA、内部请求出站策略、启动行为（开机启动/自动连接/关闭到托盘）、TUN 服务安装/卸载、geodata 更新 | — |
+| 设置 | 内核版本、mixed-port、允许局域网代理、bypass 列表、默认 UA、启动行为（开机启动/自动连接/关闭到托盘）、TUN 服务安装/卸载、geodata 更新 | — |
 | 日志 | 连接日志、配置与系统关键操作历史、搜索筛选、虚拟滚动、导出诊断包 | 连接本次运行保留 0–10,000 条（默认 1,000）；配置日志保留 0–60 天（默认 30） |
 
 账号功能已全部并入配置，侧栏只保留上表五页，不再有“账号”菜单。五页内容区不重复显示菜单名称；节点未连接时，“连接后显示代理组和节点。”在内容区水平、垂直居中。自由猫继续保持单账号；入口始终叫“添加自由猫账号”，已有账号时仍可登录或导入。新登录成功后覆盖当前账号并更新原关联配置，登录失败保留原会话。抽屉不提供重新登录、移除账号或移除账号和配置的独立入口；需再次登录时仍从添加入口进入。
@@ -986,7 +986,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 
 ### 17.2 托盘
 
-- 托盘图标：未连接灰色；连接中、断开中及内核重启中橙色；运行时按路由模式显示规则蓝色、全局紫色、直连绿色；失败红色。TUN 实际生效时叠加 `T` 角标，系统代理与 TUN 的实际接管组合显示在悬停提示中。运行时异常颜色优先于路由模式颜色，普通操作错误只进错误条，不改托盘图标。
+- 托盘图标：未连接灰色；连接中、断开中及内核重启中橙色；运行时按路由模式显示规则蓝色、全局紫色、直连绿色；失败红色。TUN 实际生效时在左下角叠加 T 角标，系统代理与 TUN 的实际接管组合显示在悬停提示中。运行时异常颜色优先于路由模式颜色，普通操作错误只进错误条，不改托盘图标。
 - 托盘菜单：显示主窗口 / 连接·断开 / 系统代理 ✓ / TUN ✓ / 路由模式 ▸ / 退出。【M5】Slint 1.18 的 Windows 托盘不渲染 `MenuItem.checked`，勾选状态用标题前缀“✓ ”表示；M7 已接入 TUN 开关，连接切换或服务操作进行中禁用。
 - 左键单击显示主窗口。
 - 关闭窗口时默认最小化到托盘，第一次关闭时弹通知提示一次。也可以在设置中改为“关闭即退出”。

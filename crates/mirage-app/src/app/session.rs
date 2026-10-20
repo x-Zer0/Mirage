@@ -71,6 +71,7 @@ impl AppCore {
             binary,
             profile,
             mixed_port: self.view.mixed_port,
+            allow_lan: self.settings.allow_lan,
             mode: self.settings.routing_mode,
             tun: self.view.tun_wanted,
         };

@@ -91,6 +91,7 @@ async fn check_candidate(
     let secret = super::runtime::random_secret()?;
     let overlay = ManagedOverlay {
         mixed_port,
+        allow_lan: false,
         controller: super::runtime::PLACEHOLDER_CONTROLLER,
         secret: &secret,
         log_level: super::runtime::CORE_LOG_LEVEL,

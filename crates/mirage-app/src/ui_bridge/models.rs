@@ -213,14 +213,12 @@ fn apply_settings(w: &MainWindow, s: &AppStateView) {
     w.set_settings_port(i32::from(st.mixed_port));
     w.set_settings_bypass(st.bypass.clone().into());
     w.set_settings_user_agent(st.default_user_agent.clone().into());
-    w.set_settings_provider_egress(i32::try_from(st.provider_egress).unwrap_or(0));
+    w.set_settings_allow_lan(st.allow_lan);
     w.set_settings_auto_connect(st.auto_connect);
     w.set_settings_close_to_tray(st.close_to_tray);
     w.set_settings_autostart(st.autostart);
-    w.set_settings_tun_disable_system_proxy(st.tun_disable_system_proxy);
     w.set_settings_connection_log_limit(st.connection_log_limit.to_string().into());
     w.set_settings_operation_log_days(st.operation_log_days.to_string().into());
-    w.set_core_path(st.core_path.clone().into());
     w.set_geo_updating(s.geo_updating);
     w.set_exporting(s.exporting);
 }
@@ -339,7 +337,7 @@ fn tray_icon(color: &str, tun_active: bool) -> Image {
                 if tun_active {
                     svg = svg.replace(
                         "</svg>",
-                        "<circle cx=\"790\" cy=\"790\" r=\"195\" fill=\"#111827\" stroke=\"#FFFFFF\" stroke-width=\"48\"/><path d=\"M675 665h230v68h-81v185h-68V733h-81z\" fill=\"#FFFFFF\"/></svg>",
+                        "<circle cx=\"230\" cy=\"790\" r=\"195\" fill=\"#111827\" stroke=\"#FFFFFF\" stroke-width=\"48\"/><path d=\"M115 665h230v68h-81v185h-68V733h-81z\" fill=\"#FFFFFF\"/></svg>",
                     );
                 }
                 render_tray_icon(&svg)

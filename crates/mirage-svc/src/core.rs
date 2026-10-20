@@ -29,6 +29,7 @@ struct Running {
     profile_id: String,
     controller: SocketAddr,
     secret: String,
+    allow_lan: bool,
 }
 #[derive(Default)]
 pub struct CoreShell {
@@ -95,7 +96,14 @@ impl CoreShell {
         Ok(())
     }
 
-    pub fn start(&self, yaml: &str, port: u16, secret: &str, profile: &str) -> Result<u32> {
+    pub fn start(
+        &self,
+        yaml: &str,
+        port: u16,
+        secret: &str,
+        profile: &str,
+        allow_lan: bool,
+    ) -> Result<u32> {
         self.status();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.running.is_some() {
@@ -108,7 +116,7 @@ impl CoreShell {
             ));
         }
         let controller = SocketAddr::from(([127, 0, 0, 1], port));
-        let config = prepare(yaml, controller, secret, profile)?;
+        let config = prepare(yaml, controller, secret, profile, allow_lan)?;
         let home = paths::tun_home().map_err(io_error)?;
         let core = process::spawn(CoreCommand {
             exe: paths::core_exe().map_err(io_error)?,
@@ -135,6 +143,7 @@ impl CoreShell {
             profile_id: profile.to_owned(),
             controller,
             secret: secret.to_owned(),
+            allow_lan,
         });
         log::info(&format!("core started pid={pid}"));
         Ok(pid)
@@ -149,7 +158,7 @@ impl CoreShell {
             .running
             .as_ref()
             .ok_or_else(|| fail(ErrorKind::CoreNotRunning, "内核未运行"))?;
-        let config = prepare(yaml, r.controller, &r.secret, &r.profile_id)?;
+        let config = prepare(yaml, r.controller, &r.secret, &r.profile_id, r.allow_lan)?;
         Ok(Reload {
             config,
             controller: r.controller,
@@ -163,6 +172,7 @@ fn prepare(
     controller: SocketAddr,
     secret: &str,
     profile: &str,
+    allow_lan: bool,
 ) -> Result<std::path::PathBuf> {
     let root = policy::parse(yaml).map_err(|e| fail(ErrorKind::PolicyRejected, e))?;
     let mixed = root
@@ -175,6 +185,7 @@ fn prepare(
         yaml,
         &ManagedOverlay {
             mixed_port: mixed,
+            allow_lan,
             controller,
             secret,
             log_level: "warning",

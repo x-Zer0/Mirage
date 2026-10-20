@@ -10,7 +10,7 @@ use std::io::{self, Read, Write};
 
 pub const PIPE_NAME: &str = r"\\.\pipe\mirage-svc";
 /// Incremented when `Request`/`Response` change incompatibly.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 /// Both sides refuse anything larger; a run config is far below this.
 pub const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
@@ -27,6 +27,7 @@ pub enum Request {
         profile_id: String,
         config_yaml: String,
         ext_ctl_port: u16,
+        allow_lan: bool,
         secret: String,
     },
     /// Same policy and -t check as StartCore, then reload from the protected file.

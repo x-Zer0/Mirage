@@ -36,6 +36,7 @@ pub struct Running {
     /// Controller secret; memory only (the run config holds it under a private ACL).
     pub secret: String,
     pub mixed_port: u16,
+    pub allow_lan: bool,
     pub log_file: PathBuf,
     pub check_lines: Vec<String>,
     pub policy_notes: Vec<String>,
@@ -48,6 +49,7 @@ pub struct StartRequest {
     pub binary: CoreBinary,
     pub profile: Profile,
     pub mixed_port: u16,
+    pub allow_lan: bool,
     pub mode: Option<RoutingMode>,
     pub tun: bool,
 }
@@ -65,13 +67,14 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         crate::cores::mihomo::service::cleanup().await?;
         journal::remove(&req.layout.recovery.join("tun.json"));
     }
-    ensure_port_free(req.mixed_port)?;
+    ensure_port_free(req.mixed_port, req.allow_lan)?;
     let controller_addr = free_loopback_addr()?;
     let secret = random_secret()?;
 
     let raw = revisions::read_raw(&req.layout, &req.profile, &rev_id)?;
     let overlay = ManagedOverlay {
         mixed_port: req.mixed_port,
+        allow_lan: req.allow_lan,
         controller: controller_addr,
         secret: &secret,
         log_level: CORE_LOG_LEVEL,
@@ -122,6 +125,7 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         controller_addr,
         secret,
         mixed_port: req.mixed_port,
+        allow_lan: req.allow_lan,
         log_file,
         check_lines: prepared.report.lines,
         policy_notes: prepared.composed.policy_notes,
@@ -143,6 +147,7 @@ async fn launch(
             req.profile.id.clone(),
             controller.port(),
             secret.to_owned(),
+            req.allow_lan,
             &path,
         )
         .await
@@ -175,6 +180,7 @@ pub struct ReloadRequest {
     pub controller_addr: SocketAddr,
     pub secret: String,
     pub mixed_port: u16,
+    pub allow_lan: bool,
     pub mode: Option<RoutingMode>,
     pub tun: bool,
     pub candidate: RevisionId,
@@ -220,6 +226,7 @@ async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> 
     let detected = detect::detect(&raw)?;
     let overlay = ManagedOverlay {
         mixed_port: req.mixed_port,
+        allow_lan: req.allow_lan,
         controller: req.controller_addr,
         secret: &req.secret,
         log_level: CORE_LOG_LEVEL,
@@ -376,22 +383,25 @@ async fn restore_selection(layout: &Layout, profile_id: &ProfileId, controller: 
     }
 }
 
-fn ensure_port_free(port: u16) -> AppResult<()> {
-    TcpListener::bind((Ipv4Addr::LOCALHOST, port))
-        .map(drop)
-        .map_err(|_| {
-            // §11.8: name the process holding the port, so the user can act.
-            let owner = crate::platform::windows::conflict::port_owner(port);
-            let hint = match owner {
-                Some(name) => format!("，占用进程：{name}"),
-                None => String::new(),
-            };
-            AppError::new(
-                AppErrorKind::PortInUse,
-                STAGE,
-                format!("127.0.0.1:{port} 已被其他程序占用{hint}；可在设置中修改本地代理端口"),
-            )
-        })
+fn ensure_port_free(port: u16, allow_lan: bool) -> AppResult<()> {
+    let address = if allow_lan {
+        Ipv4Addr::UNSPECIFIED
+    } else {
+        Ipv4Addr::LOCALHOST
+    };
+    TcpListener::bind((address, port)).map(drop).map_err(|_| {
+        // §11.8: name the process holding the port, so the user can act.
+        let owner = crate::platform::windows::conflict::port_owner(port);
+        let hint = match owner {
+            Some(name) => format!("，占用进程：{name}"),
+            None => String::new(),
+        };
+        AppError::new(
+            AppErrorKind::PortInUse,
+            STAGE,
+            format!("{address}:{port} 已被其他程序占用{hint}；可在设置中修改代理端口"),
+        )
+    })
 }
 
 fn free_loopback_addr() -> AppResult<SocketAddr> {

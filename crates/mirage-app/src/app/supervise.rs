@@ -176,9 +176,6 @@ impl AppCore {
     }
 
     pub(super) fn set_system_proxy(&mut self, on: bool) {
-        if self.proxy_before_tun.is_some() {
-            self.proxy_before_tun = Some(on);
-        }
         let changed = self.settings.system_proxy != on;
         self.settings.system_proxy = on;
         if let Err(e) = meta::save(&self.layout.settings_file(), &self.settings, STAGE) {

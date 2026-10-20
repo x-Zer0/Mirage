@@ -78,14 +78,12 @@ export component MainWindow inherits Window {
     in property <int> settings-port;
     in property <string> settings-bypass;
     in property <string> settings-user-agent;
-    in property <int> settings-provider-egress;
+    in property <bool> settings-allow-lan;
     in property <bool> settings-auto-connect;
     in property <bool> settings-close-to-tray;
     in property <bool> settings-autostart;
-    in property <bool> settings-tun-disable-system-proxy;
     in property <string> settings-connection-log-limit;
     in property <string> settings-operation-log-days;
-    in property <string> core-path;
     in property <bool> geo-updating;
     in property <bool> exporting;
     // Traffic is fed only while the window is visible; connection logs continue in the tray (§17.4).
@@ -156,7 +154,7 @@ export component MainWindow inherits Window {
     callback reveal-account(string, bool);
     callback import-legacy(string);
     callback probe-hosts();
-    callback save-settings(string, string, string, int, bool, bool, bool, bool, string, string);
+    callback save-settings(string, string, string, bool, bool, bool, bool, string, string);
     callback manage-service(bool);
     callback update-geodata();
     callback export-diagnostics();
@@ -291,24 +289,21 @@ export component MainWindow inherits Window {
                     saved-port: root.settings-port;
                     saved-bypass: root.settings-bypass;
                     saved-user-agent: root.settings-user-agent;
-                    saved-provider-egress: root.settings-provider-egress;
+                    saved-allow-lan: root.settings-allow-lan;
                     saved-auto-connect: root.settings-auto-connect;
                     saved-close-to-tray: root.settings-close-to-tray;
                     saved-autostart: root.settings-autostart;
-                    saved-tun-disable-system-proxy: root.settings-tun-disable-system-proxy;
                     saved-connection-log-limit: root.settings-connection-log-limit;
                     saved-operation-log-days: root.settings-operation-log-days;
                     service-installed: root.service-installed;
                     service-busy: root.service-busy;
                     tun-active: root.tun-active;
                     manage-service(install) => { root.manage-service(install); }
-                    egress-options: root.egress-options;
                     core-version: root.core-version;
-                    core-path: root.core-path;
                     running: root.running;
                     geo-updating: root.geo-updating;
                     busy: root.busy;
-                    save(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy, connection-limit, operation-days) => { root.save-settings(port, bypass, ua, egress, auto, tray, autostart, tun-no-proxy, connection-limit, operation-days); }
+                    save(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days) => { root.save-settings(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days); }
                     update-geodata => { root.update-geodata(); }
                 }
             }

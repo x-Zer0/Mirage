@@ -3,7 +3,7 @@
 //! This is the single implementation of the policy. The app calls it when it
 //! composes a run configuration; the SYSTEM service calls it again on whatever
 //! YAML arrives over the pipe, so a compromised or buggy UI cannot smuggle in
-//! an extra listener, a LAN-bound socket or a local-file provider.
+//! an extra listener, an unrequested LAN-bound socket or a local-file provider.
 
 use serde_yaml_ng::{Mapping, Value};
 use sha2::{Digest, Sha256};
@@ -11,7 +11,8 @@ use std::net::SocketAddr;
 
 /// Bump when the rules below change; Valid revisions are re-composed (§9.3).
 /// v2: `tun` can be enabled and a minimal `dns` block may be injected.
-pub const OVERLAY_VERSION: u32 = 2;
+/// v3: explicit user opt-in may expose only the mixed proxy listener to the LAN.
+pub const OVERLAY_VERSION: u32 = 3;
 
 /// TUN stack; the exact value is a M7 acceptance item (§9.6, §22).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -49,6 +50,8 @@ pub const FAKE_IP_LISTEN: &str = "127.0.0.1:1053";
 
 pub struct ManagedOverlay<'a> {
     pub mixed_port: u16,
+    /// Application preference, never read from subscription YAML.
+    pub allow_lan: bool,
     pub controller: SocketAddr,
     pub secret: &'a str,
     pub log_level: &'a str,
@@ -60,7 +63,7 @@ pub struct ManagedOverlay<'a> {
     pub profile_id: &'a str,
 }
 
-/// Keys deleted outright: extra listeners, LAN exposure, controller side doors.
+/// Keys deleted outright: extra listeners, subscription access rules, controller side doors.
 const REMOVED_KEYS: &[&str] = &[
     "port",
     "socks-port",
@@ -147,8 +150,13 @@ pub fn parse(text: &str) -> Result<Value, String> {
 
 fn override_managed(map: &mut Mapping, o: &ManagedOverlay<'_>, notes: &mut Vec<String>) {
     set_key(map, notes, "mixed-port", Value::from(o.mixed_port));
-    set_key(map, notes, "allow-lan", Value::Bool(false));
-    set_key(map, notes, "bind-address", Value::from("127.0.0.1"));
+    set_key(map, notes, "allow-lan", Value::Bool(o.allow_lan));
+    set_key(
+        map,
+        notes,
+        "bind-address",
+        Value::from(if o.allow_lan { "*" } else { "127.0.0.1" }),
+    );
     set_key(
         map,
         notes,
