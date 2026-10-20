@@ -1,10 +1,10 @@
 import { Theme } from "theme.slint";
 
-// Country flags use images so regional indicators work on Windows as well.
+// All labels share one atlas; the source clip selects a single country flag.
 export component NodeLabel inherits Rectangle {
     in property <string> prefix;
     in property <string> text;
-    in property <image> flag;
+    in property <int> flag-index: -1;
     in property <color> text-color: Theme.text;
     min-width: 0px;
     preferred-width: content.preferred-width;
@@ -17,13 +17,17 @@ export component NodeLabel inherits Rectangle {
             horizontal-stretch: 0;
             vertical-alignment: center;
         }
-        if root.flag.width > 0: Rectangle {
+        if root.flag-index >= 0: Rectangle {
             width: 16px;
             Image {
                 width: 16px;
                 height: 12px;
                 y: (parent.height - self.height) / 2;
-                source: root.flag;
+                source: @image-url("../../assets/flags_atlas.png");
+                source-clip-x: Math.mod(root.flag-index, 16) * 48;
+                source-clip-y: floor(root.flag-index / 16) * 36;
+                source-clip-width: 48;
+                source-clip-height: 36;
                 image-fit: contain;
             }
         }

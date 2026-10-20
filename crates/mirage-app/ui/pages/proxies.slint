@@ -7,7 +7,7 @@ import { ToggleButton } from "../components/toggle-button.slint";
 export struct NodeRow {
     name: string,
     display-name: string,
-    flag: image,
+    flag-index: int,
     details: string,
     delay: string,
     delay-level: int, // 0 unknown/pending, 1 good, 2 slow, 3 failed
@@ -20,7 +20,7 @@ export struct GroupRow {
     kind: string,
     now: string,
     current-label: string,
-    current-flag: image,
+    current-flag-index: int,
     current-node-index: int,
     selectable: bool,
     nodes: [NodeRow],
@@ -103,7 +103,7 @@ export component ProxiesPage inherits VerticalLayout {
                 text: group.kind + " · " + group.now + (group.selectable ? "" : "（自动选择，只读）");
                 prefix: group.kind + " ·";
                 display-name: group.current-label + (group.selectable ? "" : "（自动选择，只读）");
-                flag: group.current-flag;
+                flag-index: group.current-flag-index;
                 enabled: group.now != "";
                 clicked => {
                     if group.current-node-index < 0 && root.filter != "" {
@@ -181,7 +181,7 @@ export component ProxiesPage inherits VerticalLayout {
                         width: parent.width;
                         name: node.name;
                         display-name: node.display-name;
-                        flag: node.flag;
+                        flag-index: node.flag-index;
                         details: node.details;
                         delay: node.delay;
                         delay-level: node.delay-level;

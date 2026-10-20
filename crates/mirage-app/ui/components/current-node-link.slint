@@ -5,7 +5,7 @@ export component CurrentNodeLink inherits Rectangle {
     in property <string> text;
     in property <string> prefix;
     in property <string> display-name;
-    in property <image> flag;
+    in property <int> flag-index: -1;
     in property <bool> enabled;
     callback clicked();
     forward-focus: focus;
@@ -23,7 +23,7 @@ export component CurrentNodeLink inherits Rectangle {
         height: parent.height;
         prefix: root.prefix;
         text: root.display-name;
-        flag: root.flag;
+        flag-index: root.flag-index;
         text-color: touch.has-hover && root.enabled ? Theme.accent : Theme.text-muted;
     }
     touch := TouchArea {

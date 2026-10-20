@@ -258,7 +258,7 @@ fn update_groups(w: &MainWindow, groups: &[&ProxyGroupView], list: &ListOptions)
             || old.now != row.now
             || old.hidden != row.hidden
             || old.current_label != row.current_label
-            || old.current_flag != row.current_flag
+            || old.current_flag_index != row.current_flag_index
             || old.current_node_index != row.current_node_index
         {
             current.set_row_data(i, row);
@@ -465,13 +465,13 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
         .position(|node| node.name == g.now)
         .and_then(|index| i32::try_from(index).ok())
         .unwrap_or(-1);
-    let (current_label, current_flag) = flags::label(&g.now);
+    let (current_label, current_flag_index) = flags::label(&g.now);
     GroupRow {
         name: g.name.clone().into(),
         kind: g.kind.clone().into(),
         now: g.now.clone().into(),
         current_label: current_label.into(),
-        current_flag,
+        current_flag_index,
         current_node_index,
         selectable: g.selectable,
         hidden: i32::try_from(hidden).unwrap_or(i32::MAX),
@@ -481,11 +481,11 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
 
 fn node_row(node: &NodeView, current: &str) -> NodeRow {
     let (delay, delay_level, delay_detail) = node_delay_text(node);
-    let (display_name, flag) = flags::label(&node.name);
+    let (display_name, flag_index) = flags::label(&node.name);
     NodeRow {
         name: node.name.clone().into(),
         display_name: display_name.into(),
-        flag,
+        flag_index,
         details: if node.transport.is_empty() {
             node.protocol.clone()
         } else {

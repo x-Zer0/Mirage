@@ -4,7 +4,7 @@ import { NodeLabel } from "node-label.slint";
 export component NodeCard inherits Rectangle {
     in property <string> name;
     in property <string> display-name;
-    in property <image> flag;
+    in property <int> flag-index: -1;
     in property <string> details;
     in property <string> delay;
     in property <int> delay-level;
@@ -37,7 +37,7 @@ export component NodeCard inherits Rectangle {
             horizontal-stretch: 1;
             NodeLabel {
                 text: root.display-name;
-                flag: root.flag;
+                flag-index: root.flag-index;
                 text-color: root.current ? Theme.accent : Theme.text;
                 height: 20px;
             }
