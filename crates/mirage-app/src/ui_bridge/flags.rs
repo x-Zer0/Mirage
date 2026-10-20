@@ -24,7 +24,9 @@ pub fn label(name: &str) -> (String, Image) {
     let flag = FLAGS.with_borrow_mut(|flags| {
         flags
             .entry(code)
-            .or_insert_with(|| Image::load_from_svg_data(FLAG_ASSETS[index].1).unwrap_or_default())
+            .or_insert_with(|| {
+                Image::load_from_data(FLAG_ASSETS[index].1, Some("webp")).unwrap_or_default()
+            })
             .clone()
     });
     if flag.size().width == 0 {

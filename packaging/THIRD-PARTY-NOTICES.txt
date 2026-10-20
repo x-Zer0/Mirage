@@ -32,7 +32,7 @@ Installer built with Inno Setup 6.4.3. https://jrsoftware.org/
 See licenses/Inno-Setup.txt. Simplified Chinese translation attribution is
 retained in packaging/licenses/Inno-ChineseSimplified.isl in the project source.
 
-flag-icons v7.5.0, 4:3 country flag SVGs, unmodified.
-License: MIT; see licenses/flag-icons-MIT.txt.
-Copyright (c) 2013 Panayiotis Lipiridis.
-Source: https://github.com/lipis/flag-icons/tree/v7.5.0
+Flagpedia.net, 4:3 waving country flag WebP images, unmodified.
+Public domain, free for commercial and non-commercial use according to Flagpedia.
+Based on vector files from Wikimedia Commons.
+Source: https://flagpedia.net/download/icons

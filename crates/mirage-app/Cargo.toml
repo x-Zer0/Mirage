@@ -16,6 +16,8 @@ path = "src/main.rs"
 # in the process, works over RDP/VMs, lower memory and CPU for this UI.
 slint = { workspace = true, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "system-tray", "unstable-winit-030"] }
 resvg.workspace = true
+# Enable WebP in the image decoder shared with Slint.
+image = { workspace = true, features = ["webp"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "net", "fs"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt", "registry", "env-filter"] }

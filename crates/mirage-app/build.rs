@@ -58,12 +58,12 @@ fn icon_frame(tree: &usvg::Tree, size: u32) -> IcoFrame<'static> {
     .expect("encode icon size")
 }
 
-/// Generate a sorted lookup table while embedding the SVGs in the executable.
+/// Generate a sorted lookup table while embedding the WebP flags in the executable.
 fn embed_flags() {
     let mut paths: Vec<_> = std::fs::read_dir("assets/flags")
         .expect("read flag assets")
         .map(|entry| entry.expect("read flag asset path").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "svg"))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "webp"))
         .collect();
     paths.sort();
     let mut source = String::from("static FLAG_ASSETS: &[(&str, &[u8])] = &[\n");
