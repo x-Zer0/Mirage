@@ -1,0 +1,52 @@
+import { Theme } from "theme.slint";
+import { NodeLabel } from "node-label.slint";
+
+export component CurrentNodeLink inherits Rectangle {
+    in property <string> text;
+    in property <string> prefix;
+    in property <string> display-name;
+    in property <image> flag;
+    in property <bool> enabled;
+    callback clicked();
+    forward-focus: focus;
+    preferred-width: label.preferred-width;
+
+    accessible-role: button;
+    accessible-enabled: root.enabled;
+    accessible-label: "定位当前节点：" + root.text;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+
+    label := NodeLabel {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        prefix: root.prefix;
+        text: root.display-name;
+        flag: root.flag;
+        text-color: touch.has-hover && root.enabled ? Theme.accent : Theme.text-muted;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.clicked(); }
+    }
+    focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Tooltip {
+        VerticalLayout {
+            padding: 8px;
+            Text { text: root.text; color: Theme.text; }
+            Text { text: "点击定位当前节点"; color: Theme.text-muted; font-size: 12px; }
+        }
+    }
+}

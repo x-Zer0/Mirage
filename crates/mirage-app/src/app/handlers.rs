@@ -37,7 +37,6 @@ impl AppCore {
             Command::Disconnect => self.disconnect(),
             Command::SelectNode { group, node } => self.select_node(group, node),
             Command::TestGroupDelay(group) => self.test_delay(group),
-            Command::RefreshGroups => self.refresh_groups(),
             Command::SetSystemProxy(on) => self.set_system_proxy(on),
             Command::SetTun(on) => self.set_tun(on),
             Command::ManageService(install) => self.manage_service(install, false),

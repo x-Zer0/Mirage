@@ -1,8 +1,14 @@
-import { Button, CheckBox, ListView, LineEdit, ScrollView } from "std-widgets.slint";
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
+import { NodeCard } from "../components/node-card.slint";
+import { CurrentNodeLink } from "../components/current-node-link.slint";
+import { ToggleButton } from "../components/toggle-button.slint";
 
 export struct NodeRow {
     name: string,
+    display-name: string,
+    flag: image,
+    details: string,
     delay: string,
     delay-level: int, // 0 unknown, 1 good, 2 slow, 3 failed
     current: bool,
@@ -12,6 +18,9 @@ export struct GroupRow {
     name: string,
     kind: string,
     now: string,
+    current-label: string,
+    current-flag: image,
+    current-node-index: int,
     selectable: bool,
     nodes: [NodeRow],
     // Nodes not listed: beyond the 1000-row cap or not matching the search.
@@ -28,14 +37,13 @@ export component ProxiesPage inherits VerticalLayout {
     callback select-node(string, string);
     callback sort-changed(bool);
     callback test-delay(string);
-    callback refresh();
     callback filter-changed(string);
 
     // The tab list changes with the routing mode (GLOBAL); stay in range.
     property <int> shown-group: min(root.current-group, max(0, root.groups.length - 1));
 
     min-width: 0px;
-    spacing: 12px;
+    spacing: 8px;
 
     if !root.running: Text {
         text: "连接后显示代理组和节点。";
@@ -49,7 +57,7 @@ export component ProxiesPage inherits VerticalLayout {
     if root.running && root.groups.length > 0: HorizontalLayout {
         spacing: 8px;
         ScrollView {
-            height: 48px;
+            height: 32px;
             min-width: 0px;
             horizontal-stretch: 1;
             vertical-scrollbar-policy: always-off;
@@ -75,12 +83,6 @@ export component ProxiesPage inherits VerticalLayout {
                 }
             }
         }
-        Button {
-            text: "刷新";
-            icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-            colorize-icon: true;
-            clicked => { root.refresh(); }
-        }
     }
 
     if root.running && root.groups.length > 0: VerticalLayout {
@@ -88,76 +90,115 @@ export component ProxiesPage inherits VerticalLayout {
         vertical-stretch: 1;
         property <GroupRow> group: root.groups[root.shown-group];
 
-        HorizontalLayout {
-            spacing: 8px;
-            Text {
-                text: group.kind + " · 当前：" + group.now + (group.selectable ? "" : "（自动选择，只读）");
-                color: Theme.text-muted;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-                min-width: 0px;
-                wrap: word-wrap;
+        Rectangle {
+            height: 32px;
+            CurrentNodeLink {
+                x: 0px;
+                y: 0px;
+                width: min((parent.width - 12px) / 2, self.preferred-width);
+                height: parent.height;
+                text: group.kind + " · " + group.now + (group.selectable ? "" : "（自动选择，只读）");
+                prefix: group.kind + " ·";
+                display-name: group.current-label + (group.selectable ? "" : "（自动选择，只读）");
+                flag: group.current-flag;
+                enabled: group.now != "";
+                clicked => {
+                    if group.current-node-index < 0 && root.filter != "" {
+                        root.filter = "";
+                        root.filter-changed("");
+                    }
+                    locate-timer.running = false;
+                    locate-timer.running = true;
+                }
             }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            CheckBox {
-                text: "按延迟排序";
-                checked <=> root.sort-by-delay;
-                toggled => { root.sort-changed(self.checked); }
-            }
-            LineEdit {
-                placeholder-text: "搜索节点";
-                min-width: 80px;
-                preferred-width: 180px;
-                horizontal-stretch: 1;
-                text <=> root.filter;
-                edited(text) => { root.filter-changed(text); }
-            }
-            Button {
-                text: root.testing-group == group.name ? "测速中…" : "测速";
-                icon: @image-url("../../assets/icons/lucide/activity.svg");
-                colorize-icon: true;
-                enabled: root.testing-group == "";
-                clicked => { root.test-delay(group.name); }
+            HorizontalLayout {
+                x: (parent.width + 12px) / 2;
+                width: (parent.width - 12px) / 2;
+                height: parent.height;
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "搜索节点";
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    horizontal-stretch: 1;
+                    text <=> root.filter;
+                    edited(text) => { root.filter-changed(text); }
+                }
+                ToggleButton {
+                    text: "延迟排序";
+                    checked <=> root.sort-by-delay;
+                    toggled(on) => { root.sort-changed(on); }
+                }
+                Button {
+                    text: root.testing-group == group.name ? "测速中…" : "测速";
+                    icon: @image-url("../../assets/icons/lucide/activity.svg");
+                    colorize-icon: true;
+                    enabled: root.testing-group == "";
+                    clicked => { root.test-delay(group.name); }
+                }
             }
         }
 
-        ListView {
+        node-list := ScrollView {
             min-width: 0px;
             min-height: 180px;
             preferred-height: 0px;
             vertical-stretch: 1;
-            for n in group.nodes: Rectangle {
-                height: 40px;
-                border-radius: 6px;
-                background: n.current ? Theme.nav-selected : row.has-hover && group.selectable ? Theme.nav-hover : transparent;
-                accessible-role: list-item;
-                accessible-label: n.name;
-                accessible-item-selected: n.current;
-                accessible-action-default => { if (group.selectable) { root.select-node(group.name, n.name); } }
-                row := TouchArea {
-                    enabled: group.selectable;
-                    mouse-cursor: group.selectable ? pointer : default;
-                    clicked => { root.select-node(group.name, n.name); }
+            horizontal-scrollbar-policy: always-off;
+            content-width: self.visible-width;
+            // Reserve the scrollbar gutter so cards remain fully clickable.
+            property <length> grid-width: max(0px, self.visible-width - 16px);
+            property <length> gap: 8px;
+            property <length> card-height: 68px;
+            property <length> row-height: self.card-height + self.gap;
+            property <int> columns: max(1, floor((self.grid-width + self.gap) / (240px + self.gap)));
+            property <length> card-width: max(0px, (self.grid-width - (self.columns - 1) * self.gap) / self.columns);
+            property <int> row-count: ceil(group.nodes.length / self.columns);
+            content-height: self.row-count * self.row-height;
+            accessible-role: list;
+            property <int> first-row: max(0, min(self.row-count - 1,
+                floor(-self.content-y / self.row-height) - 1));
+            property <int> rendered-row-count: max(0, min(self.row-count - self.first-row,
+                ceil(self.visible-height / self.row-height) + 3));
+
+            // Render visible rows with overscan, preserving the exact scroll offset.
+            for offset in node-list.rendered-row-count: Rectangle {
+                property <int> row-index: node-list.first-row + offset;
+                y: self.row-index * node-list.row-height;
+                width: node-list.grid-width;
+                height: node-list.row-height;
+                for column in node-list.columns: Rectangle {
+                    x: column * (node-list.card-width + node-list.gap);
+                    width: node-list.card-width;
+                    height: node-list.card-height;
+                    if row-index * node-list.columns + column < group.nodes.length: NodeCard {
+                        property <NodeRow> node: group.nodes[row-index * node-list.columns + column];
+                        width: parent.width;
+                        name: node.name;
+                        display-name: node.display-name;
+                        flag: node.flag;
+                        details: node.details;
+                        delay: node.delay;
+                        delay-level: node.delay-level;
+                        current: node.current;
+                        selectable: group.selectable;
+                        selected => { root.select-node(group.name, node.name); }
+                    }
                 }
-                HorizontalLayout {
-                    padding-left: 12px;
-                    padding-right: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: n.name;
-                        color: n.current ? Theme.accent : Theme.text;
-                        vertical-alignment: center;
-                        min-width: 0px;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                    }
-                    Text {
-                        text: n.delay;
-                        vertical-alignment: center;
-                        color: n.delay-level == 1 ? Theme.ok : n.delay-level == 2 ? Theme.warn : n.delay-level == 3 ? Theme.danger : Theme.text-muted;
-                    }
+            }
+        }
+
+        // Wait until clearing the search has updated the virtualized row model.
+        locate-timer := Timer {
+            interval: 0ms;
+            running: false;
+            triggered => {
+                self.running = false;
+                if group.current-node-index >= 0 {
+                    node-list.content-y = -min(
+                        max(0px, node-list.row-count * node-list.row-height - node-list.visible-height),
+                        floor(group.current-node-index / node-list.columns) * node-list.row-height
+                    );
                 }
             }
         }

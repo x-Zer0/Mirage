@@ -78,101 +78,92 @@ export component LogsPage inherits VerticalLayout {
         border-width: 1px;
         border-color: Theme.border;
         if root.tab == 0: ListView {
-            for row in root.connection-logs: VerticalLayout {
-                padding-top: 5px; padding-bottom: 5px; padding-left: 8px; padding-right: 8px;
-                spacing: 1px;
+            for row in root.connection-logs: Rectangle {
+                height: 45px;
                 HorizontalLayout {
+                    x: 8px;
+                    y: 6px;
+                    width: parent.width - 16px;
+                    height: 32px;
                     spacing: 8px;
                     VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 1;
                         min-width: 0px;
-                        spacing: 1px;
-                        Text { text: row.at; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
-                        Text { text: row.protocol; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        height: 32px;
+                        spacing: 0px;
+                        Text { text: row.at; color: Theme.text-muted; font-size: 11px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.protocol; color: Theme.text-muted; font-size: 11px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
                     }
                     VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 3;
                         min-width: 0px;
-                        spacing: 1px;
-                        Text { text: row.address; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        height: 32px;
+                        spacing: 0px;
+                        Text { text: row.address; color: Theme.text; font-size: 12px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Rectangle { height: 16px; background: transparent; }
                     }
                     VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 3;
                         min-width: 0px;
-                        spacing: 1px;
-                        Text { text: row.action; color: row.action == "直连" ? Theme.ok : row.action == "拦截" || row.action == "失败" ? Theme.danger : Theme.accent; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
-                        Text { text: row.rule; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        height: 32px;
+                        spacing: 0px;
+                        Text { text: row.action; color: row.action == "直连" ? Theme.ok : row.action == "拦截" || row.action == "失败" ? Theme.danger : Theme.accent; font-size: 11px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.rule; color: Theme.text-muted; font-size: 11px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
                     }
                     VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 3;
                         min-width: 0px;
-                        spacing: 1px;
-                        Text { text: row.profile; color: Theme.text; font-size: 12px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
-                        Text { text: row.node; color: Theme.text-muted; font-size: 11px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        height: 32px;
+                        spacing: 0px;
+                        Text { text: row.profile; color: Theme.text; font-size: 12px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.node; color: Theme.text-muted; font-size: 11px; height: 16px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
                     }
                 }
-                Rectangle { height: 1px; background: Theme.border; }
+                Rectangle { x: 0px; y: 44px; width: parent.width; height: 1px; background: Theme.border; }
             }
         }
         if root.tab == 1: ListView {
-            for row in root.operation-logs: VerticalLayout {
-                padding-top: 6px; padding-bottom: 6px; padding-left: 8px; padding-right: 8px;
-                spacing: 2px;
+            for row in root.operation-logs: Rectangle {
+                height: 51px;
                 HorizontalLayout {
+                    x: 8px;
+                    y: 7px;
+                    width: parent.width - 16px;
+                    height: 36px;
                     spacing: 6px;
-                    Text {
-                        text: row.date == "" ? row.at : row.date + " " + row.at;
-                        color: Theme.text-muted;
-                        font-size: 11px;
+                    VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 4;
                         min-width: 0px;
-                        horizontal-alignment: left;
-                        overflow: elide;
+                        height: 36px;
+                        spacing: 2px;
+                        Text { text: row.date == "" ? row.at : row.date + " " + row.at; color: Theme.text-muted; font-size: 11px; height: 17px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Rectangle { height: 17px; background: transparent; }
                     }
                     VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 5;
                         min-width: 0px;
+                        height: 36px;
                         spacing: 2px;
-                        Text {
-                            text: row.action + (row.object == "" ? "" : "「" + row.object + "」");
-                            color: Theme.text;
-                            font-size: 13px;
-                            font-weight: 600;
-                            preferred-width: 0px;
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            horizontal-alignment: left;
-                            overflow: elide;
-                        }
-                        Text {
-                            text: row.source + " · " + row.summary;
-                            color: Theme.text-muted;
-                            font-size: 11px;
-                            preferred-width: 0px;
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            horizontal-alignment: left;
-                            overflow: elide;
-                        }
+                        Text { text: row.action + (row.object == "" ? "" : "「" + row.object + "」"); color: Theme.text; font-size: 13px; font-weight: 600; height: 17px; vertical-alignment: center; preferred-width: 0px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Text { text: row.source + " · " + row.summary; color: Theme.text-muted; font-size: 11px; height: 17px; vertical-alignment: center; preferred-width: 0px; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
                     }
-                    Text {
-                        text: row.result;
-                        color: row.result == "成功" ? Theme.ok : row.result == "失败" ? Theme.danger : Theme.text-muted;
-                        font-size: 11px;
+                    VerticalLayout {
                         preferred-width: 0px;
                         horizontal-stretch: 1;
                         min-width: 0px;
-                        horizontal-alignment: left;
-                        overflow: elide;
+                        height: 36px;
+                        spacing: 2px;
+                        Text { text: row.result; color: row.result == "成功" ? Theme.ok : row.result == "失败" ? Theme.danger : Theme.text-muted; font-size: 11px; height: 17px; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; horizontal-alignment: left; overflow: elide; }
+                        Rectangle { height: 17px; background: transparent; }
                     }
                 }
-                Rectangle { height: 1px; background: Theme.border; }
+                Rectangle { x: 0px; y: 50px; width: parent.width; height: 1px; background: Theme.border; }
             }
         }
         if root.total == 0: Text {

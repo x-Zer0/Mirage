@@ -1,5 +1,6 @@
 //! Slint UI construction and shared UI-thread state.
 mod callbacks;
+mod flags;
 mod lifecycle;
 mod models;
 mod updates;

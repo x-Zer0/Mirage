@@ -144,7 +144,6 @@ export component MainWindow inherits Window {
     callback set-update-policy(string, int, int);
     callback select-node(string, string);
     callback test-delay(string);
-    callback refresh-groups();
     callback sort-nodes(bool);
     callback set-system-proxy(bool);
     callback set-tun(bool);
@@ -283,7 +282,6 @@ export component MainWindow inherits Window {
                 current-group <=> root.node-group;
                 select-node(g, n) => { root.select-node(g, n); }
                 test-delay(g) => { root.test-delay(g); }
-                refresh => { root.refresh-groups(); }
                 sort-changed(on) => { root.sort-nodes(on); }
                 filter-changed(text) => { root.filter-nodes(text); }
             }

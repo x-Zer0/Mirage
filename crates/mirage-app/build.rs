@@ -5,6 +5,7 @@ use resvg::{tiny_skia, usvg};
 use std::path::PathBuf;
 
 fn main() {
+    embed_flags();
     slint_build::compile("ui/app.slint").expect("compile Slint UI");
 
     // Application manifest: asInvoker, per-monitor DPI v2, UTF-8 code page, long paths.
@@ -55,4 +56,27 @@ fn icon_frame(tree: &usvg::Tree, size: u32) -> IcoFrame<'static> {
         ExtendedColorType::Rgba8,
     )
     .expect("encode icon size")
+}
+
+/// Generate a sorted lookup table while embedding the SVGs in the executable.
+fn embed_flags() {
+    let mut paths: Vec<_> = std::fs::read_dir("assets/flags")
+        .expect("read flag assets")
+        .map(|entry| entry.expect("read flag asset path").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "svg"))
+        .collect();
+    paths.sort();
+    let mut source = String::from("static FLAG_ASSETS: &[(&str, &[u8])] = &[\n");
+    for path in paths {
+        let code = path.file_stem().expect("flag code").to_string_lossy();
+        let absolute = path.canonicalize().expect("resolve flag asset");
+        source.push_str(&format!(
+            "({code:?}, include_bytes!({:?})),\n",
+            absolute.to_string_lossy()
+        ));
+    }
+    source.push_str("];");
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("build output directory"));
+    std::fs::write(out.join("flag_assets.rs"), source).expect("write flag asset table");
+    println!("cargo:rerun-if-changed=assets/flags");
 }

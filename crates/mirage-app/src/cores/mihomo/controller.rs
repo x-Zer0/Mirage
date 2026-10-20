@@ -30,6 +30,8 @@ pub struct Controller {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeView {
     pub name: String,
+    pub protocol: String,
+    pub transport: String,
     /// Latest delay in ms; `Some(0)` means the last test failed (not necessarily a timeout).
     pub delay: Option<u32>,
 }
@@ -136,13 +138,14 @@ impl Controller {
                     selectable: entry.kind == "Selector",
                     nodes: members
                         .iter()
-                        .map(|m| NodeView {
-                            name: m.clone(),
-                            delay: resp
-                                .proxies
-                                .get(m)
-                                .and_then(|p| p.history.last())
-                                .map(|h| h.delay),
+                        .map(|m| {
+                            let proxy = resp.proxies.get(m);
+                            NodeView {
+                                name: m.clone(),
+                                protocol: proxy.map(|p| p.kind.clone()).unwrap_or_default(),
+                                transport: String::new(),
+                                delay: proxy.and_then(|p| p.history.last()).map(|h| h.delay),
+                            }
                         })
                         .collect(),
                 })

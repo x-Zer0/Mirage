@@ -1,0 +1,66 @@
+import { Theme } from "theme.slint";
+import { NodeLabel } from "node-label.slint";
+
+export component NodeCard inherits Rectangle {
+    in property <string> name;
+    in property <string> display-name;
+    in property <image> flag;
+    in property <string> details;
+    in property <string> delay;
+    in property <int> delay-level;
+    in property <bool> current;
+    in property <bool> selectable;
+    callback selected();
+
+    height: 68px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: root.current ? Theme.accent : Theme.border;
+    background: root.current ? Theme.nav-selected : touch.has-hover && root.selectable ? Theme.nav-hover : Theme.card;
+    accessible-role: list-item;
+    accessible-label: root.name + " · " + root.details + " · " + root.delay;
+    accessible-item-selected: root.current;
+    accessible-action-default => { if root.selectable { root.selected(); } }
+
+    touch := TouchArea {
+        enabled: root.selectable;
+        mouse-cursor: root.selectable ? pointer : default;
+        clicked => { root.selected(); }
+    }
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 8px;
+        VerticalLayout {
+            spacing: 4px;
+            min-width: 0px;
+            horizontal-stretch: 1;
+            NodeLabel {
+                text: root.display-name;
+                flag: root.flag;
+                text-color: root.current ? Theme.accent : Theme.text;
+                height: 20px;
+            }
+            Text {
+                text: root.details;
+                color: Theme.text-muted;
+                font-size: 12px;
+                height: 16px;
+                min-width: 0px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.delay;
+            vertical-alignment: center;
+            color: root.delay-level == 1 ? Theme.ok : root.delay-level == 2 ? Theme.warn : root.delay-level == 3 ? Theme.danger : Theme.text-muted;
+        }
+    }
+    Tooltip {
+        VerticalLayout {
+            padding: 8px;
+            Text { text: root.name; color: Theme.text; }
+            Text { text: root.details; color: Theme.text-muted; font-size: 12px; }
+        }
+    }
+}

@@ -4,7 +4,7 @@
 //! snapshot that differs in one field does not rebuild the node or profile
 //! lists (and the views do not lose scroll position or re-layout).
 
-use super::{AccountRow, AppTray, GroupRow, MainWindow, NodeRow, ProfileRow, TrayState};
+use super::{AccountRow, AppTray, GroupRow, MainWindow, NodeRow, ProfileRow, TrayState, flags};
 use crate::app::state::{AppStateView, Connectivity, RuntimeStatus, TrafficSample};
 use crate::app::status_text;
 use crate::cores::mihomo::controller::{GLOBAL_GROUP, NodeView, ProxyGroupView};
@@ -430,11 +430,27 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
         });
     }
     let hidden = g.nodes.len() - nodes.len().min(MAX_LISTED_NODES);
+    // Keep the current node reachable even when the unfiltered list hits its cap.
+    if list.filter.is_empty()
+        && let Some(index) = nodes.iter().position(|node| node.name == g.now)
+        && index >= MAX_LISTED_NODES
+    {
+        nodes.swap(MAX_LISTED_NODES - 1, index);
+    }
     nodes.truncate(MAX_LISTED_NODES);
+    let current_node_index = nodes
+        .iter()
+        .position(|node| node.name == g.now)
+        .and_then(|index| i32::try_from(index).ok())
+        .unwrap_or(-1);
+    let (current_label, current_flag) = flags::label(&g.now);
     GroupRow {
         name: g.name.clone().into(),
         kind: g.kind.clone().into(),
         now: g.now.clone().into(),
+        current_label: current_label.into(),
+        current_flag,
+        current_node_index,
         selectable: g.selectable,
         hidden: i32::try_from(hidden).unwrap_or(i32::MAX),
         nodes: rc(nodes.into_iter().map(|n| {
@@ -443,8 +459,17 @@ fn group_row(g: &ProxyGroupView, list: &ListOptions) -> GroupRow {
                 Some(0) => ("失败".into(), 3),
                 Some(ms) => (format!("{ms} ms").into(), if ms <= SLOW_MS { 1 } else { 2 }),
             };
+            let (display_name, flag) = flags::label(&n.name);
             NodeRow {
                 name: n.name.clone().into(),
+                display_name: display_name.into(),
+                flag,
+                details: if n.transport.is_empty() {
+                    n.protocol.clone()
+                } else {
+                    format!("{} · {}", n.protocol, n.transport)
+                }
+                .into(),
                 delay,
                 delay_level: level,
                 current: n.name == g.now,

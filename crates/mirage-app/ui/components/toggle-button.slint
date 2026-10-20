@@ -1,0 +1,46 @@
+import { Theme } from "theme.slint";
+
+export component ToggleButton inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked;
+    callback toggled(bool);
+    forward-focus: focus;
+
+    min-width: label.preferred-width + 24px;
+    height: 32px;
+    horizontal-stretch: 0;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: root.checked || focus.has-focus ? Theme.accent : Theme.border;
+    background: root.checked ? Theme.accent : Theme.surface;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.toggle(); }
+
+    function toggle() {
+        root.checked = !root.checked;
+        root.toggled(root.checked);
+    }
+    label := Text {
+        text: root.text;
+        color: root.checked ? Theme.surface : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.toggle(); }
+    }
+    focus := FocusScope {
+        width: 0px;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.toggle();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}

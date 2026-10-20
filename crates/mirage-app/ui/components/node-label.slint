@@ -1,0 +1,40 @@
+import { Theme } from "theme.slint";
+
+// Country flags use images so regional indicators work on Windows as well.
+export component NodeLabel inherits Rectangle {
+    in property <string> prefix;
+    in property <string> text;
+    in property <image> flag;
+    in property <color> text-color: Theme.text;
+    min-width: 0px;
+    preferred-width: content.preferred-width;
+
+    content := HorizontalLayout {
+        spacing: 4px;
+        if root.prefix != "": Text {
+            text: root.prefix;
+            color: root.text-color;
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+        }
+        if root.flag.width > 0: Rectangle {
+            width: 16px;
+            Image {
+                width: 16px;
+                height: 12px;
+                y: (parent.height - self.height) / 2;
+                source: root.flag;
+                image-fit: contain;
+            }
+        }
+        Text {
+            text: root.text;
+            color: root.text-color;
+            min-width: 0px;
+            horizontal-stretch: 1;
+            horizontal-alignment: left;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}

@@ -1,5 +1,6 @@
 //! Proxy groups, node selection and latency measurements.
 use super::{AppCore, Internal, error_notice};
+use crate::cores::mihomo::node_metadata;
 use crate::domain::error::AppError;
 use crate::storage::meta;
 
@@ -10,7 +11,15 @@ impl AppCore {
         let Some(running) = &self.running else { return };
         let controller = running.controller.clone();
         let generation = self.generation;
-        self.spawn(async move { Internal::Groups(generation, controller.groups().await) });
+        let layout = self.layout.clone();
+        let service = running.process.service().is_some();
+        self.spawn(async move {
+            let mut result = controller.groups().await;
+            if let Ok(groups) = &mut result {
+                node_metadata::apply(groups, &layout, service).await;
+            }
+            Internal::Groups(generation, result)
+        });
     }
 
     pub(super) fn on_groups(

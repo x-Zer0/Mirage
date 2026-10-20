@@ -82,8 +82,6 @@ fn wire_nodes(window: &MainWindow, commands: &Commands) {
     });
     let c = commands.clone();
     window.on_test_delay(move |group| send(&c, Command::TestGroupDelay(group.into())));
-    let c = commands.clone();
-    window.on_refresh_groups(move || send(&c, Command::RefreshGroups));
     let w = window.as_weak();
     window.on_sort_nodes(move |on| {
         let Some(w) = w.upgrade() else { return };

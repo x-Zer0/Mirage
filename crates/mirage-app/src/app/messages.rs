@@ -44,7 +44,6 @@ pub enum Command {
         node: String,
     },
     TestGroupDelay(String),
-    RefreshGroups,
     SetSystemProxy(bool),
     SetTun(bool),
     ManageService(bool),
