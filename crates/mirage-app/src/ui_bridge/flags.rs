@@ -1,5 +1,5 @@
 //! Resolve leading regional indicators to embedded flag sprite indices.
-// Row-major order in assets/flags_atlas.png: 16 columns of 48 x 36 pixels.
+// Row-major order in assets/flags_atlas.png: 16 columns of 64 x 48 pixels.
 static FLAG_CODES: &[&str] = &[
     "ad", "ae", "af", "ag", "ai", "al", "am", "ao", "aq", "ar", "arab", "as", "asean", "at", "au",
     "aw", "ax", "az", "ba", "bb", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bl", "bm", "bn", "bo",

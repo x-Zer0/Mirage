@@ -24,10 +24,10 @@ export component NodeLabel inherits Rectangle {
                 height: 12px;
                 y: (parent.height - self.height) / 2;
                 source: @image-url("../../assets/flags_atlas.png");
-                source-clip-x: Math.mod(root.flag-index, 16) * 48;
-                source-clip-y: floor(root.flag-index / 16) * 36;
-                source-clip-width: 48;
-                source-clip-height: 36;
+                source-clip-x: Math.mod(root.flag-index, 16) * 64;
+                source-clip-y: floor(root.flag-index / 16) * 48;
+                source-clip-width: 64;
+                source-clip-height: 48;
                 image-fit: contain;
             }
         }
