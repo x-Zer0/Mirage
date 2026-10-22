@@ -21,6 +21,11 @@ mod service;
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
+    // The reload request is plain loopback HTTP, but in a workspace build
+    // reqwest is unified with the app's `rustls-no-provider` feature and
+    // building a client without a provider panics (abort kills the service
+    // and its TUN core). Install the same ring provider the app uses.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("install") => {

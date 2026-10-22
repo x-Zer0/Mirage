@@ -22,6 +22,7 @@ tracing.workspace = true
 anyhow.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util"] }
 reqwest = { workspace = true, features = ["json"] }
+rustls = { workspace = true, features = ["ring", "std"] }
 
 [dependencies.windows]
 workspace = true
