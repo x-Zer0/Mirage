@@ -7,6 +7,7 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 | 文档 | 内容 | 何时阅读 |
 | --- | --- | --- |
 | [DESIGN.md](DESIGN.md) | 产品范围、默认决策、架构、模块接口、配置管线、Mihomo 运行、Windows 集成、持久化、UI、里程碑与验收 | 开工前通读；每个里程碑开始前重读对应章节 |
+| [iteration-2-design.md](iteration-2-design.md) | 第二轮迭代：用户覆写层、Hosts、附加规则、IPv6、统一延迟测速、UWP 回环（M9–M12） | 开发 M9 及之后的里程碑前 |
 | [ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md](ZIYOUMAO-NODE-ANALYSIS-2026-10-16.md) | 刷新后节点差异、AES 订阅解密、标准核心联网对照、旧订阅结论修正 | 排查节点超时、修改自由猫订阅实现前优先阅读 |
 | [ZIYOUMAO.md](ZIYOUMAO.md) | 自由猫主机发现、登录、令牌隔离、订阅下载、旧配置解码、错误映射、已验证证据 | 实现 `providers/ziyoumao` 时 |
 
