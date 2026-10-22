@@ -1,8 +1,8 @@
 use super::atomic;
 use crate::domain::error::{AppError, AppResult};
 use crate::domain::model::{
-    ConfigRevision, DEFAULT_SUBSCRIPTION_UA, EgressPolicy, Profile, ProfileId, ProviderAccount,
-    RoutingMode,
+    ConfigRevision, DEFAULT_SUBSCRIPTION_UA, EgressPolicy, Ipv6Mode, Profile, ProfileId,
+    ProviderAccount, RoutingMode,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -101,6 +101,11 @@ pub struct SettingsFile {
     pub connection_log_limit: usize,
     #[serde(default = "default_operation_log_days")]
     pub operation_log_days: usize,
+    #[serde(default)]
+    pub ipv6: Ipv6Mode,
+    /// Forces `unified-delay` so delay tests exclude handshakes (iteration 2 §5).
+    #[serde(default = "default_true")]
+    pub unified_delay: bool,
 }
 
 impl Default for SettingsFile {
@@ -122,6 +127,8 @@ impl Default for SettingsFile {
             autostart: false,
             connection_log_limit: default_connection_log_limit(),
             operation_log_days: default_operation_log_days(),
+            ipv6: Ipv6Mode::default(),
+            unified_delay: true,
         }
     }
 }

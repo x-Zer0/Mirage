@@ -111,6 +111,12 @@ pub(super) enum Internal {
         revision: RevisionId,
         outcome: runtime::ReloadOutcome,
     },
+    OverlayApplied {
+        generation: u64,
+        attempted: crate::cores::mihomo::compose::UserOverlay,
+        previous: crate::cores::mihomo::compose::UserOverlay,
+        outcome: runtime::OverlayOutcome,
+    },
     LoggedIn {
         provider_id: String,
         result: Box<Result<crate::providers::LoggedIn, AppError>>,

@@ -1,6 +1,7 @@
 //! Window callbacks grouped by feature; each only queues commands or updates UI state.
 use super::{Command, MainWindow, SHARED, lifecycle::send_mode, send};
 use crate::app::settings::SettingsInput;
+use crate::domain::model::Ipv6Mode;
 use crate::domain::redact::{Password, SecretString};
 use slint::ComponentHandle;
 use tokio::sync::mpsc;
@@ -143,7 +144,9 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
               close_to_tray,
               autostart,
               connection_log_limit,
-              operation_log_days| {
+              operation_log_days,
+              ipv6,
+              unified_delay| {
             send(
                 &c,
                 Command::SaveSettings(SettingsInput {
@@ -156,6 +159,8 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
                     autostart,
                     connection_log_limit: connection_log_limit.into(),
                     operation_log_days: operation_log_days.into(),
+                    ipv6: Ipv6Mode::from_index(usize::try_from(ipv6).unwrap_or(0)),
+                    unified_delay,
                 }),
             )
         },

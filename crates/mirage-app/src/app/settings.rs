@@ -4,7 +4,7 @@
 use super::state::{Retry, RuntimeStatus, SettingsView};
 use super::{AppCore, Command, Internal, error_notice, info_notice};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{EgressPolicy, RoutingMode, SubscriptionSource};
+use crate::domain::model::{EgressPolicy, Ipv6Mode, RoutingMode, SubscriptionSource};
 use crate::platform::windows::autostart;
 use crate::platform::windows::clipboard;
 use crate::storage::meta;
@@ -33,6 +33,9 @@ pub struct SettingsInput {
     pub autostart: bool,
     pub connection_log_limit: String,
     pub operation_log_days: String,
+    pub ipv6: Ipv6Mode,
+    /// Delay tests exclude handshakes (`unified-delay`, iteration 2 §5).
+    pub unified_delay: bool,
 }
 
 impl AppCore {
@@ -49,6 +52,8 @@ impl AppCore {
             autostart: s.autostart,
             connection_log_limit: s.connection_log_limit,
             operation_log_days: s.operation_log_days,
+            ipv6: s.ipv6,
+            unified_delay: s.unified_delay,
         };
         self.view.mixed_port = s.mixed_port;
     }
@@ -92,6 +97,8 @@ impl AppCore {
             || input.allow_lan != self.settings.allow_lan;
         let bypass_changed = parsed.bypass != self.settings.bypass;
         let autostart_changed = input.autostart != self.settings.autostart;
+        let overlay_changed =
+            input.ipv6 != self.settings.ipv6 || input.unified_delay != self.settings.unified_delay;
 
         if let Err(e) = self.store_settings(&input, parsed) {
             self.record_operation("保存设置", "", "手动", "失败", &e.user_message());
@@ -113,6 +120,11 @@ impl AppCore {
         }
         self.refresh_settings_view();
         self.apply_saved_settings(listener_changed, bypass_changed, autostart_changed);
+        if overlay_changed && !listener_changed && self.view.runtime.is_up() {
+            // Hot reload (iteration 2 §1.3); the outcome replaces the notice.
+            self.sync_user_overlay();
+            self.view.notice = Some(info_notice("设置已保存，正在热重载内核"));
+        }
     }
 
     fn store_settings(&mut self, input: &SettingsInput, parsed: Parsed) -> AppResult<()> {
@@ -126,6 +138,8 @@ impl AppCore {
         self.settings.autostart = input.autostart;
         self.settings.connection_log_limit = parsed.connection_log_limit;
         self.settings.operation_log_days = parsed.operation_log_days;
+        self.settings.ipv6 = input.ipv6;
+        self.settings.unified_delay = input.unified_delay;
         if let Err(e) = self.save_settings_file() {
             self.settings = snapshot;
             return Err(e);
@@ -494,11 +508,19 @@ fn setting_changes(
             saved.operation_log_days, parsed.operation_log_days
         ));
     }
+    if input.ipv6 != saved.ipv6 {
+        changes.push(format!(
+            "IPv6：{} → {}",
+            saved.ipv6.label(),
+            input.ipv6.label()
+        ));
+    }
     for (label, before, after) in [
         ("允许局域网代理", saved.allow_lan, input.allow_lan),
         ("自动连接", saved.auto_connect, input.auto_connect),
         ("关闭到托盘", saved.close_to_tray, input.close_to_tray),
         ("开机启动", saved.autostart, input.autostart),
+        ("测速去除握手延迟", saved.unified_delay, input.unified_delay),
     ] {
         if before != after {
             changes.push(format!(

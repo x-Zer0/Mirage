@@ -119,6 +119,47 @@ impl RoutingMode {
     }
 }
 
+/// User IPv6 preference written over the subscription (iteration 2 §4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ipv6Mode {
+    /// Leave `ipv6` / `dns.ipv6` as the subscription has them.
+    #[default]
+    Follow,
+    On,
+    Off,
+}
+
+impl Ipv6Mode {
+    /// Order of the settings page drop-down.
+    pub const ALL: [Self; 3] = [Self::Follow, Self::On, Self::Off];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Follow => "跟随订阅",
+            Self::On => "开启",
+            Self::Off => "关闭",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|m| *m == self).unwrap_or(0)
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+
+    /// Value forced into the run config; `None` keeps the subscription's.
+    pub fn forced(self) -> Option<bool> {
+        match self {
+            Self::Follow => None,
+            Self::On => Some(true),
+            Self::Off => Some(false),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdatePolicy {
     /// 0 = manual only.

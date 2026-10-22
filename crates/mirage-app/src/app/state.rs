@@ -230,6 +230,8 @@ pub struct SettingsView {
     pub autostart: bool,
     pub connection_log_limit: usize,
     pub operation_log_days: usize,
+    pub ipv6: crate::domain::model::Ipv6Mode,
+    pub unified_delay: bool,
 }
 
 /// Bytes per second from `/traffic` (§6.5 `Event::Traffic`).

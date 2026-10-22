@@ -1,6 +1,6 @@
 //! App adapter for the policy shared with the privileged TUN service.
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{ConfigSummary, ProfileId, RoutingMode};
+use crate::domain::model::{ConfigSummary, Ipv6Mode, ProfileId, RoutingMode};
 pub use mirage_ipc::policy::OVERLAY_VERSION;
 use serde_yaml_ng::{Mapping, Value};
 use std::net::SocketAddr;
@@ -16,6 +16,28 @@ pub struct ManagedOverlay<'a> {
     pub profile_id: &'a ProfileId,
     pub mode: Option<RoutingMode>,
     pub tun: bool,
+    /// Applied after the security policy, app side only (iteration 2 §1).
+    pub user: &'a UserOverlay,
+}
+
+/// User preferences layered over the policy output. Only whitelisted,
+/// non-security keys are touched, so the TUN service's second
+/// `policy::apply` keeps them. `Default` is a no-op.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UserOverlay {
+    pub ipv6: Ipv6Mode,
+    /// Forces `unified-delay: true` (delay excludes handshakes); off follows the subscription.
+    pub unified_delay: bool,
+}
+
+impl UserOverlay {
+    pub fn describe(&self) -> String {
+        format!(
+            "IPv6：{}；测速去除握手延迟：{}",
+            self.ipv6.label(),
+            if self.unified_delay { "开" } else { "关" }
+        )
+    }
 }
 
 pub struct Composed {
@@ -44,11 +66,34 @@ pub fn compose(text: &str, overlay: &ManagedOverlay<'_>) -> AppResult<Composed> 
     if summary != before {
         return Err(AppError::internal(STAGE, "合成前后摘要不一致"));
     }
+    let yaml = apply_user(yaml, overlay.user)?;
     Ok(Composed {
         yaml,
         summary,
         policy_notes,
     })
+}
+
+/// Writes the user overlay into the policy output; the summary is unaffected.
+fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<String> {
+    if *user == UserOverlay::default() {
+        return Ok(yaml);
+    }
+    let mut root = parse(&yaml)?;
+    let map = root
+        .as_mapping_mut()
+        .ok_or_else(|| AppError::internal(STAGE, "配置顶层不是映射"))?;
+    if let Some(ipv6) = user.ipv6.forced() {
+        map.insert("ipv6".into(), Value::Bool(ipv6));
+        // TUN's injected minimal DNS has no `ipv6`, and Mihomo defaults it to false.
+        if let Some(dns) = map.get_mut("dns").and_then(Value::as_mapping_mut) {
+            dns.insert("ipv6".into(), Value::Bool(ipv6));
+        }
+    }
+    if user.unified_delay {
+        map.insert("unified-delay".into(), Value::Bool(true));
+    }
+    serde_yaml_ng::to_string(&root).map_err(|e| AppError::internal(STAGE, e))
 }
 
 pub fn parse(text: &str) -> AppResult<Value> {

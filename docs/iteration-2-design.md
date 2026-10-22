@@ -32,8 +32,9 @@
 ### 1.1 代码落点
 
 - `cores/mihomo/compose.rs`：新增 `UserOverlay` 结构，在 `ManagedOverlay` 中增加 `user: &UserOverlay` 字段。`compose()` 在摘要比对通过后，重新解析 `policy::apply` 输出的 YAML，应用用户覆写，再序列化。`Composed.policy_notes` 中追加覆写说明（例如“跳过 2 条附加规则：策略组不存在”）。
-- 所有构造 `ManagedOverlay` 的地方都要传入同一份 `UserOverlay`：`app/pipeline.rs`（导入、更新校验）和 `app/runtime.rs::apply_revision`（启动和热重载），以及其他调用 `compose` 的位置。
-- `UserOverlay` 由 `AppCore` 根据 settings 和覆写文件生成，作为一份只读快照传给后台任务。
+- 所有构造 `ManagedOverlay` 的地方都要显式传入 `UserOverlay`。【M9 定稿】`app/pipeline.rs`（导入、更新校验）传空覆写 `UserOverlay::default()`，只判定订阅本身，避免用户覆写导致的 `-t` 失败把订阅版本标为无效；`app/runtime.rs` 的启动、热重载和覆写重载传当前设置生成的覆写。
+- `UserOverlay` 由 `AppCore::user_overlay()`（`app/overlay.rs`）根据 settings（M10/M11 起加上覆写文件）生成，作为一份只读快照传给后台任务；`Running.user` 记录运行中配置实际使用的覆写。
+- 【M9】`UserOverlay` 先只有 `ipv6` 和 `unified_delay` 两个字段，`rules`/`hosts`、`custom_*_enabled` 和 `overrides/` 目录随 M10/M11 加入，不提前留空字段。
 
 ```rust
 pub struct UserOverlay {
@@ -57,6 +58,8 @@ pub struct UserOverlay {
   - 两个文件都用 `storage::atomic` 原子写入；文件不存在时视为空
 
 ### 1.3 生效流程（规则页保存、相关设置变化时共用）
+
+【M9 实现】设置页保存先写 settings，再由 `sync_user_overlay` 对运行中的当前版本执行 `runtime::reapply`：合成 + `-t` → 热重载 → 失败时用原覆写重载回去（`OverlayOutcome::Rejected / RolledBack / NeedsRestart`）。失败时把 IPv6 / 统一延迟设置恢复为原值并保存，操作日志记“应用设置 / 失败”。启动或订阅热重载进行中时不立即执行，等其结束（`commit_queued_revision`）后比较 `Running.user` 与设置再补做。M10/M11 的规则页保存需要“先校验再写文件”，届时按下列步骤实现。
 
 1. 先做语法校验（§3.4、§2.3）。不通过就逐行提示错误，不写入文件。
 2. 如果当前有活动配置，用新的 `UserOverlay` 合成该配置当前的版本，再执行 `check::check`（即 `mihomo -t`）。不通过就展示内核报错，不写入文件。

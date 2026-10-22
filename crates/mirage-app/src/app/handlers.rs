@@ -111,6 +111,12 @@ impl AppCore {
                 revision,
                 outcome,
             } => self.on_reloaded(generation, profile_id, revision, outcome),
+            Internal::OverlayApplied {
+                generation,
+                attempted,
+                previous,
+                outcome,
+            } => self.on_overlay_applied(generation, attempted, previous, outcome),
             Internal::LoggedIn {
                 provider_id,
                 result,

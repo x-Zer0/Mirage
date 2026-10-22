@@ -1,4 +1,4 @@
-import { Button, CheckBox, LineEdit, TextEdit } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, TextEdit } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 import { Card } from "../components/card.slint";
 import { HelpIcon } from "../components/help-icon.slint";
@@ -32,6 +32,8 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> saved-autostart;
     in property <string> saved-connection-log-limit;
     in property <string> saved-operation-log-days;
+    in property <int> saved-ipv6;
+    in property <bool> saved-unified-delay;
     in property <bool> service-installed;
     in property <bool> service-busy;
     in property <bool> tun-active;
@@ -41,7 +43,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> geo-updating;
     // A start/stop is in flight; saving could restart the core again.
     in property <bool> busy;
-    callback save(string, string, string, bool, bool, bool, bool, string, string);
+    callback save(string, string, string, bool, bool, bool, bool, string, string, int, bool);
     callback update-geodata();
 
     // Working copies, reset from the saved values whenever the page opens.
@@ -54,6 +56,8 @@ export component SettingsPage inherits VerticalLayout {
     property <bool> autostart: root.saved-autostart;
     property <string> connection-log-limit: root.saved-connection-log-limit;
     property <string> operation-log-days: root.saved-operation-log-days;
+    property <int> ipv6: root.saved-ipv6;
+    property <bool> unified-delay: root.saved-unified-delay;
 
     min-width: 0px;
     spacing: 16px;
@@ -102,6 +106,30 @@ export component SettingsPage inherits VerticalLayout {
                 spacing: 8px;
                 Text { text: "订阅默认 User-Agent"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
                 LineEdit { min-width: 80px; text <=> root.user-agent; accessible-label: "订阅默认 User-Agent"; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                SettingLabel {
+                    text: "IPv6";
+                    help-text: "跟随订阅：不修改订阅中的 IPv6 设置。\n开启后需要本机和节点都支持 IPv6；TUN 下的 IPv6 接管尚待核验。\n修改后保存会热重载运行中的内核。";
+                    width: root.width < 660px ? 160px : 220px;
+                }
+                ComboBox {
+                    model: ["跟随订阅", "开启", "关闭"];
+                    current-index <=> root.ipv6;
+                    width: 120px;
+                    horizontal-stretch: 0;
+                    accessible-label: "IPv6";
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                CheckBox { text: "测速去除握手延迟（统一延迟）"; checked <=> root.unified-delay; horizontal-stretch: 0; }
+                HelpIcon {
+                    text: "开启后延迟只计算往返时间，数值会明显降低；同时影响自动选择（url-test）组的健康检查。\n关闭则跟随订阅。修改后保存会热重载运行中的内核。";
+                }
             }
         }
     }
@@ -157,7 +185,7 @@ export component SettingsPage inherits VerticalLayout {
             icon: @image-url("../../assets/icons/lucide/check.svg");
             colorize-icon: true;
             clicked => {
-                root.save(root.port, root.bypass, root.user-agent, root.allow-lan, root.auto-connect, root.close-to-tray, root.autostart, root.connection-log-limit, root.operation-log-days);
+                root.save(root.port, root.bypass, root.user-agent, root.allow-lan, root.auto-connect, root.close-to-tray, root.autostart, root.connection-log-limit, root.operation-log-days, root.ipv6, root.unified-delay);
             }
         }
         Button {
@@ -172,6 +200,8 @@ export component SettingsPage inherits VerticalLayout {
                 root.autostart = root.saved-autostart;
                 root.connection-log-limit = root.saved-connection-log-limit;
                 root.operation-log-days = root.saved-operation-log-days;
+                root.ipv6 = root.saved-ipv6;
+                root.unified-delay = root.saved-unified-delay;
             }
         }
     }

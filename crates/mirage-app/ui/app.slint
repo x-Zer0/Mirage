@@ -86,6 +86,8 @@ export component MainWindow inherits Window {
     in property <bool> settings-autostart;
     in property <string> settings-connection-log-limit;
     in property <string> settings-operation-log-days;
+    in property <int> settings-ipv6;
+    in property <bool> settings-unified-delay;
     in property <bool> geo-updating;
     in property <bool> exporting;
     // Traffic is fed only while the window is visible; connection logs continue in the tray (§17.4).
@@ -156,7 +158,7 @@ export component MainWindow inherits Window {
     callback reveal-account(string, bool);
     callback import-legacy(string);
     callback probe-hosts();
-    callback save-settings(string, string, string, bool, bool, bool, bool, string, string);
+    callback save-settings(string, string, string, bool, bool, bool, bool, string, string, int, bool);
     callback manage-service(bool);
     callback update-geodata();
     callback export-diagnostics();
@@ -299,6 +301,8 @@ export component MainWindow inherits Window {
                     saved-autostart: root.settings-autostart;
                     saved-connection-log-limit: root.settings-connection-log-limit;
                     saved-operation-log-days: root.settings-operation-log-days;
+                    saved-ipv6: root.settings-ipv6;
+                    saved-unified-delay: root.settings-unified-delay;
                     service-installed: root.service-installed;
                     service-busy: root.service-busy;
                     tun-active: root.tun-active;
@@ -307,7 +311,7 @@ export component MainWindow inherits Window {
                     running: root.running;
                     geo-updating: root.geo-updating;
                     busy: root.busy;
-                    save(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days) => { root.save-settings(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days); }
+                    save(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay) => { root.save-settings(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay); }
                     update-geodata => { root.update-geodata(); }
                 }
             }

@@ -2,13 +2,14 @@
 
 use super::pipeline;
 use crate::cores::mihomo::binary::CoreBinary;
-use crate::cores::mihomo::compose::{self, ManagedOverlay};
+use crate::cores::mihomo::check;
+use crate::cores::mihomo::compose::{self, Composed, ManagedOverlay, UserOverlay};
 use crate::cores::mihomo::controller::{Controller, GLOBAL_GROUP};
 use crate::cores::mihomo::launcher::Process;
 use crate::cores::mihomo::process::{self, CoreCommand};
 use crate::cores::mihomo::service::{ServiceClient, ServiceProcess};
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
-use crate::domain::model::{Profile, ProfileId, RevisionId, RoutingMode};
+use crate::domain::model::{Profile, ProfileId, RevisionId, RoutingMode, new_id};
 use crate::platform::windows::{process as win_process, tun as win_tun};
 use crate::storage::journal::{self, CoreJournal};
 use crate::storage::layout::Layout;
@@ -40,6 +41,8 @@ pub struct Running {
     pub log_file: PathBuf,
     pub check_lines: Vec<String>,
     pub policy_notes: Vec<String>,
+    /// User overlay the running config was composed with.
+    pub user: UserOverlay,
     pub started_at: Instant,
 }
 
@@ -52,6 +55,7 @@ pub struct StartRequest {
     pub allow_lan: bool,
     pub mode: Option<RoutingMode>,
     pub tun: bool,
+    pub user: UserOverlay,
 }
 
 pub async fn start(req: StartRequest) -> AppResult<Running> {
@@ -81,6 +85,7 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         profile_id: &req.profile.id,
         mode: req.mode,
         tun: req.tun,
+        user: &req.user,
     };
     let prepared = pipeline::prepare(&req.binary, &req.layout, &rev_id, &raw, &overlay).await?;
     let run_config = req.layout.run_config();
@@ -129,6 +134,7 @@ pub async fn start(req: StartRequest) -> AppResult<Running> {
         log_file,
         check_lines: prepared.report.lines,
         policy_notes: prepared.composed.policy_notes,
+        user: req.user,
         started_at: Instant::now(),
     })
 }
@@ -183,6 +189,7 @@ pub struct ReloadRequest {
     pub allow_lan: bool,
     pub mode: Option<RoutingMode>,
     pub tun: bool,
+    pub user: UserOverlay,
     pub candidate: RevisionId,
     pub service: Option<ServiceClient>,
     /// last_good, written back when the candidate fails (§8 step 9).
@@ -198,10 +205,54 @@ pub enum ReloadOutcome {
     NeedsRestart(String),
 }
 
+#[derive(Debug)]
+pub enum OverlayOutcome {
+    Applied,
+    /// `mihomo -t` refused the new overlay; the core was not touched.
+    Rejected(String),
+    /// The new overlay failed to apply; the core runs the previous one again.
+    RolledBack(String),
+    NeedsRestart(String),
+}
+
+/// Re-composes the running revision with a changed user overlay: `-t`
+/// first, then hot reload, falling back to `previous` (iteration 2 §1.3).
+/// The revision itself is never marked invalid by an overlay failure.
+pub async fn reapply(
+    req: ReloadRequest,
+    binary: CoreBinary,
+    previous: UserOverlay,
+) -> OverlayOutcome {
+    let rev = &req.candidate;
+    let checked = match compose_revision(&req, rev, &req.user) {
+        Ok(composed) => check::check(&binary, &req.layout, &new_id(), &composed.yaml)
+            .await
+            .map(drop),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = checked {
+        return OverlayOutcome::Rejected(e.user_message());
+    }
+    let reason = match apply_revision(&req, rev, &req.user).await {
+        Ok(()) => return OverlayOutcome::Applied,
+        Err(e) => {
+            tracing::warn!(error = %e, "overlay reload failed, rolling back");
+            e.user_message()
+        }
+    };
+    match apply_revision(&req, rev, &previous).await {
+        Ok(()) => OverlayOutcome::RolledBack(reason),
+        Err(e) => {
+            tracing::error!(error = %e, "overlay rollback failed");
+            OverlayOutcome::NeedsRestart(reason)
+        }
+    }
+}
+
 /// Hot-applies a checked revision to the running core, rolling back to
 /// last_good on failure (§8 steps 7–9, §16.4).
 pub async fn reload(req: ReloadRequest) -> ReloadOutcome {
-    let reason = match apply_revision(&req, &req.candidate).await {
+    let reason = match apply_revision(&req, &req.candidate, &req.user).await {
         Ok(()) => return ReloadOutcome::Applied,
         Err(e) => {
             tracing::warn!(error = %e, "hot reload failed, rolling back");
@@ -211,7 +262,7 @@ pub async fn reload(req: ReloadRequest) -> ReloadOutcome {
     let Some(fallback) = req.fallback.as_ref().filter(|f| **f != req.candidate) else {
         return ReloadOutcome::NeedsRestart(reason);
     };
-    match apply_revision(&req, fallback).await {
+    match apply_revision(&req, fallback, &req.user).await {
         Ok(()) => ReloadOutcome::RolledBack(reason),
         Err(e) => {
             tracing::error!(error = %e, "rollback reload failed");
@@ -220,8 +271,11 @@ pub async fn reload(req: ReloadRequest) -> ReloadOutcome {
     }
 }
 
-/// compose → run/config.yaml → `PUT /configs` → `/proxies` readable → selection.
-async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> {
+fn compose_revision(
+    req: &ReloadRequest,
+    rev: &RevisionId,
+    user: &UserOverlay,
+) -> AppResult<Composed> {
     let raw = revisions::read_raw(&req.layout, &req.profile, rev)?;
     let detected = detect::detect(&raw)?;
     let overlay = ManagedOverlay {
@@ -233,8 +287,18 @@ async fn apply_revision(req: &ReloadRequest, rev: &RevisionId) -> AppResult<()> 
         profile_id: &req.profile.id,
         mode: req.mode,
         tun: req.tun,
+        user,
     };
-    let composed = compose::compose(&detected.text, &overlay)?;
+    compose::compose(&detected.text, &overlay)
+}
+
+/// compose → run/config.yaml → `PUT /configs` → `/proxies` readable → selection.
+async fn apply_revision(
+    req: &ReloadRequest,
+    rev: &RevisionId,
+    user: &UserOverlay,
+) -> AppResult<()> {
+    let composed = compose_revision(req, rev, user)?;
     let run_config = req.layout.run_config();
     atomic::write(&run_config, composed.yaml.as_bytes())
         .map_err(|e| AppError::storage(STAGE, e))?;

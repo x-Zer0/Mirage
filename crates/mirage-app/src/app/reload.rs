@@ -42,11 +42,16 @@ impl AppCore {
         }
     }
 
-    fn begin_reload(&mut self, profile_id: &ProfileId, candidate: RevisionId) {
+    /// Reload of the running core with the current settings' user overlay.
+    pub(super) fn reload_request(
+        &self,
+        profile_id: &ProfileId,
+        candidate: RevisionId,
+    ) -> Option<runtime::ReloadRequest> {
         let (Some(running), Some(profile)) = (&self.running, self.profiles.get(profile_id)) else {
-            return;
+            return None;
         };
-        let req = runtime::ReloadRequest {
+        Some(runtime::ReloadRequest {
             layout: self.layout.clone(),
             profile: profile.clone(),
             controller: running.controller.clone(),
@@ -56,10 +61,21 @@ impl AppCore {
             allow_lan: running.allow_lan,
             mode: self.settings.routing_mode,
             fallback: profile.last_good_revision.clone(),
-            candidate: candidate.clone(),
+            candidate,
             tun: running.process.service().is_some(),
+            user: self.user_overlay(),
             service: running.process.service(),
+        })
+    }
+
+    fn begin_reload(&mut self, profile_id: &ProfileId, candidate: RevisionId) {
+        let Some(req) = self.reload_request(profile_id, candidate.clone()) else {
+            return;
         };
+        // Candidate and fallback are both composed with this overlay.
+        if let Some(running) = self.running.as_mut() {
+            running.user = req.user.clone();
+        }
         let generation = self.generation;
         let profile_id = profile_id.clone();
         self.reset_delay_tests();
@@ -155,6 +171,7 @@ impl AppCore {
         if let Some((id, rev)) = self.queued_reload.take() {
             self.commit_candidate(&id, rev, false);
         }
+        self.sync_user_overlay();
     }
 
     /// Applied (or not running): becomes active and last_good (§8 step 8).

@@ -12,6 +12,7 @@ mod log_actions;
 pub mod logs;
 mod messages;
 mod nodes;
+mod overlay;
 mod pipeline;
 mod profile_actions;
 mod profile_view;

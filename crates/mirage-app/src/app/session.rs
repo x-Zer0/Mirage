@@ -75,6 +75,7 @@ impl AppCore {
             allow_lan: self.settings.allow_lan,
             mode: self.settings.routing_mode,
             tun: self.view.tun_wanted,
+            user: self.user_overlay(),
         };
         self.spawn(async move {
             if let Some(previous) = previous {

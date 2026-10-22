@@ -2,7 +2,7 @@
 
 use crate::cores::mihomo::binary::CoreBinary;
 use crate::cores::mihomo::check::{self, CheckReport};
-use crate::cores::mihomo::compose::{self, Composed, ManagedOverlay, OVERLAY_VERSION};
+use crate::cores::mihomo::compose::{self, Composed, ManagedOverlay, OVERLAY_VERSION, UserOverlay};
 use crate::domain::error::AppResult;
 use crate::domain::model::{
     ConfigFormat, ConfigRevision, DownloadFormat, EgressPolicy, Profile, ProfileId, RevisionId,
@@ -98,6 +98,8 @@ async fn check_candidate(
         profile_id,
         mode: None,
         tun: false,
+        // The revision is judged on its own; user overrides apply at run time.
+        user: &UserOverlay::default(),
     };
     let prepared = prepare(binary, layout, rev_id, raw, &overlay).await?;
     let revision = ConfigRevision {
