@@ -86,6 +86,10 @@ pub fn exempt_sids() -> io::Result<Vec<String>> {
         .filter_map(|s| unsafe { sid_string(s.Sid) })
         .collect();
     // SAFETY: the array was allocated by the API for the caller to free.
+    // The `Sid` pointers are not freed one by one: the API documentation
+    // does not say they are separate allocations, and LocalFree on a pointer
+    // into the array block would corrupt the heap. At worst this leaks a few
+    // bytes per SID, once each time the dialog is opened.
     unsafe { LocalFree(Some(HLOCAL(first.cast()))) };
     Ok(sids)
 }

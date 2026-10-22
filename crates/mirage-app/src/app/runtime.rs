@@ -196,9 +196,22 @@ pub struct ReloadRequest {
     pub fallback: Option<RevisionId>,
 }
 
+/// An overlay `mihomo -t` already accepted on the rules page, so the hot
+/// reload that follows the save can skip a second check (iteration 2 §1.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedOverlay {
+    pub profile_id: ProfileId,
+    pub revision: RevisionId,
+    pub tun: bool,
+    pub user: UserOverlay,
+}
+
 #[derive(Debug)]
 pub enum ReloadOutcome {
     Applied,
+    /// The candidate only failed with the user overlay; it runs without it
+    /// and stays valid (iteration 2 §1.1).
+    AppliedWithoutOverlay(String),
     /// Candidate rejected; the core runs last_good again.
     RolledBack(String),
     /// Neither candidate nor last_good could be hot-applied; restart the core.
@@ -216,24 +229,25 @@ pub enum OverlayOutcome {
 }
 
 /// Re-composes the running revision with a changed user overlay: `-t`
-/// first, then hot reload, falling back to `previous` (iteration 2 §1.3).
-/// The revision itself is never marked invalid by an overlay failure.
+/// first (unless `checked`), then hot reload, falling back to `previous`
+/// (iteration 2 §1.3). The revision itself is never marked invalid by an
+/// overlay failure.
 pub async fn reapply(
     req: ReloadRequest,
     binary: CoreBinary,
     previous: UserOverlay,
+    checked: bool,
 ) -> OverlayOutcome {
     let rev = &req.candidate;
-    let checked = match compose_revision(&req, rev, &req.user) {
-        Ok(composed) => check::check(&binary, &req.layout, &new_id(), &composed.yaml)
-            .await
-            .map(drop),
-        Err(e) => Err(e),
+    let composed = match compose_revision(&req, rev, &req.user) {
+        Ok(composed) => composed,
+        Err(e) => return OverlayOutcome::Rejected(e.user_message()),
     };
-    if let Err(e) = checked {
+    if !checked && let Err(e) = check::check(&binary, &req.layout, &new_id(), &composed.yaml).await
+    {
         return OverlayOutcome::Rejected(e.user_message());
     }
-    let reason = match apply_revision(&req, rev, &req.user).await {
+    let reason = match apply_composed(&req, composed).await {
         Ok(()) => return OverlayOutcome::Applied,
         Err(e) => {
             tracing::warn!(error = %e, "overlay reload failed, rolling back");
@@ -259,6 +273,14 @@ pub async fn reload(req: ReloadRequest) -> ReloadOutcome {
             e.user_message()
         }
     };
+    // Tell an overlay conflict apart from a broken revision before blaming
+    // the revision (iteration 2 §1.1).
+    if req.user != UserOverlay::default() {
+        match apply_revision(&req, &req.candidate, &UserOverlay::default()).await {
+            Ok(()) => return ReloadOutcome::AppliedWithoutOverlay(reason),
+            Err(e) => tracing::warn!(error = %e, "hot reload without overlay failed"),
+        }
+    }
     let Some(fallback) = req.fallback.as_ref().filter(|f| **f != req.candidate) else {
         return ReloadOutcome::NeedsRestart(reason);
     };
@@ -292,13 +314,16 @@ fn compose_revision(
     compose::compose(&detected.text, &overlay)
 }
 
-/// compose → run/config.yaml → `PUT /configs` → `/proxies` readable → selection.
 async fn apply_revision(
     req: &ReloadRequest,
     rev: &RevisionId,
     user: &UserOverlay,
 ) -> AppResult<()> {
-    let composed = compose_revision(req, rev, user)?;
+    apply_composed(req, compose_revision(req, rev, user)?).await
+}
+
+/// run/config.yaml → `PUT /configs` → `/proxies` readable → selection.
+async fn apply_composed(req: &ReloadRequest, composed: Composed) -> AppResult<()> {
     let run_config = req.layout.run_config();
     atomic::write(&run_config, composed.yaml.as_bytes())
         .map_err(|e| AppError::storage(STAGE, e))?;

@@ -93,6 +93,8 @@ impl AppCore {
             hosts,
             rules,
             failed_overlay: None,
+            checked_overlay: None,
+            startup_accounts_pending: false,
             internal_tx,
             internal_rx: Some(internal_rx),
         }
@@ -188,8 +190,6 @@ impl AppCore {
         self.refresh_override_views();
         self.refresh_profiles_view();
         self.refresh_accounts_view();
-        // §16.1: sessions are checked in the background, never blocking connect.
-        self.validate_accounts_on_start();
         self.publish();
     }
 
@@ -245,13 +245,15 @@ impl AppCore {
             self.handle(cmd);
         }
         // §16.1: start from the stored revision, never waiting on the network.
-        if self.binary.is_some()
+        let auto_connect = self.binary.is_some()
             && (self.settings.auto_connect || self.settings.resume_connected)
-            && self.profiles.selected().is_some()
-        {
+            && self.profiles.selected().is_some();
+        if auto_connect {
             tracing::info!("auto-connect on startup");
             self.connect(false);
         }
+        // §16.1: sessions are checked in the background, never blocking connect.
+        self.schedule_startup_accounts(auto_connect);
         self.migrate_provider_profiles();
     }
 

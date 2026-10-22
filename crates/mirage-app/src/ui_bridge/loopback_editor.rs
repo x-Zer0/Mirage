@@ -1,9 +1,10 @@
 //! Working selection of the UWP loopback dialog (iteration 2 §6.2), kept on
-//! the UI thread; the core only receives the final states on "保存".
+//! the UI thread; the core only receives the changed states on "保存".
 use super::{Command, LoopbackRow, MainWindow, send};
 use crate::platform::windows::loopback::AppContainer;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
@@ -11,6 +12,8 @@ thread_local! {
     static ALL: RefCell<Vec<LoopbackRow>> = const { RefCell::new(Vec::new()) };
     static SHOWN: Rc<VecModel<LoopbackRow>> = Rc::new(VecModel::default());
     static FILTER: RefCell<String> = const { RefCell::new(String::new()) };
+    /// State of each SID when the list was read, to send only the changes.
+    static LOADED: RefCell<HashMap<SharedString, bool>> = RefCell::new(HashMap::new());
 }
 
 pub fn wire(window: &MainWindow, commands: &mpsc::Sender<Command>) {
@@ -58,11 +61,17 @@ pub fn wire(window: &MainWindow, commands: &mpsc::Sender<Command>) {
     });
     let c = commands.clone();
     window.on_save_loopback(move || {
-        let states = ALL.with(|all| {
-            all.borrow()
-                .iter()
-                .map(|r| (r.sid.to_string(), r.checked))
-                .collect()
+        // Unchanged apps are left out, so exemptions changed by another
+        // tool while the dialog was open are not overwritten.
+        let states = LOADED.with(|loaded| {
+            let loaded = loaded.borrow();
+            ALL.with(|all| {
+                all.borrow()
+                    .iter()
+                    .filter(|r| loaded.get(&r.sid) != Some(&r.checked))
+                    .map(|r| (r.sid.to_string(), r.checked))
+                    .collect()
+            })
         });
         send(&c, Command::SaveLoopback(states));
     });
@@ -80,6 +89,13 @@ pub fn reset(w: &MainWindow, apps: &[AppContainer]) {
                 checked: a.exempt,
             })
             .collect();
+        LOADED.with(|loaded| {
+            *loaded.borrow_mut() = all
+                .borrow()
+                .iter()
+                .map(|r| (r.sid.clone(), r.checked))
+                .collect();
+        });
     });
     refresh(w);
 }

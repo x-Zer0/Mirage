@@ -5,6 +5,7 @@ use crate::overrides::hosts::HostEntries;
 use crate::overrides::rules;
 pub use mirage_ipc::policy::OVERLAY_VERSION;
 use serde_yaml_ng::{Mapping, Value};
+use std::collections::HashSet;
 use std::net::SocketAddr;
 
 const STAGE: &str = "mihomo.compose";
@@ -73,11 +74,14 @@ pub fn compose(text: &str, overlay: &ManagedOverlay<'_>) -> AppResult<Composed> 
         },
     )
     .map_err(|e| AppError::new(AppErrorKind::PolicyRejected, STAGE, e))?;
-    let summary = summarize(&parse(&yaml)?);
+    // Parsed once: checks the serialised policy output and is the base the
+    // user overlay is written into.
+    let root = parse(&yaml)?;
+    let summary = summarize(&root);
     if summary != before {
         return Err(AppError::internal(STAGE, "合成前后摘要不一致"));
     }
-    let (yaml, user_notes) = apply_user(yaml, overlay.user)?;
+    let (yaml, user_notes) = apply_user(yaml, root, overlay.user)?;
     policy_notes.extend(user_notes.iter().cloned());
     Ok(Composed {
         yaml,
@@ -87,13 +91,16 @@ pub fn compose(text: &str, overlay: &ManagedOverlay<'_>) -> AppResult<Composed> 
     })
 }
 
-/// Writes the user overlay into the policy output; the summary is unaffected.
-fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<(String, Vec<String>)> {
+/// Writes the user overlay into `root`, the parsed policy output `yaml`.
+fn apply_user(
+    yaml: String,
+    mut root: Value,
+    user: &UserOverlay,
+) -> AppResult<(String, Vec<String>)> {
     if *user == UserOverlay::default() {
         return Ok((yaml, Vec::new()));
     }
     let mut notes = Vec::new();
-    let mut root = parse(&yaml)?;
     let map = root
         .as_mapping_mut()
         .ok_or_else(|| AppError::internal(STAGE, "配置顶层不是映射"))?;
@@ -135,8 +142,9 @@ fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<(String, Vec<String
 }
 
 /// §3.1: rules whose target, rule provider or sub-rule is missing from this
-/// config are skipped rather than failing the whole config. `PROXY` targets
-/// are rewritten to this config's main group.
+/// config are skipped rather than failing the whole config. `CURRENT-PROXY`
+/// targets, and `PROXY` ones in a config without that name, are rewritten
+/// to this config's main group.
 fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
     let names = |key: &str| -> Vec<String> {
         map.get(key)
@@ -146,7 +154,7 @@ fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
             .filter_map(|p| p.get("name").and_then(Value::as_str).map(str::to_owned))
             .collect()
     };
-    let keys = |key: &str| -> Vec<String> {
+    let keys = |key: &str| -> HashSet<String> {
         map.get(key)
             .and_then(Value::as_mapping)
             .into_iter()
@@ -154,28 +162,30 @@ fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
             .filter_map(|k| k.as_str().map(str::to_owned))
             .collect()
     };
-    let mut targets = names("proxies");
-    targets.extend(names("proxy-groups"));
+    let groups = names("proxy-groups");
+    // A name with a comma can't be written into a rule string.
+    let main_group = groups.first().filter(|g| !g.contains(',')).cloned();
+    let mut targets: HashSet<String> = names("proxies").into_iter().collect();
+    targets.extend(groups);
     targets.extend(rules::BUILTIN_TARGETS.iter().map(|t| (*t).to_owned()));
     let providers = keys("rule-providers");
     let sub_rules = keys("sub-rules");
-    // A name with a comma can't be written into a rule string.
-    let main_group = names("proxy-groups")
-        .into_iter()
-        .next()
-        .filter(|g| !g.contains(','));
 
     let mut kept = Vec::with_capacity(user.len());
+    // Reported in first-seen order; `seen` keeps the lookup cheap.
     let mut missing: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let mut process = false;
     for text in user {
         let Ok(mut rule) = rules::validate(text) else {
             continue;
         };
         let mut text = text.trim().to_owned();
-        if rule.kind != "SUB-RULE" && rule.target == rules::PROXY_TARGET {
+        let to_main = rule.target == rules::CURRENT_PROXY
+            || (rule.target == rules::PROXY && !targets.contains(rules::PROXY));
+        if rule.kind != "SUB-RULE" && to_main {
             let Some(group) = &main_group else {
-                if !missing.contains(&"策略组".to_owned()) {
+                if seen.insert("策略组".into()) {
                     missing.push("策略组".into());
                 }
                 continue;
@@ -195,7 +205,7 @@ fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
             None
         };
         if let Some(name) = absent {
-            if !missing.contains(&name) {
+            if seen.insert(name.clone()) {
                 missing.push(name);
             }
             continue;

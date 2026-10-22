@@ -2774,7 +2774,7 @@ dependencies = [
 
 [[package]]
 name = "mirage-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2810,7 +2810,7 @@ dependencies = [
 
 [[package]]
 name = "mirage-ipc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "hex",
@@ -2825,7 +2825,7 @@ dependencies = [
 
 [[package]]
 name = "mirage-svc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hex",

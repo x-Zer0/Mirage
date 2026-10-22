@@ -123,6 +123,24 @@ impl AppCore {
                     )));
                 }
             }
+            ReloadOutcome::AppliedWithoutOverlay(reason) => {
+                tracing::warn!(profile = %profile_id, %reason, "hot reload applied without overlay");
+                let saved = self.mark_good(&profile_id, &revision);
+                self.complete_revision_log(
+                    &profile_id,
+                    &revision,
+                    saved,
+                    "新配置已应用，附加规则 / Hosts / IPv6 设置未生效",
+                );
+                if current && let Some(running) = self.running.as_mut() {
+                    // Not retried until the user changes the overlay again.
+                    let failed = std::mem::take(&mut running.user);
+                    self.failed_overlay = Some(failed);
+                    self.view.notice = Some(Notice::error(format!(
+                        "\"{name}\" 已更新，但与附加规则 / Hosts / IPv6 设置一起应用失败，                         当前不带这些设置运行，请在“规则”或“设置”页检查后重新保存：{reason}"
+                    )));
+                }
+            }
             ReloadOutcome::RolledBack(reason) => {
                 if generation != self.generation {
                     // Disconnected/stopped; the reload task is stale, no notice.

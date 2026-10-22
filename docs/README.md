@@ -33,7 +33,7 @@ Mirage（暂定名）是 Rust + Slint 编写的 Windows 通用代理客户端：
 
 ## Windows 安装版与便携版（M8）
 
-执行 `pwsh -File scripts/package.ps1` 一次构建同时生成 `dist/Mirage-0.1.0-windows-x64-setup.exe` 和 `dist/Mirage-0.1.0-windows-x64-portable.zip`，分别附 SHA256 文件。两种包均自带 Mihomo、四份 geodata、`mirage-svc.exe` 和许可材料；安装 / 解压不创建服务，第一次启用 TUN 时单独提示安装并请求 UAC。
+执行 `pwsh -File scripts/package.ps1` 一次构建同时生成 `dist/Mirage-0.2.0-windows-x64-setup.exe` 和 `dist/Mirage-0.2.0-windows-x64-portable.zip`，分别附 SHA256 文件。两种包均自带 Mihomo、四份 geodata、`mirage-svc.exe` 和许可材料；安装 / 解压不创建服务，第一次启用 TUN 时单独提示安装并请求 UAC。
 
 便携版完整解压后运行 `Mirage/Mirage.exe`；数据仍在 `%LOCALAPPDATA%\Mirage`，与安装版共用。更新前正常退出；删除前先关闭开机启动、按需卸载 TUN 服务，详见包内 `README-portable.txt`。
 

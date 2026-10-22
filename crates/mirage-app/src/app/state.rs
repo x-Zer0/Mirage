@@ -232,6 +232,9 @@ pub struct SettingsView {
     pub operation_log_days: usize,
     pub ipv6: crate::domain::model::Ipv6Mode,
     pub unified_delay: bool,
+    /// Bumped when the saved values replace the page's working copy (a
+    /// save, which may normalize the input, or a restore after a failure).
+    pub revision: u64,
 }
 
 /// UWP loopback dialog (iteration 2 §6).

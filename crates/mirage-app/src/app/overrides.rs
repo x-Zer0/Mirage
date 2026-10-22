@@ -1,10 +1,11 @@
 //! Rules page (iteration 2 §2, §3): extra rules and hosts share one save
 //! flow — validate → `-t` on the active config → save → hot reload (§1.3).
 use super::pipeline::{self, OverlayCheck};
+use super::runtime::CheckedOverlay;
 use super::state::{Notice, OverrideView};
 use super::{AppCore, Internal, error_notice, info_notice};
 use crate::cores::mihomo::compose::UserOverlay;
-use crate::domain::error::{AppError, AppResult};
+use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::overrides::hosts::{self, Hosts};
 use crate::overrides::rules::{self, Rules};
 
@@ -93,11 +94,18 @@ impl AppCore {
             return;
         };
         self.override_view(kind).saving = true;
+        let checked = CheckedOverlay {
+            profile_id: check.profile.id.clone(),
+            revision: check.revision.clone(),
+            tun: check.tun,
+            user: check.user.clone(),
+        };
         self.spawn(async move {
             Internal::OverrideChecked {
                 kind,
                 enabled,
                 text,
+                checked,
                 result: pipeline::check_overlay(check).await,
             }
         });
@@ -129,18 +137,29 @@ impl AppCore {
         kind: OverrideKind,
         enabled: bool,
         text: String,
+        checked: CheckedOverlay,
         result: CheckResult,
     ) {
         self.override_view(kind).saving = false;
         match result {
-            Ok(notes) => self.commit_override(kind, enabled, text, Some(notes)),
+            Ok(notes) => {
+                self.checked_overlay = Some(checked);
+                self.commit_override(kind, enabled, text, Some(notes));
+            }
             Err(e) => {
                 let action = format!("保存{}", kind.label());
                 self.record_operation(&action, "", "手动", "失败", &e.user_message());
-                self.view.notice = Some(error_notice(&e).with_stage(match kind {
-                    OverrideKind::Rules => "附加规则未保存：当前配置的内核校验未通过",
-                    OverrideKind::Hosts => "Hosts 未保存：当前配置的内核校验未通过",
-                }));
+                // The check can also fail before the kernel runs (reading
+                // the revision, composing, generating the secret).
+                let reason = match e.kind {
+                    AppErrorKind::ConfigCheckFailed => "当前配置的内核校验未通过",
+                    AppErrorKind::PolicyRejected | AppErrorKind::NotAConfig => {
+                        "当前配置无法合成运行配置"
+                    }
+                    _ => "无法完成内核校验",
+                };
+                self.view.notice =
+                    Some(error_notice(&e).with_stage(&format!("{}未保存：{reason}", kind.label())));
             }
         }
     }
@@ -200,11 +219,9 @@ impl AppCore {
             "成功",
             &format!("{count} 条{}", if enabled { "" } else { "（未启用）" }),
         );
-        let reload = self.view.runtime.is_up()
-            && self
-                .running
-                .as_ref()
-                .is_some_and(|r| r.user != self.user_overlay());
+        let reload = self.sync_user_overlay();
+        // Only the reload this save started may skip its check.
+        self.checked_overlay = None;
         let mut message = format!(
             "{}已保存{}",
             kind.label(),
@@ -220,7 +237,6 @@ impl AppCore {
             message = format!("{message}；{first}");
         }
         self.view.notice = Some(info_notice(message));
-        self.sync_user_overlay();
     }
 
     fn store_override(&mut self, kind: OverrideKind, enabled: bool, text: &str) -> AppResult<()> {

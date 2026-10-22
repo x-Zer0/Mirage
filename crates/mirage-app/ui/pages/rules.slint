@@ -48,7 +48,7 @@ component RulesTab inherits VerticalLayout {
             horizontal-stretch: 1;
             CheckBox { text: "启用附加规则"; checked <=> root.enabled; horizontal-stretch: 0; }
             HelpIcon {
-                text: "附加规则插在订阅规则之前，优先命中；全局一份，对所有配置生效。\n目标“代理”走当前运行配置的主策略组（节点页第一个分组），切换配置后自动跟随。\nYAML 中写的其他策略名、规则集或子规则在当前配置中不存在时跳过该条并提示，不影响其他规则。\n不允许 MATCH。保存前用当前配置做一次内核校验；已连接时保存后热重载。";
+                text: "附加规则插在订阅规则之前，优先命中；全局一份，对所有配置生效。\n目标“代理（当前节点）”保存为 CURRENT-PROXY，走当前运行配置的主策略组（节点页第一个分组）选中的节点，切换配置后自动跟随。\nYAML 中写的其他策略名、规则集或子规则在当前配置中不存在时跳过该条并提示，不影响其他规则。\n不允许 MATCH。保存前用当前配置做一次内核校验；已连接时保存后热重载。";
             }
             Text {
                 text: "已保存 " + root.count + " 条";
@@ -139,7 +139,7 @@ component RulesTab inherits VerticalLayout {
                         min-width: 0px;
                     }
                     Text {
-                        text: "→ " + (row.target == "PROXY" ? "代理" : row.target == "DIRECT" ? "直连" : row.target == "REJECT" ? "拒绝" : row.target);
+                        text: "→ " + (row.target == "CURRENT-PROXY" ? "代理（当前节点）" : row.target == "DIRECT" ? "直连" : row.target == "REJECT" ? "拒绝" : row.target);
                         color: Theme.text-muted;
                         vertical-alignment: center;
                         overflow: elide;
@@ -186,7 +186,7 @@ component RulesTab inherits VerticalLayout {
         min-height: 0px;
         spacing: 8px;
         Text {
-            text: "格式与 Mihomo 相同：rules: 下每行一条，目标写 PROXY 表示代理（当前配置的主策略组）。逻辑规则、RULE-SET、SUB-RULE 等只能在这里编辑。可视化模式下改动后会重新生成 YAML，注释不保留。";
+            text: "格式与 Mihomo 相同：rules: 下每行一条，目标写 CURRENT-PROXY 表示走节点页选中的节点（当前配置的主策略组）；写 PROXY 时按 Mihomo 原义指向配置中名为 PROXY 的分组，配置中没有时同样走主策略组。逻辑规则、RULE-SET、SUB-RULE 等只能在这里编辑。可视化模式下改动后会重新生成 YAML，注释不保留。";
             color: Theme.text-muted;
             font-size: 12px;
             wrap: word-wrap;
@@ -198,7 +198,7 @@ component RulesTab inherits VerticalLayout {
             min-height: 160px;
             wrap: no-wrap;
             font-size: 15px;
-            placeholder-text: "rules:\n  - DOMAIN-SUFFIX,example.com,PROXY\n  - DOMAIN-SUFFIX,example.cn,DIRECT\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - AND,((DOMAIN-SUFFIX,example.org),(NETWORK,udp)),REJECT";
+            placeholder-text: "rules:\n  - DOMAIN-SUFFIX,example.com,CURRENT-PROXY\n  - DOMAIN-SUFFIX,example.cn,DIRECT\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - AND,((DOMAIN-SUFFIX,example.org),(NETWORK,udp)),REJECT";
             accessible-label: "附加规则 YAML";
         }
     }
@@ -221,22 +221,23 @@ component RulesTab inherits VerticalLayout {
             }
         }
     }
+    // Bottom right, in the settings page's order.
     HorizontalLayout {
         spacing: 8px;
-        alignment: start;
+        alignment: end;
         vertical-stretch: 0;
         Button {
-            text: root.saving ? "正在校验…" : "保存";
+            text: "放弃修改";
+            enabled: !root.saving;
+            clicked => { root.reset(); }
+        }
+        Button {
+            text: root.saving ? "正在校验…" : "保存规则";
             primary: true;
             enabled: !root.saving;
             icon: @image-url("../../assets/icons/lucide/check.svg");
             colorize-icon: true;
             clicked => { root.save(root.enabled, root.yaml-mode, root.yaml); }
-        }
-        Button {
-            text: "放弃修改";
-            enabled: !root.saving;
-            clicked => { root.reset(); }
         }
     }
 }
@@ -249,10 +250,9 @@ component HostsTab inherits VerticalLayout {
     in property <int> count;
     in property <[string]> errors;
     in property <bool> saving;
+    in-out property <bool> enabled;
+    in-out property <string> text;
     callback save(bool, string);
-
-    property <bool> enabled: root.saved-enabled;
-    property <string> text: root.saved-text;
 
     min-height: 0px;
     spacing: 12px;
@@ -263,7 +263,7 @@ component HostsTab inherits VerticalLayout {
         vertical-stretch: 0;
         CheckBox { text: "启用 Hosts"; checked <=> root.enabled; horizontal-stretch: 0; }
         HelpIcon {
-            text: "只写入 Mirage 内核的运行配置，不修改系统 hosts 文件，只对经过 Mirage 的流量生效。\n对直连连接和 TUN 下的 DNS 解析生效；经代理节点转发的连接通常由节点解析域名，可能不生效（待核验）。\n保存前会用当前配置做一次内核校验；已连接时保存后热重载。";
+            text: "保存前会用当前配置做一次内核校验；已连接时保存后热重载。";
         }
         Text {
             text: "已保存 " + root.count + " 个域名";
@@ -271,6 +271,13 @@ component HostsTab inherits VerticalLayout {
             font-size: 12px;
             vertical-alignment: center;
         }
+    }
+    Text {
+        text: "只写入 Mirage 内核的运行配置，不修改系统 hosts 文件，只对经过 Mirage 的流量生效：直连、经代理节点转发和 TUN 下的 DNS 解析都会使用映射。经代理时节点连接的是映射后的 IP，请确认节点能访问该地址。";
+        color: Theme.text-muted;
+        font-size: 12px;
+        wrap: word-wrap;
+        vertical-stretch: 0;
     }
     Text {
         text: "每行一个 IP，后接一个或多个域名，空格分隔；# 开头为注释。支持 *.example.com（一级子域）和 +.example.com（本身及所有子域）。";
@@ -300,18 +307,11 @@ component HostsTab inherits VerticalLayout {
             }
         }
     }
+    // Bottom right, in the settings page's order.
     HorizontalLayout {
         spacing: 8px;
-        alignment: start;
+        alignment: end;
         vertical-stretch: 0;
-        Button {
-            text: root.saving ? "正在校验…" : "保存";
-            primary: true;
-            enabled: !root.saving;
-            icon: @image-url("../../assets/icons/lucide/check.svg");
-            colorize-icon: true;
-            clicked => { root.save(root.enabled, root.text); }
-        }
         Button {
             text: "放弃修改";
             enabled: !root.saving;
@@ -319,6 +319,14 @@ component HostsTab inherits VerticalLayout {
                 root.enabled = root.saved-enabled;
                 root.text = root.saved-text;
             }
+        }
+        Button {
+            text: root.saving ? "正在校验…" : "保存 Hosts";
+            primary: true;
+            enabled: !root.saving;
+            icon: @image-url("../../assets/icons/lucide/check.svg");
+            colorize-icon: true;
+            clicked => { root.save(root.enabled, root.text); }
         }
     }
 }
@@ -349,6 +357,8 @@ export component RulesPage inherits VerticalLayout {
     in property <int> hosts-count;
     in property <[string]> hosts-errors;
     in property <bool> hosts-saving;
+    in-out property <bool> hosts-edit-enabled;
+    in-out property <string> hosts-edit-text;
     callback save-hosts(bool, string);
 
     min-width: 0px;
@@ -387,6 +397,8 @@ export component RulesPage inherits VerticalLayout {
         vertical-stretch: 1;
         saved-enabled: root.hosts-enabled;
         saved-text: root.hosts-text;
+        enabled <=> root.hosts-edit-enabled;
+        text <=> root.hosts-edit-text;
         count: root.hosts-count;
         errors: root.hosts-errors;
         saving: root.hosts-saving;

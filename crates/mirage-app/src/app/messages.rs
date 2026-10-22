@@ -111,6 +111,8 @@ pub(super) enum Internal {
     Stopped(u64),
     NodeDelay(u64, u64, super::delays::DelayEvent),
     RestartDue(u64),
+    /// Startup account refresh fallback when no connection finished first.
+    StartupAccountsDue,
     Connectivity(u64, u64, Result<u32, AppError>),
     RemoteAdded(Box<updates::AddedRemote>),
     /// `bool`: started by the user (notices) rather than the schedule.
@@ -127,6 +129,7 @@ pub(super) enum Internal {
         kind: super::overrides::OverrideKind,
         enabled: bool,
         text: String,
+        checked: runtime::CheckedOverlay,
         result: super::overrides::CheckResult,
     },
     OverlayApplied {

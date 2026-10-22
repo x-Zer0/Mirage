@@ -83,6 +83,8 @@ struct AppCore {
     accounts: accounts::Accounts,
     /// Status before a running session check, restored on inconclusive errors.
     validating_prev: HashMap<AccountId, AccountStatus>,
+    /// The startup account check has not run yet (iteration 2 §10).
+    startup_accounts_pending: bool,
     live: live::LiveStreams,
     operation_logs: crate::storage::operation_logs::OperationLogs,
     connection_logs: logs::ConnectionHistory,
@@ -94,6 +96,8 @@ struct AppCore {
     rules: crate::overrides::rules::Rules,
     /// Overlay whose hot reload just failed; not retried until the settings change.
     failed_overlay: Option<crate::cores::mihomo::compose::UserOverlay>,
+    /// Overlay the rules page just checked with `-t`; spares the reload a second check.
+    checked_overlay: Option<runtime::CheckedOverlay>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
 }

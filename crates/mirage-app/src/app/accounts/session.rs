@@ -4,6 +4,12 @@ use crate::app::{AppCore, Internal, error_notice, info_notice};
 use crate::domain::error::{AppErrorKind, AppResult};
 use crate::domain::model::{AccountId, AccountStatus};
 use crate::providers::{self, Refreshed, account_provider};
+use std::time::Duration;
+
+/// Startup check without an auto-connect: lets Wi-Fi and the network settle.
+const STARTUP_CHECK_DELAY: Duration = Duration::from_secs(30);
+/// Upper bound when waiting for the auto-connect to finish.
+const STARTUP_CHECK_FALLBACK: Duration = Duration::from_secs(60);
 
 impl AppCore {
     pub(in crate::app) fn revalidate_account(&mut self, id: &str, manual: bool) {
@@ -132,9 +138,31 @@ impl AppCore {
         self.refresh_accounts_view();
     }
 
+    /// Iteration 2 §10: at autostart the network is often not up yet, so the
+    /// startup check runs once the auto-connect finishes (or fails), or after
+    /// a delay when nothing connects; whichever comes first.
+    pub(in crate::app) fn schedule_startup_accounts(&mut self, auto_connect: bool) {
+        self.startup_accounts_pending = true;
+        let delay = if auto_connect {
+            STARTUP_CHECK_FALLBACK
+        } else {
+            STARTUP_CHECK_DELAY
+        };
+        self.spawn(async move {
+            tokio::time::sleep(delay).await;
+            Internal::StartupAccountsDue
+        });
+    }
+
+    pub(in crate::app) fn startup_accounts_due(&mut self) {
+        if std::mem::take(&mut self.startup_accounts_pending) {
+            self.validate_accounts_on_start();
+        }
+    }
+
     /// Background "刷新信息" of every account with a saved session (§16.1,
     /// §6.4); a failure raises a system notification (iteration 2 §10).
-    pub(in crate::app) fn validate_accounts_on_start(&mut self) {
+    fn validate_accounts_on_start(&mut self) {
         let ids: Vec<AccountId> = self
             .accounts
             .all()

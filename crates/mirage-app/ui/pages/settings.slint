@@ -92,6 +92,9 @@ export component SettingsPage inherits VerticalLayout {
     in property <string> saved-operation-log-days;
     in property <int> saved-ipv6;
     in property <bool> saved-unified-delay;
+    // Bumped by the core when the saved values should replace the working
+    // copies: a save normalizes the input, a failed hot reload restores it.
+    in property <int> saved-revision;
     in property <bool> service-installed;
     in property <bool> service-busy;
     in property <bool> tun-active;
@@ -131,6 +134,21 @@ export component SettingsPage inherits VerticalLayout {
         || root.unified-delay != root.saved-unified-delay;
     property <length> wide-input: root.width < 660px ? 200px : 300px;
 
+    function reset() {
+        root.port = root.saved-port;
+        root.bypass = root.saved-bypass;
+        root.user-agent = root.saved-user-agent;
+        root.allow-lan = root.saved-allow-lan;
+        root.auto-connect = root.saved-auto-connect;
+        root.close-to-tray = root.saved-close-to-tray;
+        root.autostart = root.saved-autostart;
+        root.connection-log-limit = root.saved-connection-log-limit;
+        root.operation-log-days = root.saved-operation-log-days;
+        root.ipv6 = root.saved-ipv6;
+        root.unified-delay = root.saved-unified-delay;
+    }
+    changed saved-revision => { root.reset(); }
+
     min-width: 0px;
     spacing: 0px;
 
@@ -165,7 +183,7 @@ export component SettingsPage inherits VerticalLayout {
                 SettingRow {
                     title: "IPv6";
                     description: "跟随订阅时不修改订阅中的 IPv6 设置";
-                    help-text: "开启后需要本机和节点都支持 IPv6；TUN 下的 IPv6 接管尚待核验。\n修改后保存会热重载运行中的内核。";
+                    help-text: "开启后需要本机网络和节点都支持 IPv6；TUN 模式下同时作用于 Mirage 的 DNS 解析。\n修改后保存会热重载运行中的内核。";
                     ComboBox {
                         model: ["跟随订阅", "开启", "关闭"];
                         current-index <=> root.ipv6;
@@ -317,19 +335,7 @@ export component SettingsPage inherits VerticalLayout {
         Button {
             text: "放弃修改";
             enabled: root.dirty;
-            clicked => {
-                root.port = root.saved-port;
-                root.bypass = root.saved-bypass;
-                root.user-agent = root.saved-user-agent;
-                root.allow-lan = root.saved-allow-lan;
-                root.auto-connect = root.saved-auto-connect;
-                root.close-to-tray = root.saved-close-to-tray;
-                root.autostart = root.saved-autostart;
-                root.connection-log-limit = root.saved-connection-log-limit;
-                root.operation-log-days = root.saved-operation-log-days;
-                root.ipv6 = root.saved-ipv6;
-                root.unified-delay = root.saved-unified-delay;
-            }
+            clicked => { root.reset(); }
         }
         Button {
             text: "保存设置";

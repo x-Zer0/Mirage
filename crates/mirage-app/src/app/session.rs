@@ -149,6 +149,14 @@ impl AppCore {
                     "失败",
                     &e.user_message(),
                 );
+                let e = if matches!(
+                    e.kind,
+                    AppErrorKind::ConfigCheckFailed | AppErrorKind::CoreExited
+                ) {
+                    e.append(self.overlay_hint())
+                } else {
+                    e
+                };
                 if self.view.tun_wanted && self.view.runtime != RuntimeStatus::Restarting {
                     self.view.tun_wanted = false;
                     self.update_tun_state(false);
@@ -178,6 +186,8 @@ impl AppCore {
         if generation == self.generation {
             self.commit_queued_revision();
             self.migrate_provider_profiles();
+            // The startup account check waits for the core (iteration 2 §10).
+            self.startup_accounts_due();
         }
     }
 

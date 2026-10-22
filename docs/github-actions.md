@@ -24,16 +24,16 @@ geodata 固定使用上游 [2026-10-21 快照提交](https://github.com/MetaCube
 1. 将 workflow 和配套改动提交并推送到 `master`，在仓库 **Actions** 页面确认 `Build and release` 检查通过。手动运行入口需要 workflow 已位于默认分支。
 2. 在该工作流页面点击 **Run workflow**，选择待验证分支。成功后，在运行详情底部 **Artifacts** 下载 `Mirage-<版本>-windows-x64`，确认安装版和便携版可用。
 3. 正式发布时更新根目录 `Cargo.toml` 的 `[workspace.package].version`，并同步、提交 `Cargo.lock` 中的 workspace 版本。先将版本提交推送到 `master` 并确认检查通过。
-4. 在版本提交上创建标签并单独推送该标签，例如当前版本 `0.1.0`：
+4. 在版本提交上创建标签并单独推送该标签，例如当前版本 `0.2.0`：
 
 ```powershell
 git switch master
 git pull --ff-only
-git tag -a v0.1.0 -m 'Mirage 0.1.0'
-git push origin v0.1.0
+git tag -a v0.2.0 -m 'Mirage 0.2.0'
+git push origin v0.2.0
 ```
 
-标签必须严格等于 `v` 加 workspace 版本，例如 `v0.1.0` 对应 `0.1.0`。`v*` 标签都会触发检查，格式错误或版本不匹配会在打包前失败。当前打包脚本仅接受三个数字段的正式版本，不支持 `-beta` / `-rc` 标签。
+标签必须严格等于 `v` 加 workspace 版本，例如 `v0.2.0` 对应 `0.2.0`。`v*` 标签都会触发检查，格式错误或版本不匹配会在打包前失败。当前打包脚本仅接受三个数字段的正式版本，不支持 `-beta` / `-rc` 标签。
 
 ## 产物与权限
 
@@ -49,8 +49,8 @@ Mirage-<版本>-windows-x64-portable.zip.sha256
 Actions Artifacts 保留 **14 天**；正式版本也会作为 Release 附件保存，不受该保留期限制。Artifacts 外层归档解压后，便携 ZIP 仍需单独完整解压。SHA256 校验方法：
 
 ```powershell
-Get-FileHash .\Mirage-0.1.0-windows-x64-setup.exe -Algorithm SHA256
-Get-Content .\Mirage-0.1.0-windows-x64-setup.exe.sha256
+Get-FileHash .\Mirage-0.2.0-windows-x64-setup.exe -Algorithm SHA256
+Get-Content .\Mirage-0.2.0-windows-x64-setup.exe.sha256
 ```
 
 无需配置个人 PAT 或额外 Secrets。工作流默认只有 `contents: read`，仅 `release` job 声明 `contents: write`。仓库 / 组织需允许 GitHub Actions、所用的固定 Action 提交和托管 runner；若发布返回 403，检查组织权限策略和标签 / Release 保护规则。不要为此把 PAT 放入 YAML。

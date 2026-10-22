@@ -90,6 +90,7 @@ export component MainWindow inherits Window {
     in property <string> settings-operation-log-days;
     in property <int> settings-ipv6;
     in property <bool> settings-unified-delay;
+    in property <int> settings-revision;
     in property <bool> geo-updating;
     in property <bool> exporting;
     // Traffic is fed only while the window is visible; connection logs continue in the tray (§17.4).
@@ -120,6 +121,12 @@ export component MainWindow inherits Window {
     in property <int> hosts-count;
     in property <[string]> hosts-errors;
     in property <bool> hosts-saving;
+    // Hosts working copy, kept here like the rules one so switching tabs
+    // or pages keeps the edits; replaced whenever the saved values change.
+    in-out property <bool> hosts-edit-enabled;
+    in-out property <string> hosts-edit-text;
+    changed hosts-enabled => { root.hosts-edit-enabled = root.hosts-enabled; }
+    changed hosts-text => { root.hosts-edit-text = root.hosts-text; }
     callback save-hosts(bool, string);
     in property <[LoopbackRow]> loopback-rows;
     in property <string> loopback-summary;
@@ -153,11 +160,11 @@ export component MainWindow inherits Window {
     private property <int> rd-index: -1;
     private property <int> rd-kind: 1;
     private property <string> rd-payload;
-    // Targets: 0 PROXY (main group of the running config), 1 DIRECT, 2 REJECT,
-    // 3 a target written in YAML mode (kept as is when editing).
+    // Targets: 0 CURRENT-PROXY (main group of the running config), 1 DIRECT,
+    // 2 REJECT, 3 a target written in YAML mode (kept as is when editing).
     private property <string> rd-other-target;
     private property <int> rd-target-index;
-    private property <string> rd-target: ["PROXY", "DIRECT", "REJECT", root.rd-other-target][root.rd-target-index];
+    private property <string> rd-target: ["CURRENT-PROXY", "DIRECT", "REJECT", root.rd-other-target][root.rd-target-index];
     private property <bool> rd-no-resolve;
     private property <string> rd-message: root.rule-check(root.rd-kind, root.rd-payload, root.rd-target, root.rd-no-resolve);
     in-out property <bool> sort-by-delay;
@@ -343,6 +350,8 @@ export component MainWindow inherits Window {
                 tab <=> root.rules-tab;
                 hosts-enabled: root.hosts-enabled;
                 hosts-text: root.hosts-text;
+                hosts-edit-enabled <=> root.hosts-edit-enabled;
+                hosts-edit-text <=> root.hosts-edit-text;
                 hosts-count: root.hosts-count;
                 hosts-errors: root.hosts-errors;
                 hosts-saving: root.hosts-saving;
@@ -370,8 +379,8 @@ export component MainWindow inherits Window {
                     root.rd-index = i;
                     root.rd-kind = root.rule-rows[i].kind-index;
                     root.rd-payload = root.rule-rows[i].payload;
-                    root.rd-other-target = root.rule-rows[i].target == "PROXY" || root.rule-rows[i].target == "DIRECT" || root.rule-rows[i].target == "REJECT" ? "" : root.rule-rows[i].target;
-                    root.rd-target-index = root.rule-rows[i].target == "PROXY" ? 0 : root.rule-rows[i].target == "DIRECT" ? 1 : root.rule-rows[i].target == "REJECT" ? 2 : 3;
+                    root.rd-other-target = root.rule-rows[i].target == "CURRENT-PROXY" || root.rule-rows[i].target == "DIRECT" || root.rule-rows[i].target == "REJECT" ? "" : root.rule-rows[i].target;
+                    root.rd-target-index = root.rule-rows[i].target == "CURRENT-PROXY" ? 0 : root.rule-rows[i].target == "DIRECT" ? 1 : root.rule-rows[i].target == "REJECT" ? 2 : 3;
                     root.rd-no-resolve = root.rule-rows[i].no-resolve;
                     rule-dialog.show();
                 }
@@ -398,6 +407,7 @@ export component MainWindow inherits Window {
                 saved-operation-log-days: root.settings-operation-log-days;
                 saved-ipv6: root.settings-ipv6;
                 saved-unified-delay: root.settings-unified-delay;
+                saved-revision: root.settings-revision;
                 service-installed: root.service-installed;
                 service-busy: root.service-busy;
                 tun-active: root.tun-active;
@@ -514,7 +524,7 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 Text { text: "目标"; width: 32px; color: Theme.text; vertical-alignment: center; }
                 ComboBox {
-                    model: root.rd-other-target == "" ? ["代理", "直连", "拒绝"] : ["代理", "直连", "拒绝", root.rd-other-target];
+                    model: root.rd-other-target == "" ? ["代理（当前节点）", "直连", "拒绝"] : ["代理（当前节点）", "直连", "拒绝", root.rd-other-target];
                     current-index <=> root.rd-target-index;
                     horizontal-stretch: 1;
                     accessible-label: "目标策略";

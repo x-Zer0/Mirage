@@ -26,7 +26,8 @@
   1. `policy::ensure_dns` 会在 TUN 模式下整体替换 `dns` 块，覆写层排在后面，`dns.ipv6` 和 `dns.use-hosts` 才不会丢失。
   2. 现有摘要比对（`compose.rs`：合成前后摘要必须一致）可以保持不变，追加的规则不会触发“合成器缺陷”错误。
   3. 覆写层只修改下面白名单中的键，不涉及任何安全相关的键。
-- TUN 服务收到 YAML 后还会再执行一次 `policy::apply`。该函数不会删除或覆盖白名单中的键；此时 `dns.enable` 已经为 true，`ensure_dns` 不会再次替换 DNS。因此 **mirage-ipc 和 mirage-svc 都不需要改动，`OVERLAY_VERSION` 也不用加 1**，服务也不必升级。
+- TUN 服务收到 YAML 后还会再执行一次 `policy::apply`。该函数不会删除或覆盖白名单中的键；此时 `dns.enable` 已经为 true，`ensure_dns` 不会再次替换 DNS。因此覆写层本身**不需要改动 mirage-ipc 和 mirage-svc，`OVERLAY_VERSION` 也不用加 1**。
+- 【发布说明】本迭代另外修复了 TUN 热重载时辅助服务崩溃的问题（`caebe61`，`mirage-svc/src/main.rs` 安装 rustls ring provider）。服务文件因此变化，`service::ready()` 比对 helper SHA256 后会判定已安装的服务需要更新：老用户升级后第一次开启 TUN 时，按现有流程提示更新服务并请求一次 UAC（也可在设置页“TUN 辅助服务 → 安装 / 更新”）。不更新则无法开启 TUN，系统代理模式不受影响。
 - 覆写层允许修改的键（白名单）：`rules`（只在前面插入）、`hosts`（合并）、`dns.use-hosts`、`ipv6`、`dns.ipv6`、`unified-delay`、`find-process-mode`（只从 `off` 提升为 `strict`）。
 - 版本摘要（`ConfigRevision.summary`）仍然记录订阅本身的数量，不把用户规则算进去。
 
@@ -70,6 +71,16 @@ pub struct UserOverlay {
 
 其他配置只会在被切换到时用新的覆写重新合成。如果此时内核校验失败，错误提示中注明“可能由附加规则或 Hosts 导致”，并引导用户到规则页。
 
+【发布前修订】
+
+- 连接 / 切换配置启动失败（`ConfigCheckFailed` / `CoreExited`）且当前覆写含附加规则或 Hosts 时，错误末尾追加“可能由附加规则或 Hosts 导致，可在‘规则’页停用后重试”（`AppCore::overlay_hint`）。
+- 订阅更新热重载（`runtime::reload`）：候选版本带覆写应用失败时，先用空覆写再试一次候选版本。成功说明问题在覆写：候选版本照常成为 active / last_good，不标记无效；运行中的内核不带覆写，失败的覆写记入 `failed_overlay`（用户再次修改前不重试），错误条提示到“规则”或“设置”页检查（`ReloadOutcome::AppliedWithoutOverlay`）。空覆写也失败才按原流程回退 last_good 并标记候选版本无效。
+- 覆写热重载失败时，只把本次尝试改动过的 IPv6 / 统一延迟恢复为原值（用户在重载期间又改过则不动），`failed_overlay` 只记录本次实际尝试的覆写；重载期间新保存的规则 / Hosts 会在结束后继续应用。
+- 规则页保存已对“选中配置的活动版本 + 新覆写”执行过 `-t`（步骤 2）；随后的热重载如果是同一配置、同一版本、同一 TUN 状态、同一覆写（`CheckedOverlay`），`runtime::reapply` 跳过第二次 `-t`，并直接使用第一次合成的结果热重载，不再重复合成。
+- 提示与日志：`sync_user_overlay` 返回是否真的发起（或将在进行中的启动 / 重载之后发起）热重载，只有这时保存提示才带“正在热重载内核”。热重载结果按本次实际变化的内容命名：只改附加规则时提示“附加规则已热重载生效”、操作日志记“应用附加规则”；只改 Hosts 记“应用 Hosts”；改 IPv6 / 统一延迟记“应用设置”；同时变化时用“、”连接（如“应用设置、附加规则”）。上文 M9 段落中的“应用设置 / 失败”按此细分。
+- 规则页保存的内核校验失败时，按错误类型提示：`ConfigCheckFailed` 为“当前配置的内核校验未通过”，`PolicyRejected` / `NotAConfig` 为“当前配置无法合成运行配置”，其他（读取版本文件、生成 secret 等）为“无法完成内核校验”。
+- 合成时策略输出只解析一次：同一个解析结果既用于摘要比对，也作为写入用户覆写的基础，省去一次完整的 YAML 解析（序列化仍需两次，摘要比对要检查策略输出的序列化结果）。
+
 ## 2. Hosts（需求 1）
 
 ### 2.1 语义
@@ -79,8 +90,9 @@ pub struct UserOverlay {
 - 生效范围：
   - 直连（DIRECT）连接：生效，内核会用 hosts 解析。
   - TUN 模式下的 DNS 应答：生效。
-  - 经代理节点转发的连接：内核通常会把域名原样发给远端节点，由远端解析，因此 hosts 映射**可能不生效**。这一点【待核验】，必须在 M10 中实测。如果确认不生效，页面说明文字要写明“对直连流量和 TUN 下的 DNS 解析生效”。
+  - 经代理节点转发的连接：【已验证】也生效。2026-10-22 用 v1.19.32 实测（本机 HTTP 上游代理记录收到的目标）：域名命中 hosts 时，内核把映射后的 IP（`CONNECT 127.0.0.1:18081`）而不是域名发给节点；未命中 hosts 的域名仍原样发送（`CONNECT nohosts.mirage.test:18081`）。因此节点连接的是映射后的地址，映射到局域网 / 内网 IP 时节点通常访问不到。页面说明据此写为“对直连连接、经代理节点转发的连接和 TUN 下的 DNS 解析都生效；经代理时节点连接的是映射后的 IP”。
 - 不经过 Mirage 的流量（没有走系统代理的程序）完全不受影响，这也符合需求。
+- 【发布前修订】生效范围说明从帮助图标提升为 Hosts 标签中常驻的说明文字；帮助图标只保留“保存前校验、已连接时热重载”。Hosts 标签的编辑内容与附加规则标签一样保存在主窗口（`hosts-edit-enabled` / `hosts-edit-text`），切换标签或页面不会丢失，已保存的值变化时（保存成功）用已保存的值重置。
 
 ### 2.2 输入格式（hosts 文件风格）
 
@@ -109,9 +121,10 @@ pub struct UserOverlay {
 ### 3.1 语义
 
 - 规则插在订阅 `rules` 的**最前面**，因此优先级高于订阅规则。订阅没有 `rules` 时，直接新建这个序列。
-- 只在“规则”路由模式下生效；全局或直连模式下，页面顶部给出提示。
+- 只在“规则”路由模式下生效；全局或直连模式下，页面顶部给出提示。【发布前定稿】保持与 Mihomo 及主流客户端一致：全局 / 直连是“覆盖一切”的开关，忽略包括附加规则在内的所有规则，不提供优先级配置项。已启用附加规则时，切换到全局 / 直连的提示末尾追加“附加规则仅在规则模式下生效”。
 - 规则中的目标策略在运行配置中不存在时，**跳过该条**并在提示中列出，不影响其他规则。可用的目标包括：
-  - `PROXY`（Mirage 约定）：合成时改写为当前运行配置 `proxy-groups` 的第一个组（主策略组，即节点页第一个分组），切换配置后自动跟随；配置没有策略组时跳过
+  - `CURRENT-PROXY`（Mirage 约定，【发布前定稿】由原来的 `PROXY` 改名）：合成时改写为当前运行配置 `proxy-groups` 的第一个组（主策略组，即节点页第一个分组），含义是“走节点页选中的节点”，切换配置后自动跟随；配置没有策略组时跳过。Mihomo 规则的目标只能是节点名或分组名，节点页每个分组各有自己的当前节点，主策略组的当前节点就是用户在节点页选择的节点，因此改写为主策略组。改名是为了避免与订阅中同名的 `PROXY` 分组冲突（参考 Shadowrocket 的内置关键字做法；Clash Verge Rev 等按订阅保存真实组名，无法全局共用）。
+  - `PROXY`：按 Mihomo 原义处理，配置中有名为 `PROXY` 的分组或节点时直接指向它，不改写；没有时退回主策略组，兼容从其他地方复制来的规则以及本次改名前保存的规则。旧规则不迁移：只有“订阅中有一个不排第一的 `PROXY` 分组”时，旧规则会改走该分组
   - 内置策略 `DIRECT`、`REJECT`、`REJECT-DROP`、`PASS`
   - `proxy-groups` 中的组名
   - `proxies` 中的节点名
@@ -151,7 +164,7 @@ pub struct UserOverlay {
   - 类型下拉框，按分类分组
   - 匹配内容输入框，按类型显示示例占位文字
   - `no-resolve` 勾选框，只对 IP 类规则显示
-  - 目标下拉框，固定为“经过代理（当前节点）”（`PROXY`）、“直连”、“拒绝”；其他策略名在 YAML 模式填写，编辑这类规则时原目标作为第四项保留
+  - 目标下拉框，固定为“代理（当前节点）”（`CURRENT-PROXY`）、“直连”、“拒绝”；其他策略名在 YAML 模式填写，编辑这类规则时原目标作为第四项保留
   - 弹层内即时校验，不通过时禁用“确定”按钮
 - YAML 模式下是多行文本框，内容就是 `rules.yaml` 的原文，示例如下：
 
@@ -166,9 +179,9 @@ pub struct UserOverlay {
   - 可视化 → YAML：把当前列表序列化为文本。
   - YAML → 可视化：先解析文本；失败时不允许切换，并展示错误。
   - 从可视化保存会重新生成 YAML，YAML 中的注释会丢失；切换时给出一次提示。
-- 底部是“保存”和“放弃修改”按钮，交互与设置页一致；保存后按 §1.3 生效。
+- 底部右侧依次是“放弃修改”和“保存”按钮（附加规则、Hosts 两个标签相同），位置、顺序和交互与设置页一致；保存后按 §1.3 生效。
 
-【M11 定稿】解析与校验在 `overrides/rules.rs`，合成时的前插与跳过在 `compose.rs::prepend_rules`，保存流程与 Hosts 共用 `app/overrides.rs`。可视化编辑的工作副本位于 UI 线程（`ui_bridge/rules_editor.rs`），移动、删除、增改都是同步回调，只在“保存”时以 YAML 文本交给核心；未做可视化改动时切换到 YAML 或保存，沿用原文（保留注释）。目标下拉框固定为经过代理 / 直连 / 拒绝，“经过代理”保存为 `PROXY`，合成时改写为当前配置的主策略组，避免规则绑定某个订阅的组名。保存时内核校验返回的“跳过 N 条”等说明显示在附加规则标签顶部并附在提示中。v1.19.32 `-t` 已验证 16 种可视化类型、`DOMAIN-WILDCARD`、逻辑规则以及 `PASS`、`REJECT-DROP` 目标。
+【M11 定稿】解析与校验在 `overrides/rules.rs`，合成时的前插与跳过在 `compose.rs::prepend_rules`，保存流程与 Hosts 共用 `app/overrides.rs`。可视化编辑的工作副本位于 UI 线程（`ui_bridge/rules_editor.rs`），移动、删除、增改都是同步回调，只在“保存”时以 YAML 文本交给核心；未做可视化改动时切换到 YAML 或保存，沿用原文（保留注释）。目标下拉框固定为经过代理 / 直连 / 拒绝，“代理（当前节点）”保存为 `CURRENT-PROXY`（发布前由 `PROXY` 改名，见 §3.1），合成时改写为当前配置的主策略组，避免规则绑定某个订阅的组名。保存时内核校验返回的“跳过 N 条”等说明显示在附加规则标签顶部并附在提示中。v1.19.32 `-t` 已验证 16 种可视化类型、`DOMAIN-WILDCARD`、逻辑规则以及 `PASS`、`REJECT-DROP` 目标。
 
 ### 3.4 校验
 
@@ -179,6 +192,7 @@ pub struct UserOverlay {
   - 禁止 `MATCH`，参数只允许 `no-resolve` 和 `src`。
 - 正则表达式、GEOSITE/GEOIP 名称等由 `mihomo -t` 最终裁定（§1.3 第 2 步）。
 - 上限：最多 2000 条，单条最长 1024 个字符。
+- 【发布前修订】类型字段不区分大小写，载入时统一规范为大写（`domain-suffix,...` → `DOMAIN-SUFFIX,...`），写入运行配置和可视化模式重新生成的 YAML 都使用规范形式；YAML 模式保存的原文不改写。逻辑规则括号内的类型仍交给 `mihomo -t`。
 
 ## 4. IPv6（需求 4）
 
@@ -201,7 +215,7 @@ pub struct UserOverlay {
 | 关闭 | `ipv6: false`（Mihomo 会阻断 IPv6 连接，并屏蔽 AAAA 记录）；如果存在 `dns` 块，再写 `dns.ipv6: false` |
 
 - 修改后按 §1.3 热重载，不需要重启内核。
-- 说明文字：“开启后需要本机和节点都支持 IPv6；TUN 下的 IPv6 接管【待核验】”。这与 DESIGN §11.7 的要求一致：实测通过前，不在 UI 上标记为“已支持”。
+- 说明文字：“开启后需要本机网络和节点都支持 IPv6；TUN 模式下同时作用于 Mirage 的 DNS 解析”。【发布前核对】TUN 服务对应用合成的 YAML 再执行 `policy::apply` 时：顶层 `ipv6`、`dns.ipv6` 不在其覆盖范围内；`dns.enable` 已为 true，`ensure_dns` 不替换 DNS 块，所以这两个键会保留（代码核对）。TUN 下 IPv6 的实际接管效果仍需人工实测（M9 #7），通过前不在 UI 上标记为“已支持”（DESIGN §11.7）。
 
 ## 5. 测速去除握手延迟（需求 5）
 
@@ -243,7 +257,7 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
 
 - 调用 FirewallAPI.dll 的 `NetworkIsolationEnumAppContainers` 获取 `INET_FIREWALL_APP_CONTAINER` 列表，包含 SID、名称、显示名，用完后调用 `NetworkIsolationFreeAppContainers` 释放。
 - 显示名可能是 `@{...}` 形式的资源引用，需要用 `SHLoadIndirectString` 解析；解析失败时显示包名。
-- 调用 `NetworkIsolationGetAppContainerConfig` 读取当前已豁免的 SID 列表，返回的内存用 `LocalFree` 释放。
+- 调用 `NetworkIsolationGetAppContainerConfig` 读取当前已豁免的 SID 列表，返回的内存用 `LocalFree` 释放。【发布前修订】只释放数组本身，不逐个释放数组中的 `Sid`：文档没有说明它们是单独分配的，对数组内部的指针调用 `LocalFree` 会破坏堆；即使它们是单独分配的，最多也只是每次读取泄漏几十字节。
 - 普通用户权限下这两个调用能否成功【待核验】。如果不能，改为“打开弹层时就提权”（整个弹层由提权后的进程显示），需要重新评估工作量。
 
 【M12 已验证】2026-10-22 以普通用户（未提权）实测：`NetworkIsolationEnumAppContainers` 列出 69 个 AppContainer，`SHLoadIndirectString` 解析出 63 个显示名；`NetworkIsolationGetAppContainerConfig` 读到 4 个已豁免 SID，其中 2 个不在当前列表中（其他用户或已卸载的包），印证了 §6.4 必须提交完整列表。另外，以普通权限把原列表原样写回也返回成功；未测试普通权限下的实际增删，因此实现为“先直接写入，`ERROR_ACCESS_DENIED` 时再经 UAC 提权写入”。
@@ -257,6 +271,7 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
   - 校验每个参数都是 `S-1-15-2-` 开头的合法 SID，用 `ConvertStringSidToSidW` 转换
   - 调用设置接口，返回退出码
 - 命令行长度上限是 32767 个字符，大约能容纳 300 个 SID；超出时提示“选择过多”。本轮不改用文件传参。
+- 【发布前修订】弹层只提交勾选状态与打开（读取）时不同的应用，保存时再以 Windows 当前的列表为基础增删。打开弹层后如果其他工具改动了某个应用的豁免，而用户在弹层中没有动它，它的状态不会被弹层里的旧值覆盖。没有任何改动时不写入（也不弹 UAC），只提示“没有修改”。
 
 ### 6.5 依赖
 
@@ -303,17 +318,21 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
 
 | 项 | 在哪个里程碑确认 |
 | --- | --- |
-| hosts 对经代理节点转发的连接是否生效 | M10 |
+| hosts 对经代理节点转发的连接是否生效 | M10【已验证】：生效，节点收到映射后的 IP，见 §2.1 |
 | `DOMAIN-WILDCARD` 等较新的规则类型能否通过 v1.19.32 的 `-t` | M11【已验证】：16 种可视化类型、逻辑规则、`PASS`/`REJECT-DROP` 目标均通过 |
 | 普通权限下能否调用 `NetworkIsolationEnumAppContainers` 和 `NetworkIsolationGetAppContainerConfig` | M12【已验证】：可以，见 §6.3 |
-| TUN 下 IPv6 的实际接管效果 | M9（结论只写进验收记录，不在 UI 上标记为“已支持”） |
+| TUN 下 IPv6 的实际接管效果 | M9（配置键保留已核对，见 §4.2；实际接管需人工实测，结论只写进验收记录，不在 UI 上标记为“已支持”） |
 
 ## 10. 自由猫启动刷新通知（需求 6）
 
 2026-10-22 增补，不单列里程碑，简单验收后直接提交。
 
 - 目的：启动后因网络等原因导致账号刷新失败时，即使窗口隐藏（开机自启），用户也能及时知道。
-- 触发：`actor::startup` → `validate_accounts_on_start`，对**每个有已保存会话**的账号调用 `revalidate_account(id, manual = false)`。这与配置设置抽屉的“刷新信息”按钮走同一条路径：验证会话、刷新账号快照与缓存订阅 URL、同步用量，不下载也不应用配置。原先跳过 `ReauthRequired` 账号，现在也刷新一次，以便会话恢复或再次提示。
+- 时机【发布前修订】：开机自启时网络往往尚未就绪，所以不在启动瞬间刷新。内核校验完成后（`on_core_verified`）：
+  - 有自动连接时，等这次连接结束（成功或失败，包括 TUN 失败后回退普通代理的那次）再刷新，确保 VPN / 内核已就绪；最多等 60 秒，超时也刷新。
+  - 没有自动连接时，延迟 30 秒刷新。
+  - 每次启动只刷新一次（`startup_accounts_pending`）；失败直接发系统通知，不再重试。目前只支持单账号，不合并多账号通知。
+- 触发：`schedule_startup_accounts` → `startup_accounts_due` → `validate_accounts_on_start`，对**每个有已保存会话**的账号调用 `revalidate_account(id, manual = false)`。这与配置设置抽屉的“刷新信息”按钮走同一条路径：验证会话、刷新账号快照与缓存订阅 URL、同步用量，不下载也不应用配置。原先跳过 `ReauthRequired` 账号，现在也刷新一次，以便会话恢复或再次提示。
 - 结果：
   - 成功：不提示（与原来一致）。
   - 失败（网络不可用、会话失效、读取会话失败等）：写入 `AppStateView.system_notice`。UI 线程（`ui_bridge/updates.rs::show_notices`）按序号去重后，**无论窗口是否可见**都调用 `tray_balloon::show` 弹出系统通知，标题为“Mirage 出错”，正文为“自由猫账号信息刷新失败：<原因>”。`system_notice` 不进入错误条或 Toast。
@@ -353,3 +372,4 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
 - 设置页不再包在 app.slint 的 `PageViewport` 中，而是在页面内部自带滚动区域，底部固定一条保存栏，滚动时始终可见。
 - 保存栏左侧提示：有未保存的修改时显示“有未保存的修改”（警告色），否则显示“修改上方设置后需保存才会生效”。右侧依次是“放弃修改”和“保存设置”。
 - 是否有修改由工作副本与 `saved-*` 属性逐项比较得出；“放弃修改”只在有修改时可用，“保存设置”的可用条件不变（`!busy`）。
+- 后端保存时会规范化输入（例外列表统一为 `;` 分隔、去除首尾空白等），覆写热重载失败时还会恢复 IPv6 / 统一延迟。这两种情况下 `SettingsView.revision` 加 1，页面收到 `saved-revision` 变化后用已保存值整体重置工作副本，避免保存成功后仍显示“有未保存的修改”。

@@ -54,6 +54,7 @@ impl AppCore {
             operation_log_days: s.operation_log_days,
             ipv6: s.ipv6,
             unified_delay: s.unified_delay,
+            revision: self.view.settings.revision,
         };
         self.view.mixed_port = s.mixed_port;
     }
@@ -119,10 +120,10 @@ impl AppCore {
             self.record_operation("保存设置", "", "手动", "成功", &changes.join("；"));
         }
         self.refresh_settings_view();
+        self.view.settings.revision += 1;
         self.apply_saved_settings(listener_changed, bypass_changed, autostart_changed);
-        if overlay_changed && !listener_changed && self.view.runtime.is_up() {
-            // Hot reload (iteration 2 §1.3); the outcome replaces the notice.
-            self.sync_user_overlay();
+        // Hot reload (iteration 2 §1.3); the outcome replaces the notice.
+        if overlay_changed && !listener_changed && self.sync_user_overlay() {
             self.view.notice = Some(info_notice("设置已保存，正在热重载内核"));
         }
     }
@@ -238,6 +239,13 @@ impl AppCore {
                 "成功",
                 "设置已保存，下次连接生效",
             );
+            let hint = self.mode_rules_hint(mode);
+            if !hint.is_empty() {
+                self.view.notice = Some(info_notice(format!(
+                    "已切换为{}模式，下次连接生效{hint}",
+                    mode.label()
+                )));
+            }
             return;
         };
         let controller = running.controller.clone();
@@ -275,11 +283,28 @@ impl AppCore {
             Ok(()) => {
                 self.view.routing_mode = Some(mode);
                 if let Some(mode) = self.settings.routing_mode {
-                    self.view.notice = Some(info_notice(format!("已切换为{}模式", mode.label())));
+                    self.view.notice = Some(info_notice(format!(
+                        "已切换为{}模式{}",
+                        mode.label(),
+                        self.mode_rules_hint(mode)
+                    )));
                 }
                 self.refresh_groups();
             }
             Err(e) => self.view.notice = Some(error_notice(&e)),
+        }
+    }
+
+    /// Global / direct ignore every rule, the extra ones included (iteration
+    /// 2 §3.1); say so when the user has some enabled.
+    fn mode_rules_hint(&self, mode: RoutingMode) -> &'static str {
+        if mode == RoutingMode::Rule
+            || !self.settings.custom_rules_enabled
+            || self.rules.rules.is_empty()
+        {
+            ""
+        } else {
+            "；附加规则仅在规则模式下生效"
         }
     }
 

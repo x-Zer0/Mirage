@@ -38,10 +38,14 @@ impl AppCore {
         }
     }
 
-    /// `states`: each listed app's SID and wanted state. Apps not listed
-    /// (other users, removed packages, other tools) keep their exemption.
+    /// `states`: SID and wanted state of each app the user changed. Apps
+    /// not listed (unchanged, other users, removed packages) keep theirs.
     pub(super) fn save_loopback(&mut self, states: Vec<(String, bool)>) {
         if self.view.loopback.saving {
+            return;
+        }
+        if states.is_empty() {
+            self.view.notice = Some(info_notice("没有修改，UWP 回环豁免保持不变"));
             return;
         }
         self.view.loopback.saving = true;

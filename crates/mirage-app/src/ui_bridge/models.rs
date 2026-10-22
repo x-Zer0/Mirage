@@ -239,6 +239,7 @@ fn apply_settings(w: &MainWindow, s: &AppStateView) {
     w.set_settings_operation_log_days(st.operation_log_days.to_string().into());
     w.set_settings_ipv6(st.ipv6.index() as i32);
     w.set_settings_unified_delay(st.unified_delay);
+    w.set_settings_revision(st.revision as i32);
     w.set_geo_updating(s.geo_updating);
     w.set_exporting(s.exporting);
 }
