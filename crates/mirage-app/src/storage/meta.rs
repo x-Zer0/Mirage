@@ -101,6 +101,8 @@ pub struct SettingsFile {
     pub connection_log_limit: usize,
     #[serde(default = "default_operation_log_days")]
     pub operation_log_days: usize,
+    #[serde(default = "default_true")]
+    pub custom_hosts_enabled: bool,
     #[serde(default)]
     pub ipv6: Ipv6Mode,
     /// Forces `unified-delay` so delay tests exclude handshakes (iteration 2 §5).
@@ -127,6 +129,7 @@ impl Default for SettingsFile {
             autostart: false,
             connection_log_limit: default_connection_log_limit(),
             operation_log_days: default_operation_log_days(),
+            custom_hosts_enabled: true,
             ipv6: Ipv6Mode::default(),
             unified_delay: true,
         }

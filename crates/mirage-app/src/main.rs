@@ -5,6 +5,7 @@ mod cores;
 mod domain;
 mod logging;
 mod net;
+mod overrides;
 mod platform;
 mod providers;
 mod storage;

@@ -66,6 +66,9 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     apply_profiles(w, s, prev, &applied.list);
     apply_accounts(w, s, prev);
     apply_settings(w, s);
+    if prev.is_none_or(|p| p.hosts != s.hosts) {
+        apply_hosts(w, s);
+    }
     if prev.is_none_or(|p| p.logs.revision != s.logs.revision) {
         apply_logs(w, &s.logs, prev.map(|p| p.logs.as_ref()));
     }
@@ -230,6 +233,15 @@ fn apply_settings(w: &MainWindow, s: &AppStateView) {
     w.set_settings_unified_delay(st.unified_delay);
     w.set_geo_updating(s.geo_updating);
     w.set_exporting(s.exporting);
+}
+
+fn apply_hosts(w: &MainWindow, s: &AppStateView) {
+    let h = &s.hosts;
+    w.set_hosts_enabled(h.enabled);
+    w.set_hosts_text(h.text.clone().into());
+    w.set_hosts_count(i32::try_from(h.count).unwrap_or(i32::MAX));
+    w.set_hosts_errors(rc(h.errors.iter().map(|e| SharedString::from(e.as_str()))));
+    w.set_hosts_saving(h.saving);
 }
 
 /// Keeps nested node models alive when only latency or selection changes.

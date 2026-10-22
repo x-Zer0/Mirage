@@ -7,6 +7,7 @@ pub mod diagnostics;
 mod diagnostics_actions;
 mod handle;
 mod handlers;
+mod hosts;
 pub mod live;
 mod log_actions;
 pub mod logs;
@@ -85,6 +86,10 @@ struct AppCore {
     connection_logs: logs::ConnectionHistory,
     log_query: logs::LogQuery,
     update_operations: HashMap<ProfileId, String>,
+    /// `overrides/hosts.txt` as saved (iteration 2 §2).
+    hosts: crate::overrides::hosts::Hosts,
+    /// Overlay whose hot reload just failed; not retried until the settings change.
+    failed_overlay: Option<crate::cores::mihomo::compose::UserOverlay>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
 }

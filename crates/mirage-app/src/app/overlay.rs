@@ -8,6 +8,11 @@ use crate::cores::mihomo::compose::UserOverlay;
 impl AppCore {
     pub(super) fn user_overlay(&self) -> UserOverlay {
         UserOverlay {
+            hosts: if self.settings.custom_hosts_enabled {
+                self.hosts.entries.clone()
+            } else {
+                Vec::new()
+            },
             ipv6: self.settings.ipv6,
             unified_delay: self.settings.unified_delay,
         }
@@ -22,7 +27,7 @@ impl AppCore {
         }
         let wanted = self.user_overlay();
         let Some(running) = &self.running else { return };
-        if running.user == wanted {
+        if running.user == wanted || self.failed_overlay.as_ref() == Some(&wanted) {
             return;
         }
         let profile_id = running.profile_id.clone();
@@ -86,6 +91,7 @@ impl AppCore {
                     "成功",
                     &format!("已热重载 · {}", attempted.describe()),
                 );
+                self.failed_overlay = None;
                 self.view.notice = Some(info_notice("设置已保存并热重载"));
                 self.finish_overlay_reload();
                 return;
@@ -98,6 +104,7 @@ impl AppCore {
             running.user = previous.clone();
         }
         // Restore the settings unless the user already changed them again.
+        // Saved override files stay; the core keeps running without them.
         if self.user_overlay() == attempted {
             self.settings.ipv6 = previous.ipv6;
             self.settings.unified_delay = previous.unified_delay;
@@ -106,10 +113,16 @@ impl AppCore {
             }
             self.refresh_settings_view();
         }
-        let tail = if restart {
-            "已恢复原设置，正在重启内核"
-        } else {
-            "已恢复原设置"
+        let restored = self.user_overlay() == previous;
+        if !restored {
+            // Not retried until the user changes something again.
+            self.failed_overlay = Some(self.user_overlay());
+        }
+        let tail = match (restored, restart) {
+            (true, false) => "已恢复原设置",
+            (true, true) => "已恢复原设置，正在重启内核",
+            (false, false) => "运行中的内核仍使用原 Hosts / 规则，请检查后重新保存",
+            (false, true) => "已保存的 Hosts / 规则未生效，正在重启内核",
         };
         self.record_operation(
             "应用设置",

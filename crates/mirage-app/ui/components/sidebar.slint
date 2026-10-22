@@ -64,8 +64,9 @@ export component Sidebar inherits Rectangle {
         NavItem { icon: @image-url("../../assets/icons/lucide/layout-dashboard.svg"); label: "总览"; compact: root.compact; selected: root.page == 0; clicked => { root.page = 0; } }
         NavItem { icon: @image-url("../../assets/icons/lucide/layers.svg"); label: "配置"; compact: root.compact; selected: root.page == 1; clicked => { root.page = 1; } }
         NavItem { icon: @image-url("../../assets/icons/lucide/globe.svg"); label: "节点"; compact: root.compact; selected: root.page == 2; clicked => { root.page = 2; } }
-        NavItem { icon: @image-url("../../assets/icons/lucide/settings.svg"); label: "设置"; compact: root.compact; selected: root.page == 3; clicked => { root.page = 3; } }
-        NavItem { icon: @image-url("../../assets/icons/lucide/scroll-text.svg"); label: "日志"; compact: root.compact; selected: root.page == 4; clicked => { root.page = 4; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/list-filter.svg"); label: "规则"; compact: root.compact; selected: root.page == 3; clicked => { root.page = 3; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/settings.svg"); label: "设置"; compact: root.compact; selected: root.page == 4; clicked => { root.page = 4; } }
+        NavItem { icon: @image-url("../../assets/icons/lucide/scroll-text.svg"); label: "日志"; compact: root.compact; selected: root.page == 5; clicked => { root.page = 5; } }
         Rectangle { vertical-stretch: 1; }
         if !root.compact: Text {
             text: root.status-text;

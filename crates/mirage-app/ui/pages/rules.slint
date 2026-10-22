@@ -1,0 +1,127 @@
+import { Button, CheckBox, TextEdit } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { Card } from "../components/card.slint";
+import { HelpIcon } from "../components/help-icon.slint";
+
+// Hosts tab (iteration 2 §2). Edits stay local until "保存"; the core
+// validates them, checks the active config with `mihomo -t`, then saves.
+component HostsTab inherits VerticalLayout {
+    in property <bool> saved-enabled;
+    in property <string> saved-text;
+    in property <int> count;
+    in property <[string]> errors;
+    in property <bool> saving;
+    callback save(bool, string);
+
+    property <bool> enabled: root.saved-enabled;
+    property <string> text: root.saved-text;
+
+    min-height: 0px;
+    spacing: 12px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        vertical-stretch: 0;
+        CheckBox { text: "启用 Hosts"; checked <=> root.enabled; horizontal-stretch: 0; }
+        HelpIcon {
+            text: "只写入 Mirage 内核的运行配置，不修改系统 hosts 文件，只对经过 Mirage 的流量生效。\n对直连连接和 TUN 下的 DNS 解析生效；经代理节点转发的连接通常由节点解析域名，可能不生效（待核验）。\n保存前会用当前配置做一次内核校验；已连接时保存后热重载。";
+        }
+        Text {
+            text: "已保存 " + root.count + " 个域名";
+            color: Theme.text-muted;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+    Text {
+        text: "每行一个 IP，后接一个或多个域名，空格分隔；# 开头为注释。支持 *.example.com（一级子域）和 +.example.com（本身及所有子域）。";
+        color: Theme.text-muted;
+        font-size: 12px;
+        wrap: word-wrap;
+        vertical-stretch: 0;
+    }
+    TextEdit {
+        text <=> root.text;
+        vertical-stretch: 1;
+        min-height: 160px;
+        wrap: no-wrap;
+        font-size: 13px;
+        placeholder-text: "# 示例\n192.168.1.10   nas.local\n10.0.0.1       *.dev.example.com   api.example.com\n::1            v6.local";
+        accessible-label: "Hosts";
+    }
+    if root.errors.length > 0: Card {
+        vertical-stretch: 0;
+        VerticalLayout {
+            spacing: 4px;
+            for line in root.errors: Text {
+                text: line;
+                color: Theme.danger;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        vertical-stretch: 0;
+        Button {
+            text: root.saving ? "正在校验…" : "保存";
+            primary: true;
+            enabled: !root.saving;
+            icon: @image-url("../../assets/icons/lucide/check.svg");
+            colorize-icon: true;
+            clicked => { root.save(root.enabled, root.text); }
+        }
+        Button {
+            text: "放弃修改";
+            enabled: !root.saving;
+            clicked => {
+                root.enabled = root.saved-enabled;
+                root.text = root.saved-text;
+            }
+        }
+    }
+}
+
+// Rules page (iteration 2 §0): extra rules and hosts, one global set each.
+export component RulesPage inherits VerticalLayout {
+    in-out property <int> tab;
+    in property <bool> hosts-enabled;
+    in property <string> hosts-text;
+    in property <int> hosts-count;
+    in property <[string]> hosts-errors;
+    in property <bool> hosts-saving;
+    callback save-hosts(bool, string);
+
+    min-width: 0px;
+    min-height: 0px;
+    spacing: 12px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        vertical-stretch: 0;
+        Button { text: "附加规则"; primary: root.tab == 0; clicked => { root.tab = 0; } }
+        Button { text: "Hosts"; primary: root.tab == 1; clicked => { root.tab = 1; } }
+    }
+    if root.tab == 0: VerticalLayout {
+        vertical-stretch: 1;
+        alignment: center;
+        Text {
+            text: "附加规则尚未提供。";
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+        }
+    }
+    if root.tab == 1: HostsTab {
+        vertical-stretch: 1;
+        saved-enabled: root.hosts-enabled;
+        saved-text: root.hosts-text;
+        count: root.hosts-count;
+        errors: root.hosts-errors;
+        saving: root.hosts-saving;
+        save(enabled, text) => { root.save-hosts(enabled, text); }
+    }
+}

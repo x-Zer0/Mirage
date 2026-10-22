@@ -47,6 +47,7 @@ impl Layout {
             &self.core_check_dir(),
             &self.core_run_dir(),
             &self.core_home.join("logs"),
+            &self.overrides_dir(),
         ] {
             std::fs::create_dir_all(dir)?;
         }
@@ -55,6 +56,15 @@ impl Layout {
 
     pub fn settings_file(&self) -> PathBuf {
         self.root.join("settings.json")
+    }
+
+    /// User override files (iteration 2 §1.2).
+    pub fn overrides_dir(&self) -> PathBuf {
+        self.root.join("overrides")
+    }
+
+    pub fn hosts_file(&self) -> PathBuf {
+        self.overrides_dir().join("hosts.txt")
     }
 
     pub fn operation_logs_dir(&self) -> PathBuf {

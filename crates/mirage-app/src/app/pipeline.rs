@@ -38,6 +38,38 @@ pub async fn prepare(
     })
 }
 
+/// Inputs for checking a revision against a changed user overlay before it is saved.
+pub struct OverlayCheck {
+    pub binary: CoreBinary,
+    pub layout: Layout,
+    pub profile: Profile,
+    pub revision: RevisionId,
+    pub mixed_port: u16,
+    pub tun: bool,
+    pub user: UserOverlay,
+}
+
+/// Iteration 2 §1.3 step 2: compose the active revision with the new
+/// overlay and run `mihomo -t`, with a throw-away controller.
+pub async fn check_overlay(req: OverlayCheck) -> AppResult<()> {
+    let raw = revisions::read_raw(&req.layout, &req.profile, &req.revision)?;
+    let secret = super::runtime::random_secret()?;
+    let overlay = ManagedOverlay {
+        mixed_port: req.mixed_port,
+        allow_lan: false,
+        controller: super::runtime::PLACEHOLDER_CONTROLLER,
+        secret: &secret,
+        log_level: super::runtime::CORE_LOG_LEVEL,
+        profile_id: &req.profile.id,
+        mode: None,
+        tun: req.tun,
+        user: &req.user,
+    };
+    prepare(&req.binary, &req.layout, &new_id(), &raw, &overlay)
+        .await
+        .map(drop)
+}
+
 pub struct ImportOutcome {
     pub profile_id: String,
     pub name: String,

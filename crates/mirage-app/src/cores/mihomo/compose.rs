@@ -1,6 +1,7 @@
 //! App adapter for the policy shared with the privileged TUN service.
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{ConfigSummary, Ipv6Mode, ProfileId, RoutingMode};
+use crate::overrides::hosts::HostEntries;
 pub use mirage_ipc::policy::OVERLAY_VERSION;
 use serde_yaml_ng::{Mapping, Value};
 use std::net::SocketAddr;
@@ -25,6 +26,8 @@ pub struct ManagedOverlay<'a> {
 /// `policy::apply` keeps them. `Default` is a no-op.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UserOverlay {
+    /// Merged over the subscription's `hosts`; empty when disabled.
+    pub hosts: HostEntries,
     pub ipv6: Ipv6Mode,
     /// Forces `unified-delay: true` (delay excludes handshakes); off follows the subscription.
     pub unified_delay: bool,
@@ -33,7 +36,8 @@ pub struct UserOverlay {
 impl UserOverlay {
     pub fn describe(&self) -> String {
         format!(
-            "IPv6：{}；测速去除握手延迟：{}",
+            "Hosts：{} 条；IPv6：{}；测速去除握手延迟：{}",
+            self.hosts.len(),
             self.ipv6.label(),
             if self.unified_delay { "开" } else { "关" }
         )
@@ -92,6 +96,26 @@ fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<String> {
     }
     if user.unified_delay {
         map.insert("unified-delay".into(), Value::Bool(true));
+    }
+    if !user.hosts.is_empty() {
+        // Same key: the user's address wins over the subscription's.
+        let mut hosts = map
+            .get("hosts")
+            .and_then(Value::as_mapping)
+            .cloned()
+            .unwrap_or_default();
+        for (domain, ips) in &user.hosts {
+            let value = match ips.as_slice() {
+                [ip] => Value::from(ip.to_string()),
+                ips => Value::Sequence(ips.iter().map(|ip| Value::from(ip.to_string())).collect()),
+            };
+            hosts.insert(Value::from(domain.as_str()), value);
+        }
+        map.insert("hosts".into(), Value::Mapping(hosts));
+        // Under TUN / fake-ip the answer comes from the DNS module.
+        if let Some(dns) = map.get_mut("dns").and_then(Value::as_mapping_mut) {
+            dns.insert("use-hosts".into(), Value::Bool(true));
+        }
     }
     serde_yaml_ng::to_string(&root).map_err(|e| AppError::internal(STAGE, e))
 }

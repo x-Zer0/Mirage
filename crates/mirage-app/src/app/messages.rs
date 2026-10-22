@@ -53,6 +53,11 @@ pub enum Command {
     RetryNotice,
     SetRoutingMode(RoutingMode),
     SaveSettings(super::settings::SettingsInput),
+    /// Hosts tab "保存": enable switch and full text.
+    SaveHosts {
+        enabled: bool,
+        text: String,
+    },
     SetUiGeometry(crate::storage::meta::UiGeometry),
     /// Interval (hours, 0 = manual) and egress index for one profile.
     SetUpdatePolicy {
@@ -110,6 +115,11 @@ pub(super) enum Internal {
         profile_id: ProfileId,
         revision: RevisionId,
         outcome: runtime::ReloadOutcome,
+    },
+    HostsChecked {
+        enabled: bool,
+        text: String,
+        result: Result<(), AppError>,
     },
     OverlayApplied {
         generation: u64,

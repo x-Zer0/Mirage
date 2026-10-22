@@ -167,6 +167,16 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
     );
     let c = commands.clone();
     window.on_update_geodata(move || send(&c, Command::UpdateGeodata));
+    let c = commands.clone();
+    window.on_save_hosts(move |enabled, text| {
+        send(
+            &c,
+            Command::SaveHosts {
+                enabled,
+                text: text.into(),
+            },
+        )
+    });
 }
 
 fn wire_logs(window: &MainWindow, commands: &Commands) {

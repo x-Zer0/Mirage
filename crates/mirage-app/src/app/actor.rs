@@ -53,6 +53,10 @@ impl AppCore {
             accounts::Accounts::empty()
         });
         let secrets = SecretStore::new(layout.secrets_dir());
+        let hosts = crate::overrides::hosts::Hosts::load(&layout).unwrap_or_else(|e| {
+            view.notice = Some(error_notice(&e));
+            Default::default()
+        });
         Self {
             layout,
             state_tx,
@@ -82,6 +86,8 @@ impl AppCore {
             connection_logs: Default::default(),
             log_query: Default::default(),
             update_operations: HashMap::new(),
+            hosts,
+            failed_overlay: None,
             internal_tx,
             internal_rx: Some(internal_rx),
         }
@@ -174,6 +180,7 @@ impl AppCore {
             tracing::warn!(error = %e, "autostart entry not repaired");
         }
         self.refresh_settings_view();
+        self.refresh_hosts_view();
         self.refresh_profiles_view();
         self.refresh_accounts_view();
         // §16.1: sessions are checked in the background, never blocking connect.

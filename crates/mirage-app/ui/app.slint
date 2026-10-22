@@ -13,6 +13,7 @@ import { Overlay } from "components/overlay.slint";
 import { Button } from "std-widgets.slint";
 import { SettingsPage } from "pages/settings.slint";
 import { LogsPage, ConnectionRow, OperationRow } from "pages/logs.slint";
+import { RulesPage } from "pages/rules.slint";
 
 export { ProfileRow, GroupRow, NodeRow, AccountRow, ConnectionRow, OperationRow }
 
@@ -104,7 +105,7 @@ export component MainWindow inherits Window {
     in-out property <int> log-filter;
     in-out property <bool> log-paused;
     function refresh-logs() {
-        root.filter-logs(root.page == 4, root.log-tab == 1, root.log-query, root.log-filter, root.log-paused);
+        root.filter-logs(root.page == 5, root.log-tab == 1, root.log-query, root.log-filter, root.log-paused);
     }
     changed page => { root.refresh-logs(); }
     changed log-tab => { root.refresh-logs(); }
@@ -112,6 +113,13 @@ export component MainWindow inherits Window {
     changed log-filter => { root.refresh-logs(); }
     changed log-paused => { root.refresh-logs(); }
     in-out property <int> page: 0;
+    in-out property <int> rules-tab: 0;
+    in property <bool> hosts-enabled;
+    in property <string> hosts-text;
+    in property <int> hosts-count;
+    in property <[string]> hosts-errors;
+    in property <bool> hosts-saving;
+    callback save-hosts(bool, string);
     in-out property <bool> sort-by-delay;
     // Kept here so leaving the nodes page does not reset search or tab.
     in-out property <string> node-filter;
@@ -289,7 +297,17 @@ export component MainWindow inherits Window {
                 sort-changed(on) => { root.sort-nodes(on); }
                 filter-changed(text) => { root.filter-nodes(text); }
             }
-            if root.page == 3: PageViewport {
+            if root.page == 3: RulesPage {
+                vertical-stretch: 1;
+                tab <=> root.rules-tab;
+                hosts-enabled: root.hosts-enabled;
+                hosts-text: root.hosts-text;
+                hosts-count: root.hosts-count;
+                hosts-errors: root.hosts-errors;
+                hosts-saving: root.hosts-saving;
+                save-hosts(enabled, text) => { root.save-hosts(enabled, text); }
+            }
+            if root.page == 4: PageViewport {
                 vertical-stretch: 1;
                 SettingsPage {
                     saved-port: root.settings-port;
@@ -315,7 +333,7 @@ export component MainWindow inherits Window {
                     update-geodata => { root.update-geodata(); }
                 }
             }
-            if root.page == 4: LogsPage {
+            if root.page == 5: LogsPage {
                 vertical-stretch: 1;
                 running: root.running;
                 exporting: root.exporting;
