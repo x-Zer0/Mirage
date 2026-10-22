@@ -18,7 +18,19 @@ use storage::layout::Layout;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Elevated child of the UWP loopback dialog (iteration 2 §6.4): no UI,
+/// no single-instance check; the exit code is the result.
+pub const SET_LOOPBACK_EXEMPT: &str = "--set-loopback-exempt";
+
 fn main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some(SET_LOOPBACK_EXEMPT) {
+        let sids: Vec<String> = std::env::args().skip(2).collect();
+        let code = match platform::windows::loopback::set_exempt(&sids) {
+            Ok(()) => 0,
+            Err(e) => e.raw_os_error().filter(|c| *c > 1).unwrap_or(1),
+        };
+        std::process::exit(code);
+    }
     if std::env::args().any(|a| a == "--quit" || a == "--prepare-uninstall") {
         platform::windows::single_instance::request_shutdown()?;
         app::recovery::prepare_install(&Layout::resolve()?)?;

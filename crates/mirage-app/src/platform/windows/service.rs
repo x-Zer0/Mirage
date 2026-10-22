@@ -107,7 +107,18 @@ pub fn manage(install: bool, core_source: &Path) -> io::Result<()> {
 }
 
 fn elevate(helper: &Path, args: &str) -> io::Result<()> {
-    let exe = wide(&helper.to_string_lossy());
+    if run_elevated(helper, args)? != 0 {
+        return Err(io::Error::other(
+            "服务操作失败，请检查安装包完整性和管理员权限",
+        ));
+    }
+    Ok(())
+}
+
+/// Runs `exe args` through UAC and waits for its exit code. A declined
+/// prompt is `ERROR_CANCELLED` (1223).
+pub fn run_elevated(exe: &Path, args: &str) -> io::Result<u32> {
+    let exe = wide(&exe.to_string_lossy());
     let args = wide(args);
     let verb = wide("runas");
     let mut info = SHELLEXECUTEINFOW {
@@ -128,13 +139,8 @@ fn elevate(helper: &Path, args: &str) -> io::Result<()> {
         let result = GetExitCodeProcess(info.hProcess, &mut code);
         let _ = CloseHandle(info.hProcess);
         result.map_err(io::Error::other)?;
-        if code != 0 {
-            return Err(io::Error::other(
-                "服务操作失败，请检查安装包完整性和管理员权限",
-            ));
-        }
+        Ok(code)
     }
-    Ok(())
 }
 
 /// An installed service belongs to one user and one application path.

@@ -53,6 +53,10 @@ pub enum Command {
     RetryNotice,
     SetRoutingMode(RoutingMode),
     SaveSettings(super::settings::SettingsInput),
+    /// Opens the UWP loopback dialog: reads the AppContainer list.
+    ListLoopback,
+    /// SID and wanted exemption of every listed app.
+    SaveLoopback(Vec<(String, bool)>),
     /// Rules page "保存": enable switch and full text (YAML or hosts format).
     SaveOverride {
         kind: super::overrides::OverrideKind,
@@ -117,6 +121,8 @@ pub(super) enum Internal {
         revision: RevisionId,
         outcome: runtime::ReloadOutcome,
     },
+    LoopbackListed(Result<Vec<crate::platform::windows::loopback::AppContainer>, AppError>),
+    LoopbackSaved(Result<usize, AppError>),
     OverrideChecked {
         kind: super::overrides::OverrideKind,
         enabled: bool,

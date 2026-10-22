@@ -16,6 +16,7 @@ pub(super) fn wire(window: &MainWindow, commands: Commands) {
     wire_settings(window, &commands);
     wire_logs(window, &commands);
     super::rules_editor::wire(window, &commands);
+    super::loopback_editor::wire(window, &commands);
 }
 
 fn wire_connection(window: &MainWindow, commands: &Commands) {

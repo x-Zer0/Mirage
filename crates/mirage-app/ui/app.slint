@@ -14,6 +14,7 @@ import { Button, CheckBox, ComboBox, LineEdit } from "std-widgets.slint";
 import { SettingsPage } from "pages/settings.slint";
 import { LogsPage, ConnectionRow, OperationRow } from "pages/logs.slint";
 import { RulesPage, RuleRow } from "pages/rules.slint";
+import { LoopbackPanel, LoopbackRow } from "pages/loopback.slint";
 
 export { ProfileRow, GroupRow, NodeRow, AccountRow, ConnectionRow, OperationRow }
 
@@ -120,6 +121,15 @@ export component MainWindow inherits Window {
     in property <[string]> hosts-errors;
     in property <bool> hosts-saving;
     callback save-hosts(bool, string);
+    in property <[LoopbackRow]> loopback-rows;
+    in property <string> loopback-summary;
+    in property <bool> loopback-loading;
+    in property <bool> loopback-saving;
+    callback open-loopback();
+    callback loopback-filter(string);
+    callback loopback-toggle(string, bool);
+    callback loopback-check-shown(bool);
+    callback save-loopback();
     in property <[RuleRow]> rule-rows;
     in property <[string]> rule-targets;
     in property <string> rules-saved-text;
@@ -390,6 +400,10 @@ export component MainWindow inherits Window {
                     busy: root.busy;
                     save(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay) => { root.save-settings(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay); }
                     update-geodata => { root.update-geodata(); }
+                    open-loopback => {
+                        root.open-loopback();
+                        loopback-dialog.show();
+                    }
                 }
             }
             if root.page == 5: LogsPage {
@@ -525,6 +539,26 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+    loopback-dialog := Overlay {
+        width: root.width;
+        height: root.height;
+        title: "UWP 回环豁免";
+        panel-width: 560px;
+        LoopbackPanel {
+            rows: root.loopback-rows;
+            summary: root.loopback-summary;
+            loading: root.loopback-loading;
+            saving: root.loopback-saving;
+            filter(text) => { root.loopback-filter(text); }
+            toggle(sid, on) => { root.loopback-toggle(sid, on); }
+            check-shown(on) => { root.loopback-check-shown(on); }
+            save => {
+                root.save-loopback();
+                loopback-dialog.close();
+            }
+            cancel => { loopback-dialog.close(); }
         }
     }
     delete-dialog := Overlay {

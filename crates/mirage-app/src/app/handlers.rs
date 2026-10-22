@@ -45,6 +45,8 @@ impl AppCore {
             Command::RetryNotice => self.retry(),
             Command::SetRoutingMode(mode) => self.set_routing_mode(mode),
             Command::SaveSettings(input) => self.save_settings(input),
+            Command::ListLoopback => self.list_loopback(),
+            Command::SaveLoopback(states) => self.save_loopback(states),
             Command::SaveOverride {
                 kind,
                 enabled,
@@ -116,6 +118,8 @@ impl AppCore {
                 revision,
                 outcome,
             } => self.on_reloaded(generation, profile_id, revision, outcome),
+            Internal::LoopbackListed(result) => self.on_loopback_listed(result),
+            Internal::LoopbackSaved(result) => self.on_loopback_saved(result),
             Internal::OverrideChecked {
                 kind,
                 enabled,

@@ -45,6 +45,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> busy;
     callback save(string, string, string, bool, bool, bool, bool, string, string, int, bool);
     callback update-geodata();
+    callback open-loopback();
 
     // Working copies, reset from the saved values whenever the page opens.
     property <string> port: root.saved-port;
@@ -121,6 +122,14 @@ export component SettingsPage inherits VerticalLayout {
                     width: 120px;
                     horizontal-stretch: 0;
                     accessible-label: "IPv6";
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Button { text: "UWP 回环豁免…"; clicked => { root.open-loopback(); } }
+                HelpIcon {
+                    text: "让 Microsoft Store / UWP 应用在系统代理模式下可以访问本机代理（127.0.0.1）。TUN 模式不需要。";
                 }
             }
             HorizontalLayout {

@@ -70,6 +70,11 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     if prev.is_none_or(|p| p.hosts != s.hosts) {
         apply_hosts(w, s);
     }
+    if prev.is_none_or(|p| p.loopback.revision != s.loopback.revision) {
+        super::loopback_editor::reset(w, &s.loopback.apps);
+    }
+    w.set_loopback_loading(s.loopback.loading);
+    w.set_loopback_saving(s.loopback.saving);
     if prev.is_none_or(|p| p.rules != s.rules) {
         apply_rules(w, s, prev);
     }

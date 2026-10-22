@@ -1,0 +1,90 @@
+import { Button, CheckBox, LineEdit, ListView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+
+export struct LoopbackRow {
+    sid: string,
+    name: string,
+    display: string,
+    checked: bool,
+}
+
+// Body of the UWP loopback dialog (iteration 2 §6.2); the selection is kept
+// in Rust on the UI thread and only sent to the core on "保存".
+export component LoopbackPanel inherits VerticalLayout {
+    in property <[LoopbackRow]> rows;
+    in property <string> summary;
+    in property <bool> loading;
+    in property <bool> saving;
+    callback filter(string);
+    callback toggle(string, bool);
+    callback check-shown(bool);
+    callback save();
+    callback cancel();
+
+    spacing: 12px;
+
+    Text {
+        text: "Microsoft Store / UWP 应用默认不能访问 127.0.0.1，系统代理模式下无法经 Mirage 联网。勾选的应用将获得本机回环豁免；TUN 模式不需要此设置。保存可能需要管理员授权。";
+        color: Theme.text-muted;
+        font-size: 12px;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        LineEdit {
+            horizontal-stretch: 1;
+            placeholder-text: "搜索应用名或包名";
+            accessible-label: "搜索应用";
+            edited(text) => { root.filter(text); }
+        }
+        Button { text: "全选"; enabled: !root.loading; clicked => { root.check-shown(true); } }
+        Button { text: "全不选"; enabled: !root.loading; clicked => { root.check-shown(false); } }
+    }
+    Rectangle {
+        height: 320px;
+        if root.loading: Text {
+            text: "正在读取应用列表…";
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        if !root.loading: ListView {
+            for row in root.rows: HorizontalLayout {
+                height: 44px;
+                padding-left: 4px;
+                padding-right: 8px;
+                spacing: 8px;
+                CheckBox {
+                    checked: row.checked;
+                    horizontal-stretch: 0;
+                    accessible-label: row.display;
+                    toggled => { root.toggle(row.sid, self.checked); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    Text { text: row.display; color: Theme.text; overflow: elide; }
+                    Text { text: row.name; color: Theme.text-muted; font-size: 11px; overflow: elide; }
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: root.summary;
+            color: Theme.text-muted;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Button { text: "取消"; clicked => { root.cancel(); } }
+        Button {
+            text: root.saving ? "正在保存…" : "保存";
+            primary: true;
+            enabled: !root.loading && !root.saving;
+            clicked => { root.save(); }
+        }
+    }
+}

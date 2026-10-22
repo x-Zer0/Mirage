@@ -10,6 +10,7 @@ mod handlers;
 pub mod live;
 mod log_actions;
 pub mod logs;
+mod loopback;
 mod messages;
 mod nodes;
 mod overlay;

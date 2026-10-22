@@ -244,10 +244,12 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
 - 调用 `NetworkIsolationGetAppContainerConfig` 读取当前已豁免的 SID 列表，返回的内存用 `LocalFree` 释放。
 - 普通用户权限下这两个调用能否成功【待核验】。如果不能，改为“打开弹层时就提权”（整个弹层由提权后的进程显示），需要重新评估工作量。
 
+【M12 已验证】2026-10-22 以普通用户（未提权）实测：`NetworkIsolationEnumAppContainers` 列出 69 个 AppContainer，`SHLoadIndirectString` 解析出 63 个显示名；`NetworkIsolationGetAppContainerConfig` 读到 4 个已豁免 SID，其中 2 个不在当前列表中（其他用户或已卸载的包），印证了 §6.4 必须提交完整列表。另外，以普通权限把原列表原样写回也返回成功；未测试普通权限下的实际增删，因此实现为“先直接写入，`ERROR_ACCESS_DENIED` 时再经 UAC 提权写入”。
+
 ### 6.4 写入（提权执行）
 
 - `NetworkIsolationSetAppContainerConfig` 会**整体替换**豁免列表。所以必须提交完整的目标列表（当前已豁免的 + 用户新勾选的 − 用户取消勾选的），这样其他工具设置过的豁免不会被误删。
-- 写入方式：复用 `platform/windows/service.rs` 中现有的 `ShellExecuteExW` + `runas` 封装（抽成通用函数），以提权方式启动 `Mirage.exe --set-loopback-exempt <SID>...`，并等待其退出码。
+- 写入方式：复用 `platform/windows/service.rs` 中现有的 `ShellExecuteExW` + `runas` 封装（抽成通用函数），以提权方式启动 `Mirage.exe --set-loopback-exempt <SID>...`，并等待其退出码。【M12】通用函数为 `service::run_elevated`；先在主进程直接调用一次 `NetworkIsolationSetAppContainerConfig`，仅在拒绝访问时提权。
 - `main.rs` 中处理这个子命令时：
   - 跳过单实例检查和 UI 初始化
   - 校验每个参数都是 `S-1-15-2-` 开头的合法 SID，用 `ConvertStringSidToSidW` 转换
@@ -301,5 +303,5 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
 | --- | --- |
 | hosts 对经代理节点转发的连接是否生效 | M10 |
 | `DOMAIN-WILDCARD` 等较新的规则类型能否通过 v1.19.32 的 `-t` | M11【已验证】：16 种可视化类型、逻辑规则、`PASS`/`REJECT-DROP` 目标均通过 |
-| 普通权限下能否调用 `NetworkIsolationEnumAppContainers` 和 `NetworkIsolationGetAppContainerConfig` | M12 开工前先写最小验证 |
+| 普通权限下能否调用 `NetworkIsolationEnumAppContainers` 和 `NetworkIsolationGetAppContainerConfig` | M12【已验证】：可以，见 §6.3 |
 | TUN 下 IPv6 的实际接管效果 | M9（结论只写进验收记录，不在 UI 上标记为“已支持”） |

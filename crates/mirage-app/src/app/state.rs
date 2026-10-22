@@ -234,6 +234,16 @@ pub struct SettingsView {
     pub unified_delay: bool,
 }
 
+/// UWP loopback dialog (iteration 2 §6).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoopbackView {
+    pub loading: bool,
+    pub saving: bool,
+    /// Bumped on every successful read, so the dialog resets its selection.
+    pub revision: u64,
+    pub apps: std::sync::Arc<Vec<crate::platform::windows::loopback::AppContainer>>,
+}
+
 /// One tab of the rules page: extra rules or hosts (iteration 2 §2, §3).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OverrideView {
@@ -305,6 +315,7 @@ pub struct AppStateView {
     pub settings: SettingsView,
     pub rules: OverrideView,
     pub hosts: OverrideView,
+    pub loopback: LoopbackView,
     pub geo_updating: bool,
     /// A diagnostics bundle is being collected or saved (§18).
     pub exporting: bool,
