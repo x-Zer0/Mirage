@@ -385,34 +385,32 @@ export component MainWindow inherits Window {
                 rules-reset => { root.rules-reset(); }
                 save-rules(enabled, yaml-mode, text) => { root.save-rules(enabled, yaml-mode, text); }
             }
-            if root.page == 4: PageViewport {
+            if root.page == 4: SettingsPage {
                 vertical-stretch: 1;
-                SettingsPage {
-                    saved-port: root.settings-port;
-                    saved-bypass: root.settings-bypass;
-                    saved-user-agent: root.settings-user-agent;
-                    saved-allow-lan: root.settings-allow-lan;
-                    saved-auto-connect: root.settings-auto-connect;
-                    saved-close-to-tray: root.settings-close-to-tray;
-                    saved-autostart: root.settings-autostart;
-                    saved-connection-log-limit: root.settings-connection-log-limit;
-                    saved-operation-log-days: root.settings-operation-log-days;
-                    saved-ipv6: root.settings-ipv6;
-                    saved-unified-delay: root.settings-unified-delay;
-                    service-installed: root.service-installed;
-                    service-busy: root.service-busy;
-                    tun-active: root.tun-active;
-                    manage-service(install) => { root.manage-service(install); }
-                    core-version: root.core-version;
-                    running: root.running;
-                    geo-updating: root.geo-updating;
-                    busy: root.busy;
-                    save(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay) => { root.save-settings(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay); }
-                    update-geodata => { root.update-geodata(); }
-                    open-loopback => {
-                        root.open-loopback();
-                        loopback-dialog.show();
-                    }
+                saved-port: root.settings-port;
+                saved-bypass: root.settings-bypass;
+                saved-user-agent: root.settings-user-agent;
+                saved-allow-lan: root.settings-allow-lan;
+                saved-auto-connect: root.settings-auto-connect;
+                saved-close-to-tray: root.settings-close-to-tray;
+                saved-autostart: root.settings-autostart;
+                saved-connection-log-limit: root.settings-connection-log-limit;
+                saved-operation-log-days: root.settings-operation-log-days;
+                saved-ipv6: root.settings-ipv6;
+                saved-unified-delay: root.settings-unified-delay;
+                service-installed: root.service-installed;
+                service-busy: root.service-busy;
+                tun-active: root.tun-active;
+                manage-service(install) => { root.manage-service(install); }
+                core-version: root.core-version;
+                running: root.running;
+                geo-updating: root.geo-updating;
+                busy: root.busy;
+                save(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay) => { root.save-settings(port, bypass, ua, allow-lan, auto, tray, autostart, connection-limit, operation-days, ipv6, unified-delay); }
+                update-geodata => { root.update-geodata(); }
+                open-loopback => {
+                    root.open-loopback();
+                    loopback-dialog.show();
                 }
             }
             if root.page == 5: LogsPage {

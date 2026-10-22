@@ -1,23 +1,81 @@
-import { Button, CheckBox, ComboBox, LineEdit, TextEdit } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, Switch, TextEdit } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
-import { Card } from "../components/card.slint";
 import { HelpIcon } from "../components/help-icon.slint";
+import { PageViewport } from "../components/page-scroll.slint";
 
-component SettingLabel inherits HorizontalLayout {
-    in property <string> text;
-    in property <string> help-text;
-    spacing: 4px;
-    alignment: start;
-    horizontal-stretch: 0;
+// Titled group of setting rows on a single card.
+component SettingSection inherits VerticalLayout {
+    in property <string> title;
+    spacing: 8px;
     Text {
-        text: root.text;
-        color: Theme.text;
-        vertical-alignment: center;
-        horizontal-stretch: 0;
-        min-width: 0px;
-        wrap: word-wrap;
+        text: root.title;
+        font-size: 13px;
+        font-weight: 600;
+        color: Theme.text-muted;
     }
-    HelpIcon { text: root.help-text; }
+    Rectangle {
+        background: Theme.card;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.border;
+        VerticalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-top: 2px;
+            padding-bottom: 2px;
+            @children
+        }
+    }
+}
+
+component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
+}
+
+// Title (+ help) and an optional description on the left, controls on the right.
+component SettingRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> description;
+    in property <color> description-color: Theme.text-muted;
+    in property <string> help-text;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    spacing: 16px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        horizontal-stretch: 1;
+        min-width: 0px;
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            Text {
+                text: root.title;
+                color: Theme.text;
+                vertical-alignment: center;
+                min-width: 0px;
+                wrap: word-wrap;
+            }
+            if root.help-text != "": HelpIcon { text: root.help-text; }
+        }
+        if root.description != "": Text {
+            text: root.description;
+            color: root.description-color;
+            font-size: 12px;
+            min-width: 0px;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        horizontal-stretch: 0;
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            @children
+        }
+    }
 }
 
 // Settings (DESIGN.md §17.1). Edits stay local until "保存"; the core
@@ -60,145 +118,205 @@ export component SettingsPage inherits VerticalLayout {
     property <int> ipv6: root.saved-ipv6;
     property <bool> unified-delay: root.saved-unified-delay;
 
+    property <bool> dirty: root.port != "\{root.saved-port}"
+        || root.bypass != root.saved-bypass
+        || root.user-agent != root.saved-user-agent
+        || root.allow-lan != root.saved-allow-lan
+        || root.auto-connect != root.saved-auto-connect
+        || root.close-to-tray != root.saved-close-to-tray
+        || root.autostart != root.saved-autostart
+        || root.connection-log-limit != root.saved-connection-log-limit
+        || root.operation-log-days != root.saved-operation-log-days
+        || root.ipv6 != root.saved-ipv6
+        || root.unified-delay != root.saved-unified-delay;
+    property <length> wide-input: root.width < 660px ? 200px : 300px;
+
     min-width: 0px;
-    spacing: 16px;
-    alignment: start;
+    spacing: 0px;
 
-    Card {
+    PageViewport {
+        vertical-stretch: 1;
         VerticalLayout {
-            spacing: 10px;
-            Text { text: "网络"; font-weight: 600; color: Theme.text; }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                SettingLabel {
-                    text: "本地代理端口（mixed-port）";
-                    help-text: "修改端口后，保存设置会重启运行中的内核。";
-                    width: root.width < 660px ? 160px : 220px;
+            spacing: 20px;
+            padding-bottom: 16px;
+
+            SettingSection {
+                title: "网络";
+                SettingRow {
+                    title: "本地代理端口";
+                    description: "mixed-port，修改后保存会重启运行中的内核";
+                    LineEdit {
+                        text <=> root.port;
+                        input-type: InputType.number;
+                        width: 120px;
+                        accessible-label: "本地代理端口";
+                    }
                 }
-                LineEdit {
-                    text <=> root.port;
-                    input-type: InputType.number;
-                    width: 120px;
-                    horizontal-stretch: 0;
-                    accessible-label: "本地代理端口";
+                Divider { }
+                SettingRow {
+                    title: "允许局域网连接";
+                    description: root.allow-lan
+                        ? "局域网设备可通过本机局域网 IP 和代理端口连接"
+                        : "仅允许本机通过 127.0.0.1 访问代理";
+                    help-text: "开启后请在 Windows 防火墙中允许该端口入站。\n修改局域网代理选项后，保存设置会重启运行中的内核。";
+                    Switch { checked <=> root.allow-lan; accessible-label: "允许局域网代理"; }
+                }
+                Divider { }
+                SettingRow {
+                    title: "IPv6";
+                    description: "跟随订阅时不修改订阅中的 IPv6 设置";
+                    help-text: "开启后需要本机和节点都支持 IPv6；TUN 下的 IPv6 接管尚待核验。\n修改后保存会热重载运行中的内核。";
+                    ComboBox {
+                        model: ["跟随订阅", "开启", "关闭"];
+                        current-index <=> root.ipv6;
+                        width: 120px;
+                        accessible-label: "IPv6";
+                    }
+                }
+                Divider { }
+                SettingRow {
+                    title: "统一延迟";
+                    description: "测速去除握手延迟，只计算往返时间";
+                    help-text: "开启后延迟数值会明显降低；同时影响自动选择（url-test）组的健康检查。\n关闭则跟随订阅。修改后保存会热重载运行中的内核。";
+                    Switch { checked <=> root.unified-delay; accessible-label: "测速去除握手延迟（统一延迟）"; }
+                }
+                Divider { }
+                SettingRow {
+                    title: "UWP 回环豁免";
+                    description: "让 Microsoft Store / UWP 应用在系统代理模式下可以访问本机代理（127.0.0.1）。TUN 模式不需要。";
+                    Button { text: "管理…"; clicked => { root.open-loopback(); } }
+                }
+                Divider { }
+                VerticalLayout {
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    spacing: 8px;
+                    Text { text: "系统代理例外"; color: Theme.text; }
+                    Text {
+                        text: "匹配的地址不走系统代理，使用分号或换行分隔";
+                        color: Theme.text-muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    TextEdit {
+                        text <=> root.bypass;
+                        height: 72px;
+                        wrap: word-wrap;
+                        font-size: 12px;
+                        accessible-label: "系统代理例外";
+                    }
                 }
             }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                CheckBox { text: "允许局域网代理"; checked <=> root.allow-lan; horizontal-stretch: 0; }
-                HelpIcon {
-                    text: (root.allow-lan
-                        ? "局域网设备可通过本机局域网 IP 和代理端口连接；请在 Windows 防火墙中允许该端口入站。"
-                        : "仅允许本机通过 127.0.0.1 访问代理。")
-                        + "\n修改局域网代理选项后，保存设置会重启运行中的内核。";
+
+            SettingSection {
+                title: "常规";
+                SettingRow {
+                    title: "启动后自动连接";
+                    Switch { checked <=> root.auto-connect; accessible-label: "启动后自动连接"; }
+                }
+                Divider { }
+                SettingRow {
+                    title: "关闭窗口时最小化到托盘";
+                    description: "关闭此项后，关闭窗口即退出程序";
+                    Switch { checked <=> root.close-to-tray; accessible-label: "关闭窗口时最小化到托盘"; }
+                }
+                Divider { }
+                SettingRow {
+                    title: "开机启动";
+                    description: "登录后最小化到托盘运行";
+                    help-text: "开机启动写入当前用户的启动项（Run 键），不需要管理员权限；取消勾选并保存即移除。";
+                    Switch { checked <=> root.autostart; accessible-label: "开机启动"; }
+                }
+                Divider { }
+                SettingRow {
+                    title: "订阅默认 User-Agent";
+                    LineEdit {
+                        text <=> root.user-agent;
+                        width: root.wide-input;
+                        accessible-label: "订阅默认 User-Agent";
+                    }
+                }
+                Divider { }
+                SettingRow {
+                    title: "连接日志记录条数";
+                    description: "0 表示不记录，最多 10000 条";
+                    LineEdit {
+                        text <=> root.connection-log-limit;
+                        input-type: InputType.number;
+                        width: 120px;
+                        accessible-label: "连接日志记录条数";
+                    }
+                }
+                Divider { }
+                SettingRow {
+                    title: "配置日志保留天数";
+                    description: "0 表示不记录，最多 60 天";
+                    LineEdit {
+                        text <=> root.operation-log-days;
+                        input-type: InputType.number;
+                        width: 120px;
+                        accessible-label: "配置日志保留天数";
+                    }
                 }
             }
-            Text { text: "系统代理例外（分号或换行分隔）"; color: Theme.text; }
-            TextEdit {
-                text <=> root.bypass;
-                height: 72px;
-                wrap: word-wrap;
-                font-size: 12px;
-                accessible-label: "系统代理例外";
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                Text { text: "订阅默认 User-Agent"; color: Theme.text; vertical-alignment: center; width: root.width < 660px ? 160px : 220px; wrap: word-wrap; }
-                LineEdit { min-width: 80px; text <=> root.user-agent; accessible-label: "订阅默认 User-Agent"; }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                SettingLabel {
-                    text: "IPv6";
-                    help-text: "跟随订阅：不修改订阅中的 IPv6 设置。\n开启后需要本机和节点都支持 IPv6；TUN 下的 IPv6 接管尚待核验。\n修改后保存会热重载运行中的内核。";
-                    width: root.width < 660px ? 160px : 220px;
+
+            // Actions here take effect immediately; they are not part of "保存设置".
+            SettingSection {
+                title: "内核";
+                SettingRow {
+                    title: "内核版本";
+                    Text { text: root.core-version; color: Theme.text-muted; vertical-alignment: center; }
                 }
-                ComboBox {
-                    model: ["跟随订阅", "开启", "关闭"];
-                    current-index <=> root.ipv6;
-                    width: 120px;
-                    horizontal-stretch: 0;
-                    accessible-label: "IPv6";
+                Divider { }
+                SettingRow {
+                    title: "TUN 辅助服务";
+                    description: root.service-installed ? "已安装" : "未安装";
+                    description-color: root.service-installed ? Theme.ok : Theme.text-muted;
+                    help-text: "安装、更新和卸载需要管理员授权。TUN 开关会重启内核；更改服务前请关闭 TUN。";
+                    Button {
+                        text: root.service-busy ? "正在处理…" : "安装 / 更新";
+                        enabled: !root.busy && !root.tun-active;
+                        clicked => { root.manage-service(true); }
+                    }
+                    Button {
+                        text: "卸载";
+                        enabled: root.service-installed && !root.busy && !root.tun-active;
+                        clicked => { root.manage-service(false); }
+                    }
                 }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Button { text: "UWP 回环豁免…"; clicked => { root.open-loopback(); } }
-                HelpIcon {
-                    text: "让 Microsoft Store / UWP 应用在系统代理模式下可以访问本机代理（127.0.0.1）。TUN 模式不需要。";
-                }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                CheckBox { text: "测速去除握手延迟（统一延迟）"; checked <=> root.unified-delay; horizontal-stretch: 0; }
-                HelpIcon {
-                    text: "开启后延迟只计算往返时间，数值会明显降低；同时影响自动选择（url-test）组的健康检查。\n关闭则跟随订阅。修改后保存会热重载运行中的内核。";
+                Divider { }
+                SettingRow {
+                    title: "Geo 数据库";
+                    description: "更新 GeoIP / GeoSite 数据，需内核运行中";
+                    Button {
+                        text: root.geo-updating ? "正在更新…" : "更新 geodata";
+                        icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
+                        colorize-icon: true;
+                        enabled: root.running && !root.geo-updating;
+                        clicked => { root.update-geodata(); }
+                    }
                 }
             }
         }
     }
 
-    Card {
-        VerticalLayout {
-            spacing: 10px;
-            Text { text: "日志"; font-weight: 600; color: Theme.text; }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                SettingLabel {
-                    text: "连接日志记录条数";
-                    help-text: "0 不记录，最多 10000 条";
-                    width: root.width < 660px ? 160px : 220px;
-                }
-                LineEdit { text <=> root.connection-log-limit; input-type: InputType.number; width: 100px; accessible-label: "连接日志记录条数"; }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                SettingLabel {
-                    text: "配置日志保留天数";
-                    help-text: "0 不记录，最多 60 天";
-                    width: root.width < 660px ? 160px : 220px;
-                }
-                LineEdit { text <=> root.operation-log-days; input-type: InputType.number; width: 100px; accessible-label: "配置日志保留天数"; }
-            }
-        }
-    }
-
-    Card {
-        VerticalLayout {
-            spacing: 8px;
-            Text { text: "启动与窗口"; font-weight: 600; color: Theme.text; }
-            CheckBox { text: "启动后自动连接"; checked <=> root.auto-connect; }
-            CheckBox { text: "关闭窗口时最小化到托盘（取消则关闭即退出）"; checked <=> root.close-to-tray; }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                CheckBox { text: "开机启动（登录后最小化到托盘运行）"; checked <=> root.autostart; horizontal-stretch: 0; }
-                HelpIcon { text: "开机启动写入当前用户的启动项（Run 键），不需要管理员权限；取消勾选并保存即移除。"; }
-            }
-        }
-    }
+    // Save bar stays pinned below the scrolling content.
+    Divider { }
     HorizontalLayout {
+        padding-top: 12px;
         spacing: 8px;
-        alignment: start;
-        Button {
-            text: "保存设置";
-            primary: true;
-            enabled: !root.busy;
-            icon: @image-url("../../assets/icons/lucide/check.svg");
-            colorize-icon: true;
-            clicked => {
-                root.save(root.port, root.bypass, root.user-agent, root.allow-lan, root.auto-connect, root.close-to-tray, root.autostart, root.connection-log-limit, root.operation-log-days, root.ipv6, root.unified-delay);
-            }
+        Text {
+            text: root.dirty ? "有未保存的修改" : "修改上方设置后需保存才会生效";
+            color: root.dirty ? Theme.warn : Theme.text-muted;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            wrap: word-wrap;
         }
         Button {
             text: "放弃修改";
+            enabled: root.dirty;
             clicked => {
                 root.port = root.saved-port;
                 root.bypass = root.saved-bypass;
@@ -213,39 +331,14 @@ export component SettingsPage inherits VerticalLayout {
                 root.unified-delay = root.saved-unified-delay;
             }
         }
-    }
-
-    Card {
-        VerticalLayout {
-            spacing: 8px;
-            Text { text: "内核"; font-weight: 600; color: Theme.text; }
-            Text { text: "版本：" + root.core-version; color: Theme.text; }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Text { text: root.service-installed ? "TUN 辅助服务：已安装" : "TUN 辅助服务：未安装"; color: Theme.text; vertical-alignment: center; horizontal-stretch: 0; }
-                HelpIcon { text: "安装、更新和卸载需要管理员授权。TUN 开关会重启内核；更改服务前请关闭 TUN。"; }
-            }
-            HorizontalLayout {
-                alignment: start;
-                spacing: 8px;
-                Button {
-                    text: root.service-busy ? "正在处理…" : "安装 / 更新服务";
-                    enabled: !root.busy && !root.tun-active;
-                    clicked => { root.manage-service(true); }
-                }
-                Button {
-                    text: "卸载服务";
-                    enabled: root.service-installed && !root.busy && !root.tun-active;
-                    clicked => { root.manage-service(false); }
-                }
-                Button {
-                    text: root.geo-updating ? "正在更新 geodata…" : "更新 geodata";
-                    icon: @image-url("../../assets/icons/lucide/refresh-cw.svg");
-                    colorize-icon: true;
-                    enabled: root.running && !root.geo-updating;
-                    clicked => { root.update-geodata(); }
-                }
+        Button {
+            text: "保存设置";
+            primary: true;
+            enabled: !root.busy;
+            icon: @image-url("../../assets/icons/lucide/check.svg");
+            colorize-icon: true;
+            clicked => {
+                root.save(root.port, root.bypass, root.user-agent, root.allow-lan, root.auto-connect, root.close-to-tray, root.autostart, root.connection-log-limit, root.operation-log-days, root.ipv6, root.unified-delay);
             }
         }
     }
