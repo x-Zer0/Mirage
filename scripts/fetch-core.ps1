@@ -3,8 +3,8 @@
     Downloads the pinned Mihomo core and geodata into assets/core and verifies SHA256.
 .DESCRIPTION
     DESIGN.md §10.1/§10.2. Files are never committed; packaging copies assets/core.
-    Geodata hashes pin a specific meta-rules-dat publication. When upstream publishes
-    newer data the hash check fails; update the hashes here deliberately.
+    Geodata URLs pin a meta-rules-dat commit and verify its file hashes.
+    Update the snapshot commit and hashes together in core-assets.psd1.
 #>
 [CmdletBinding()]
 param(

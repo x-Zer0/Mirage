@@ -7,6 +7,7 @@ default-members = ["crates/mirage-app", "crates/mirage-ipc", "crates/mirage-svc"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
+license = "MIT"
 publish = false
 
 [workspace.dependencies]

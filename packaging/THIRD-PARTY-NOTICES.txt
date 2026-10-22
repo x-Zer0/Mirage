@@ -18,8 +18,9 @@ locked Windows x64 dependency graph into licenses/rust-dependencies.html.
 Lucide icons (lucide-static 1.57.0): ISC; see licenses/Lucide-LICENSE.txt.
 Source: https://github.com/lucide-icons/lucide/tree/1.57.0
 
-Bundled geodata: MetaCubeX/meta-rules-dat publication from 2026-10-15;
+Bundled geodata: MetaCubeX/meta-rules-dat snapshot from 2026-10-21;
 GEOIP.metadb, GEOSITE.dat, GEOIP.dat and ASN.mmdb, unmodified.
+Snapshot: https://github.com/MetaCubeX/meta-rules-dat/tree/eed74d50aa6083d028110ed3feaf37f5e3070d9d
 Project license: GPL-3.0; see licenses/Mihomo-GPL-3.0.txt.
 Source/builds and upstream attribution: https://github.com/MetaCubeX/meta-rules-dat
 This product includes GeoLite2 ASN data created by MaxMind, available from

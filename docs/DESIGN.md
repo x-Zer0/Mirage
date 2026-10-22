@@ -600,7 +600,7 @@ tun:
 ```
 
 - 规则中出现 GEOIP/GEOSITE 时，`-t` 校验也会加载 geodata，文件缺失时内核会尝试联网下载。首次启动时网络可能不通，会导致校验失败。因此 geodata 随安装包附带，并且合成时强制 `geo-auto-update: false`。设置页提供“更新 geodata”按钮，通过控制器 `POST /upgrade/geo` 触发，由用户主动执行。
-- 随包附带 `GEOIP.metadb`、`GEOSITE.dat`、`GEOIP.dat`、`ASN.mmdb` 四个文件，来源为 MetaCubeX/meta-rules-dat 的 `latest` release（2026-10-15 发布版，对应 `geoip.metadb`/`geosite.dat`/`geoip.dat`/`GeoLite2-ASN.mmdb`）。SHA256 固定在 `scripts/core-assets.psd1` 中，下载和打包共用；该 release 会滚动更新，更新 geodata 时需要有意识地修改脚本里的哈希。
+- 随包附带 `GEOIP.metadb`、`GEOSITE.dat`、`GEOIP.dat`、`ASN.mmdb` 四个文件，来源为 MetaCubeX/meta-rules-dat 的 [2026-10-21 固定快照](https://github.com/MetaCubeX/meta-rules-dat/tree/eed74d50aa6083d028110ed3feaf37f5e3070d9d)（对应 `geoip.metadb`/`geosite.dat`/`geoip.dat`/`GeoLite2-ASN.mmdb`）。提交 ID 和四份 SHA256 固定在 `scripts/core-assets.psd1` 中，下载和打包共用；通过该提交的 raw 地址下载，更新 geodata 时同时修改快照提交、哈希及随包来源说明。
 - Mihomo 只允许 provider、external-ui 等路径位于 `-d` 指定的 home 目录或 `SAFE_PATHS` 列表内。本设计把所有路径都放在 core-home 下，因此不需要设置 `SAFE_PATHS`。
 - core-home 目录的 ACL 只授予当前用户和 SYSTEM（§14.2）。
 

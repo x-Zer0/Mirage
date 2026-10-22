@@ -77,6 +77,7 @@ function Initialize-Payload([string]$Stage, [string]$Release, [string]$CargoAbou
     Copy-Item -LiteralPath $icon.FullName -Destination "$stage/app.ico" -Force
     Copy-Core $stage
     Copy-Item -Path 'packaging/licenses/*' -Destination "$stage/licenses" -Recurse -Force
+    Copy-Item -LiteralPath 'LICENSE' -Destination "$stage/licenses/Mirage-MIT.txt" -Force
     Copy-Item -LiteralPath 'packaging/THIRD-PARTY-NOTICES.txt' -Destination $stage -Force
     Invoke-Checked $CargoAbout @('generate', '--workspace', '--locked', '--offline', '--fail', '--target', 'x86_64-pc-windows-msvc', '--config', 'packaging/about.toml', '--output-file', "$stage/licenses/rust-dependencies.html", 'packaging/licenses.hbs')
     $licenseList = Get-Content -LiteralPath "$stage/licenses/rust-dependencies.html" -Raw
@@ -85,7 +86,7 @@ function Initialize-Payload([string]$Stage, [string]$Release, [string]$CargoAbou
     }
     Write-SlintNotices $stage
     Write-PayloadHashes $stage
-    $required = @('Mihomo-GPL-3.0.txt', 'Slint-Royalty-free-2.0.md', 'CC-BY-SA-4.0.txt',
+    $required = @('Mirage-MIT.txt', 'Mihomo-GPL-3.0.txt', 'Slint-Royalty-free-2.0.md', 'CC-BY-SA-4.0.txt',
         'Lucide-LICENSE.txt', 'Inno-Setup.txt', 'geodata-notices.txt')
     foreach ($name in $required) {
         if ((Get-Item -LiteralPath "$stage/licenses/$name").Length -eq 0) {

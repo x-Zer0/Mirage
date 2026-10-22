@@ -5,12 +5,12 @@
         Sha256 = '1AC84E795B5B915446E20139677FB6CC013A0778E876E8D4C96F994750B4C4A3'
     }
     MihomoExeSha256 = 'BEB9878924D7BD38C67176B441AB5E668CC378BFE751C8DC8FEF3EB5AAF566D5'
-    # meta-rules-dat publication: 2026-10-15T00:42:34Z; fail if rolling release changes.
-    GeoBase = 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest'
+    # meta-rules-dat snapshot: 2026-10-21T00:44:55Z; update commit and hashes together.
+    GeoBase = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/eed74d50aa6083d028110ed3feaf37f5e3070d9d'
     Geo = @(
-        @{ Name = 'GEOIP.metadb'; Source = 'geoip.metadb'; Sha256 = '262BC4A119A9A3510AE957E434E11BFA41C37D72845BDA9DBEA12C3F2AC28B36' },
-        @{ Name = 'GEOSITE.dat'; Source = 'geosite.dat'; Sha256 = '9AE9D588B1C051C764F2500E188393934AA84FC45E0DA96530DDF069CF232B27' },
-        @{ Name = 'GEOIP.dat'; Source = 'geoip.dat'; Sha256 = '1ADAEEC24369B866B3398E8D46992F25293FDD7A7BF78135558BD767AC264D8B' },
-        @{ Name = 'ASN.mmdb'; Source = 'GeoLite2-ASN.mmdb'; Sha256 = 'D82D2F39EA82A175A3D63484C8B4723040D134BA1EDF4B27D6819C2F96C14A9B' }
+        @{ Name = 'GEOIP.metadb'; Source = 'geoip.metadb'; Sha256 = 'B9C84A522DA098BC3E8A23E30E426BC3C916D532B1D7D4E4B41590D5F847DAA2' },
+        @{ Name = 'GEOSITE.dat'; Source = 'geosite.dat'; Sha256 = '77A487C5599EDB9B69C9EA28BBF07385DD186156A9D7F3EBE3BFAD397F1CC2C9' },
+        @{ Name = 'GEOIP.dat'; Source = 'geoip.dat'; Sha256 = '4A1B1EDDABF5614FA51DD93AC0498856CB82DD65933CD6D6D5890D8C7BB5E902' },
+        @{ Name = 'ASN.mmdb'; Source = 'GeoLite2-ASN.mmdb'; Sha256 = 'B9C1120510F02791C455FA667740A251E46E85D625FB977F8248D5EC1EBF6721' }
     )
 }

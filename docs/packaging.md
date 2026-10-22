@@ -27,7 +27,11 @@ pwsh -File scripts/package.ps1 -Iscc 'D:\Tools\Inno Setup\ISCC.exe' -CargoAbout 
 - 两个产物分别附同名 `.exe.sha256` / `.zip.sha256` 校验文件。
 - `target/package/<版本>-<随机标识>/` 留存独立打包目录，包含安装版公共文件及 `payload-sha256.txt`；其下 `portable/Mirage/` 为便携版目录，独立清单还覆盖便携版说明，便于核对实际入包文件。用于安装器编译的 `app.ico` 不额外放入 ZIP。
 
-`-SkipBuild` 仅用于已完成本次 release 构建后的重新打包；`-StageOnly` 只准备公共目录、不调用安装器编译器，也不输出 EXE / ZIP；正常构建和 `-SkipBuild` 重打包均同时输出两种产物。`cargo build` 本身仅编译程序，分发统一使用上述打包入口。版本来自 Cargo metadata；主程序和服务版本必须一致，核心哈希必须与 `crates/mirage-ipc/src/binary.rs` 一致。四份 geodata 和核心压缩包的固定值集中在 `scripts/core-assets.psd1`，下载和打包复用它，滚动数据变化时拒绝静默替换。
+`-SkipBuild` 仅用于已完成本次 release 构建后的重新打包；`-StageOnly` 只准备公共目录、不调用安装器编译器，也不输出 EXE / ZIP；正常构建和 `-SkipBuild` 重打包均同时输出两种产物。`cargo build` 本身仅编译程序，分发统一使用上述打包入口。版本来自 Cargo metadata；主程序和服务版本必须一致，核心哈希必须与 `crates/mirage-ipc/src/binary.rs` 一致。四份 geodata 和核心压缩包的固定值集中在 `scripts/core-assets.psd1`，下载和打包复用它。geodata 下载固定到上游 [2026-10-21 快照提交](https://github.com/MetaCubeX/meta-rules-dat/tree/eed74d50aa6083d028110ed3feaf37f5e3070d9d)，使用该提交的 raw 文件地址及各自 SHA256，不受 latest release 滚动更新影响。更新时必须同时核对提交 ID、四份文件哈希和随包来源说明。
+
+## GitHub Actions
+
+云端流程复用同一打包脚本：推送到 master / 提交 PR 时进行静态检查，手动运行生成 Artifacts，推送与 Cargo 版本一致的 vX.Y.Z 标签后自动发布 GitHub Release。工具安装、权限、缓存与操作步骤见 [GitHub Actions 构建与发布](github-actions.md)。
 
 ## 随包内容与首次使用
 
@@ -41,6 +45,7 @@ core/
   GEOIP.dat
   ASN.mmdb
 licenses/
+  Mirage-MIT.txt
   rust-dependencies.html
   Slint-Royalty-free-2.0.md
   Slint-components.txt
@@ -77,6 +82,7 @@ ZIP 内只有顶层 `Mirage/` 文件夹；完整解压后运行其中的 `Mirage
 
 ## 许可证与签名
 
+- Mirage 自身代码采用 [MIT 许可证](../LICENSE)，打包时复制为 `licenses/Mirage-MIT.txt`，安装版与便携版均随附。
 - Mihomo 为未修改的官方 v1.19.32，随包附 GPLv3 原文、准确版本源码 tag / archive / release 地址。公开分发时，应在二进制下载处提供完整对应源码的取得方式，包括其依赖和构建材料；不能只保留内部文档中的链接。
 - Slint 使用 Royalty-free 2.0，诊断页已有 AboutSlint；随包带原文。cargo-about 对 LicenseRef 自定义名称不生成正文段，Slint 的正文、版本和组件声明由独立文件提供；`about.toml` 用原文 SHA256 固定选择依据，不把它错误标成 GPL 或 MIT。
 - Rust 依赖清单覆盖 Windows x64 workspace 的运行时依赖，排除纯构建 / 开发依赖及 `publish=false` 的本项目代码。普通 SPDX 许可证正文、归属、版本和源码地址由 cargo-about 自动生成；未知许可会中止打包。

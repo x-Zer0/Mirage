@@ -1,0 +1,181 @@
+name: Build and release
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: 1.95.0-x86_64-pc-windows-msvc
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  check:
+    name: Windows static checks
+    runs-on: windows-2022
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust with lint components
+        run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component rustfmt --component clippy
+
+      - name: Validate package and tag versions
+        id: version
+        run: |
+          $json = cargo metadata --locked --offline --no-deps --format-version 1
+          if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+          $metadata = $json | ConvertFrom-Json
+          $app = $metadata.packages | Where-Object name -EQ mirage-app
+          $helper = $metadata.packages | Where-Object name -EQ mirage-svc
+          if (-not $app -or -not $helper -or $app.version -ne $helper.version -or
+              $app.version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+              throw 'App and helper must have the same numeric release version.'
+          }
+          $version = $app.version
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_TYPE -eq 'tag' -and
+              $env:GITHUB_REF_NAME -cne "v$version") {
+              throw "Tag must be v$version to match Cargo.toml."
+          }
+          "version=$version" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: windows-2022-check
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Check workspace
+        run: cargo check --workspace --locked
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  package:
+    name: Package Windows x64
+    needs: check
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: windows-2022-release
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      # cargo-about runs offline; fetch dependencies for all platforms in advance.
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+
+      - name: Install verified packaging tools
+        run: |
+          $tools = Join-Path $env:GITHUB_WORKSPACE 'target/tools'
+          $downloads = Join-Path $env:RUNNER_TEMP 'mirage-packaging-tools'
+          New-Item -ItemType Directory -Path $downloads, "$tools/cargo-about" -Force | Out-Null
+          $assets = @(
+              @{
+                  Name = 'innosetup-6.4.3.exe'
+                  Url = 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe'
+                  Sha256 = 'f3c42116542c4cc57263c5ba6c4feabfc49fe771f2f98a79d2f7628b8762723b'
+              },
+              @{
+                  Name = 'cargo-about.tar.gz'
+                  Url = 'https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.2/cargo-about-0.9.2-x86_64-pc-windows-msvc.tar.gz'
+                  Sha256 = '1c03e5890238562497c2d89a3b75b02560af349c1fc3e713d3284f532a5cd748'
+              }
+          )
+          foreach ($asset in $assets) {
+              $file = Join-Path $downloads $asset.Name
+              Invoke-WebRequest -Uri $asset.Url -OutFile $file -MaximumRetryCount 3 -RetryIntervalSec 5
+              if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $asset.Sha256) {
+                  throw "SHA256 mismatch: $($asset.Name)"
+              }
+          }
+          $inno = Join-Path $tools 'innosetup-6.4.3'
+          $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
+              '/PORTABLE=1', '/CURRENTUSER', ('/DIR="{0}"' -f $inno))
+          $process = Start-Process -FilePath "$downloads/innosetup-6.4.3.exe" `
+              -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed: $($process.ExitCode)" }
+          if (-not (Test-Path -LiteralPath "$inno/ISCC.exe")) { throw 'ISCC.exe missing' }
+          tar -xzf "$downloads/cargo-about.tar.gz" -C "$tools/cargo-about"
+          if ($LASTEXITCODE -ne 0) { throw 'cargo-about extraction failed' }
+
+      - name: Build installer and portable archive
+        run: ./scripts/package.ps1
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Mirage-${{ needs.check.outputs.version }}-windows-x64
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: [check, package]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notices
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: Mirage-${{ needs.check.outputs.version }}-windows-x64
+          path: dist
+
+      - name: Publish release and assets
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Mirage ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body_path: packaging/THIRD-PARTY-NOTICES.txt
+          fail_on_unmatched_files: true
+          files: |
+            dist/Mirage-${{ needs.check.outputs.version }}-windows-x64-setup.exe
+            dist/Mirage-${{ needs.check.outputs.version }}-windows-x64-setup.exe.sha256
+            dist/Mirage-${{ needs.check.outputs.version }}-windows-x64-portable.zip
+            dist/Mirage-${{ needs.check.outputs.version }}-windows-x64-portable.zip.sha256

@@ -3,6 +3,7 @@ name = "mirage-ipc"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 description = "Mirage app <-> MirageSvc protocol and the shared config policy"
 publish.workspace = true
 

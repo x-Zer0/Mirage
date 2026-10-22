@@ -1,8 +1,10 @@
 Geodata sources and attribution
 
-Packaged through MetaCubeX/meta-rules-dat (2026-10-15 pinned release):
+Packaged through MetaCubeX/meta-rules-dat (2026-10-21 pinned snapshot):
 https://github.com/MetaCubeX/meta-rules-dat
 https://github.com/MetaCubeX/meta-rules-dat/blob/master/README.md
+Snapshot: https://github.com/MetaCubeX/meta-rules-dat/tree/eed74d50aa6083d028110ed3feaf37f5e3070d9d
+The snapshot commit and each file's SHA256 are pinned in scripts/core-assets.psd1.
 Project license: GNU GPL v3, bundled as Mihomo-GPL-3.0.txt.
 The project README and its build workflows list the upstream rule sources.
 

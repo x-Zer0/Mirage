@@ -3,6 +3,7 @@ name = "mirage-app"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 description = "Windows proxy client for the official Mihomo core"
 publish.workspace = true
 build = "build.rs"
