@@ -102,6 +102,8 @@ pub struct SettingsFile {
     #[serde(default = "default_operation_log_days")]
     pub operation_log_days: usize,
     #[serde(default = "default_true")]
+    pub custom_rules_enabled: bool,
+    #[serde(default = "default_true")]
     pub custom_hosts_enabled: bool,
     #[serde(default)]
     pub ipv6: Ipv6Mode,
@@ -129,6 +131,7 @@ impl Default for SettingsFile {
             autostart: false,
             connection_log_limit: default_connection_log_limit(),
             operation_log_days: default_operation_log_days(),
+            custom_rules_enabled: true,
             custom_hosts_enabled: true,
             ipv6: Ipv6Mode::default(),
             unified_delay: true,

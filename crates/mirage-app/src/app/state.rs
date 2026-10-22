@@ -234,15 +234,17 @@ pub struct SettingsView {
     pub unified_delay: bool,
 }
 
-/// Hosts tab of the rules page (iteration 2 §2).
+/// One tab of the rules page: extra rules or hosts (iteration 2 §2, §3).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct HostsView {
+pub struct OverrideView {
     pub enabled: bool,
     /// Saved text; the page edits a copy until "保存".
     pub text: String,
     pub count: usize,
     /// Line errors of the last save attempt or of a hand-edited file.
     pub errors: Vec<String>,
+    /// Skipped rules etc. from the last kernel check.
+    pub notes: Vec<String>,
     /// Kernel check of a save in flight.
     pub saving: bool,
 }
@@ -301,7 +303,8 @@ pub struct AppStateView {
     /// Diagnostics: ziyoumao host discovery result lines.
     pub provider_hosts: Vec<String>,
     pub settings: SettingsView,
-    pub hosts: HostsView,
+    pub rules: OverrideView,
+    pub hosts: OverrideView,
     pub geo_updating: bool,
     /// A diagnostics bundle is being collected or saved (§18).
     pub exporting: bool,

@@ -7,13 +7,13 @@ pub mod diagnostics;
 mod diagnostics_actions;
 mod handle;
 mod handlers;
-mod hosts;
 pub mod live;
 mod log_actions;
 pub mod logs;
 mod messages;
 mod nodes;
 mod overlay;
+mod overrides;
 mod pipeline;
 mod profile_actions;
 mod profile_view;
@@ -39,6 +39,7 @@ use crate::storage::{layout::Layout, meta::SettingsFile};
 pub use handle::{CoreHandle, spawn};
 pub use messages::Command;
 use messages::Internal;
+pub use overrides::OverrideKind;
 use runtime::Running;
 pub use state::status_text;
 use state::{AppStateView, Notice};
@@ -88,6 +89,8 @@ struct AppCore {
     update_operations: HashMap<ProfileId, String>,
     /// `overrides/hosts.txt` as saved (iteration 2 §2).
     hosts: crate::overrides::hosts::Hosts,
+    /// `overrides/rules.yaml` as saved (iteration 2 §3).
+    rules: crate::overrides::rules::Rules,
     /// Overlay whose hot reload just failed; not retried until the settings change.
     failed_overlay: Option<crate::cores::mihomo::compose::UserOverlay>,
     internal_tx: mpsc::UnboundedSender<Internal>,

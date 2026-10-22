@@ -8,6 +8,11 @@ use crate::cores::mihomo::compose::UserOverlay;
 impl AppCore {
     pub(super) fn user_overlay(&self) -> UserOverlay {
         UserOverlay {
+            rules: if self.settings.custom_rules_enabled {
+                self.rules.rules.clone()
+            } else {
+                Vec::new()
+            },
             hosts: if self.settings.custom_hosts_enabled {
                 self.hosts.entries.clone()
             } else {

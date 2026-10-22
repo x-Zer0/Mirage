@@ -166,6 +166,8 @@ pub struct UserOverlay {
   - 从可视化保存会重新生成 YAML，YAML 中的注释会丢失；切换时给出一次提示。
 - 底部是“保存”和“放弃修改”按钮，交互与设置页一致；保存后按 §1.3 生效。
 
+【M11 定稿】解析与校验在 `overrides/rules.rs`，合成时的前插与跳过在 `compose.rs::prepend_rules`，保存流程与 Hosts 共用 `app/overrides.rs`。可视化编辑的工作副本位于 UI 线程（`ui_bridge/rules_editor.rs`），移动、删除、增改都是同步回调，只在“保存”时以 YAML 文本交给核心；未做可视化改动时切换到 YAML 或保存，沿用原文（保留注释）。目标下拉框列出内置策略和当前运行配置的策略组（不含 GLOBAL），也可手动输入节点名。保存时内核校验返回的“跳过 N 条”等说明显示在附加规则标签顶部并附在提示中。v1.19.32 `-t` 已验证 16 种可视化类型、`DOMAIN-WILDCARD`、逻辑规则以及 `PASS`、`REJECT-DROP` 目标。
+
 ### 3.4 校验
 
 - 应用侧做结构校验：
@@ -298,6 +300,6 @@ UWP 和 Microsoft Store 应用运行在 AppContainer 中，默认不能访问 `1
 | 项 | 在哪个里程碑确认 |
 | --- | --- |
 | hosts 对经代理节点转发的连接是否生效 | M10 |
-| `DOMAIN-WILDCARD` 等较新的规则类型能否通过 v1.19.32 的 `-t` | M11 |
+| `DOMAIN-WILDCARD` 等较新的规则类型能否通过 v1.19.32 的 `-t` | M11【已验证】：16 种可视化类型、逻辑规则、`PASS`/`REJECT-DROP` 目标均通过 |
 | 普通权限下能否调用 `NetworkIsolationEnumAppContainers` 和 `NetworkIsolationGetAppContainerConfig` | M12 开工前先写最小验证 |
 | TUN 下 IPv6 的实际接管效果 | M9（结论只写进验收记录，不在 UI 上标记为“已支持”） |

@@ -2,6 +2,7 @@
 use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use crate::domain::model::{ConfigSummary, Ipv6Mode, ProfileId, RoutingMode};
 use crate::overrides::hosts::HostEntries;
+use crate::overrides::rules;
 pub use mirage_ipc::policy::OVERLAY_VERSION;
 use serde_yaml_ng::{Mapping, Value};
 use std::net::SocketAddr;
@@ -26,6 +27,8 @@ pub struct ManagedOverlay<'a> {
 /// `policy::apply` keeps them. `Default` is a no-op.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UserOverlay {
+    /// Validated rule strings prepended to `rules`; empty when disabled.
+    pub rules: Vec<String>,
     /// Merged over the subscription's `hosts`; empty when disabled.
     pub hosts: HostEntries,
     pub ipv6: Ipv6Mode,
@@ -36,7 +39,8 @@ pub struct UserOverlay {
 impl UserOverlay {
     pub fn describe(&self) -> String {
         format!(
-            "Hosts：{} 条；IPv6：{}；测速去除握手延迟：{}",
+            "附加规则：{} 条；Hosts：{} 条；IPv6：{}；测速去除握手延迟：{}",
+            self.rules.len(),
             self.hosts.len(),
             self.ipv6.label(),
             if self.unified_delay { "开" } else { "关" }
@@ -47,12 +51,15 @@ impl UserOverlay {
 pub struct Composed {
     pub yaml: String,
     pub summary: ConfigSummary,
+    /// Policy notes, followed by the user overlay's (e.g. skipped rules).
     pub policy_notes: Vec<String>,
+    /// Only the user overlay's notes.
+    pub user_notes: Vec<String>,
 }
 
 pub fn compose(text: &str, overlay: &ManagedOverlay<'_>) -> AppResult<Composed> {
     let before = summarize(&parse(text)?);
-    let (yaml, policy_notes) = mirage_ipc::policy::apply(
+    let (yaml, mut policy_notes) = mirage_ipc::policy::apply(
         text,
         &mirage_ipc::ManagedOverlay {
             mixed_port: overlay.mixed_port,
@@ -70,19 +77,22 @@ pub fn compose(text: &str, overlay: &ManagedOverlay<'_>) -> AppResult<Composed> 
     if summary != before {
         return Err(AppError::internal(STAGE, "合成前后摘要不一致"));
     }
-    let yaml = apply_user(yaml, overlay.user)?;
+    let (yaml, user_notes) = apply_user(yaml, overlay.user)?;
+    policy_notes.extend(user_notes.iter().cloned());
     Ok(Composed {
         yaml,
         summary,
         policy_notes,
+        user_notes,
     })
 }
 
 /// Writes the user overlay into the policy output; the summary is unaffected.
-fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<String> {
+fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<(String, Vec<String>)> {
     if *user == UserOverlay::default() {
-        return Ok(yaml);
+        return Ok((yaml, Vec::new()));
     }
+    let mut notes = Vec::new();
     let mut root = parse(&yaml)?;
     let map = root
         .as_mapping_mut()
@@ -117,7 +127,83 @@ fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<String> {
             dns.insert("use-hosts".into(), Value::Bool(true));
         }
     }
-    serde_yaml_ng::to_string(&root).map_err(|e| AppError::internal(STAGE, e))
+    if !user.rules.is_empty() {
+        prepend_rules(map, &user.rules, &mut notes);
+    }
+    let yaml = serde_yaml_ng::to_string(&root).map_err(|e| AppError::internal(STAGE, e))?;
+    Ok((yaml, notes))
+}
+
+/// §3.1: rules whose target, rule provider or sub-rule is missing from this
+/// config are skipped rather than failing the whole config.
+fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
+    let names = |key: &str| -> Vec<String> {
+        map.get(key)
+            .and_then(Value::as_sequence)
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p.get("name").and_then(Value::as_str).map(str::to_owned))
+            .collect()
+    };
+    let keys = |key: &str| -> Vec<String> {
+        map.get(key)
+            .and_then(Value::as_mapping)
+            .into_iter()
+            .flat_map(|m| m.keys())
+            .filter_map(|k| k.as_str().map(str::to_owned))
+            .collect()
+    };
+    let mut targets = names("proxies");
+    targets.extend(names("proxy-groups"));
+    targets.extend(rules::BUILTIN_TARGETS.iter().map(|t| (*t).to_owned()));
+    let providers = keys("rule-providers");
+    let sub_rules = keys("sub-rules");
+
+    let mut kept = Vec::with_capacity(user.len());
+    let mut missing: Vec<String> = Vec::new();
+    let mut process = false;
+    for text in user {
+        let Ok(rule) = rules::validate(text) else {
+            continue;
+        };
+        let absent = if rule.kind == "SUB-RULE" {
+            (!sub_rules.contains(&rule.target)).then(|| format!("子规则 {}", rule.target))
+        } else if !targets.contains(&rule.target) {
+            Some(format!("策略 {}", rule.target))
+        } else if rule.kind == "RULE-SET" && !providers.contains(&rule.payload) {
+            Some(format!("规则集 {}", rule.payload))
+        } else {
+            None
+        };
+        if let Some(name) = absent {
+            if !missing.contains(&name) {
+                missing.push(name);
+            }
+            continue;
+        }
+        process |= rule.uses_process();
+        kept.push(Value::from(text.as_str()));
+    }
+    let skipped = user.len() - kept.len();
+    if skipped > 0 {
+        notes.push(format!(
+            "跳过 {skipped} 条附加规则：当前配置中不存在{}",
+            missing.join("、")
+        ));
+    }
+    if kept.is_empty() {
+        return;
+    }
+    if process && map.get("find-process-mode").and_then(Value::as_str) == Some("off") {
+        map.insert("find-process-mode".into(), Value::from("strict"));
+        notes.push("附加规则含进程匹配，已将 find-process-mode 由 off 改为 strict".into());
+    }
+    let count = kept.len();
+    if let Some(existing) = map.get("rules").and_then(Value::as_sequence) {
+        kept.extend(existing.iter().cloned());
+    }
+    map.insert("rules".into(), Value::Sequence(kept));
+    notes.push(format!("已在订阅规则前插入 {count} 条附加规则"));
 }
 
 pub fn parse(text: &str) -> AppResult<Value> {

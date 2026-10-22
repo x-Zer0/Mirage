@@ -51,7 +51,8 @@ pub struct OverlayCheck {
 
 /// Iteration 2 §1.3 step 2: compose the active revision with the new
 /// overlay and run `mihomo -t`, with a throw-away controller.
-pub async fn check_overlay(req: OverlayCheck) -> AppResult<()> {
+/// Returns the user overlay's notes (skipped rules etc.).
+pub async fn check_overlay(req: OverlayCheck) -> AppResult<Vec<String>> {
     let raw = revisions::read_raw(&req.layout, &req.profile, &req.revision)?;
     let secret = super::runtime::random_secret()?;
     let overlay = ManagedOverlay {
@@ -67,7 +68,7 @@ pub async fn check_overlay(req: OverlayCheck) -> AppResult<()> {
     };
     prepare(&req.binary, &req.layout, &new_id(), &raw, &overlay)
         .await
-        .map(drop)
+        .map(|p| p.composed.user_notes)
 }
 
 pub struct ImportOutcome {

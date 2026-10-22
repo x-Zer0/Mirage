@@ -545,7 +545,7 @@ pub struct ManagedOverlay {
 
 上表对应 `overlay_version = 3`（增加用户明确开启局域网代理；保留 TUN 覆盖、DNS 环回约束与 provider 路径复检）。规则变更时 `overlay_version` 加 1，下一次启动时自动重新合成所有 Valid 版本。
 
-**用户覆写层**（第二轮迭代，见 [iteration-2-design.md §1](iteration-2-design.md#1-总体方案用户覆写层)）：只在 app 侧、摘要比对通过之后执行，不进入 `mirage-ipc`，也不改变 `overlay_version`。只允许改写以下非安全键：`ipv6`、`dns.ipv6`（存在 `dns` 块时）、`unified-delay`、`hosts`（合并，同键以用户为准）、`dns.use-hosts`（用户 Hosts 非空且存在 `dns` 块时）；M11 再加入 `rules`（前插）和 `find-process-mode`。导入与更新时的 `-t` 校验不带用户覆写，只判定订阅本身；启动与热重载时才叠加。覆写设置变化时对运行中的当前版本先 `-t` 再热重载，失败则回到原覆写并恢复设置，不把订阅版本标为无效。
+**用户覆写层**（第二轮迭代，见 [iteration-2-design.md §1](iteration-2-design.md#1-总体方案用户覆写层)）：只在 app 侧、摘要比对通过之后执行，不进入 `mirage-ipc`，也不改变 `overlay_version`。只允许改写以下非安全键：`ipv6`、`dns.ipv6`（存在 `dns` 块时）、`unified-delay`、`hosts`（合并，同键以用户为准）、`dns.use-hosts`（用户 Hosts 非空且存在 `dns` 块时）、`rules`（附加规则前插，目标策略 / 规则集 / 子规则不存在时跳过并记入策略说明）、`find-process-mode`（附加规则含进程匹配且订阅为 `off` 时改为 `strict`）。导入与更新时的 `-t` 校验不带用户覆写，只判定订阅本身；启动与热重载时才叠加。覆写设置变化时对运行中的当前版本先 `-t` 再热重载，失败则回到原覆写并恢复设置，不把订阅版本标为无效。
 
 ### 9.4 Provider 路径隔离
 
@@ -822,6 +822,7 @@ pub enum EgressRoute { Direct, ViaLocalCore }   // ViaLocalCore = proxy("http://
   core-home\                            # §10.2
   recovery\                             # sysproxy.json / core.json / tun.json
   overrides\                            # 用户覆写（第二轮迭代 §1.2），原子写，不存在视为空
+    rules.yaml                          # 附加规则（`rules:` 列表，Mihomo 规则语法）
     hosts.txt                           # Hosts 原文（hosts 文件格式，保留注释）
   logs\mirage-<date>.log                # 应用日志，脱敏，有界
 ```
@@ -979,7 +980,7 @@ fetch(带 EgressRoute) → decode（按下载封装）→ detect → 存 raw →
 | 总览 | 连接按钮（大）、系统代理开关、TUN 开关（默认关闭）、路由模式（规则/全局/直连）、当前 Profile、当前出口节点、实时速率、连通状态 | 套餐、剩余流量、到期时间（有数据时显示） |
 | 配置 | Profile 列表（名称、来源类型、更新时间、用量）、添加 URL、导入文件、更新、更新全部、设为活动、删除确认、右侧设置抽屉 | “添加自由猫账号”居中弹窗（邮箱/密码、原客户端导入）；账号信息与刷新在关联配置抽屉展示 |
 | 节点 | 代理组选项卡（只列 Selector 组可选；其他类型的组只读并显示当前节点）、搜索、测速、延迟排序 | — |
-| 规则 | “附加规则”“Hosts”两个标签；Hosts 为全局一份、hosts 文件格式，启用开关，按行报错，保存前用当前配置 `-t` 校验，已连接时热重载（[第二轮迭代 §2](iteration-2-design.md#2-hosts需求-1)） | — |
+| 规则 | “附加规则”“Hosts”两个标签。附加规则全局一份、插在订阅规则之前，可视化（16 种常用类型）与 YAML 两种编辑方式，非规则模式时提示（[第二轮迭代 §3](iteration-2-design.md#3-附加规则需求-3)）；Hosts 为全局一份、hosts 文件格式，启用开关，按行报错，保存前用当前配置 `-t` 校验，已连接时热重载（[第二轮迭代 §2](iteration-2-design.md#2-hosts需求-1)） | — |
 | 设置 | 内核版本、mixed-port、允许局域网代理、bypass 列表、默认 UA、IPv6（跟随订阅/开启/关闭）、测速去除握手延迟、启动行为（开机启动/自动连接/关闭到托盘）、TUN 服务安装/卸载、geodata 更新 | — |
 | 日志 | 连接日志、配置与系统关键操作历史、搜索筛选、虚拟滚动、导出诊断包 | 连接本次运行保留 0–10,000 条（默认 1,000）；配置日志保留 0–60 天（默认 30） |
 

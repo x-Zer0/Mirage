@@ -15,6 +15,7 @@ pub(super) fn wire(window: &MainWindow, commands: Commands) {
     wire_accounts(window, &commands);
     wire_settings(window, &commands);
     wire_logs(window, &commands);
+    super::rules_editor::wire(window, &commands);
 }
 
 fn wire_connection(window: &MainWindow, commands: &Commands) {
@@ -171,7 +172,8 @@ fn wire_settings(window: &MainWindow, commands: &Commands) {
     window.on_save_hosts(move |enabled, text| {
         send(
             &c,
-            Command::SaveHosts {
+            Command::SaveOverride {
+                kind: crate::app::OverrideKind::Hosts,
                 enabled,
                 text: text.into(),
             },

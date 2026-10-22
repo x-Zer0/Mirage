@@ -57,6 +57,10 @@ impl AppCore {
             view.notice = Some(error_notice(&e));
             Default::default()
         });
+        let rules = crate::overrides::rules::Rules::load(&layout).unwrap_or_else(|e| {
+            view.notice = Some(error_notice(&e));
+            Default::default()
+        });
         Self {
             layout,
             state_tx,
@@ -87,6 +91,7 @@ impl AppCore {
             log_query: Default::default(),
             update_operations: HashMap::new(),
             hosts,
+            rules,
             failed_overlay: None,
             internal_tx,
             internal_rx: Some(internal_rx),
@@ -180,7 +185,7 @@ impl AppCore {
             tracing::warn!(error = %e, "autostart entry not repaired");
         }
         self.refresh_settings_view();
-        self.refresh_hosts_view();
+        self.refresh_override_views();
         self.refresh_profiles_view();
         self.refresh_accounts_view();
         // §16.1: sessions are checked in the background, never blocking connect.

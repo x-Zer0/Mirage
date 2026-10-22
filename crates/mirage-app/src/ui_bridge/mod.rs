@@ -3,6 +3,7 @@ mod callbacks;
 mod flags;
 mod lifecycle;
 mod models;
+mod rules_editor;
 mod updates;
 mod window;
 

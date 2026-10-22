@@ -63,6 +63,10 @@ impl Layout {
         self.root.join("overrides")
     }
 
+    pub fn rules_file(&self) -> PathBuf {
+        self.overrides_dir().join("rules.yaml")
+    }
+
     pub fn hosts_file(&self) -> PathBuf {
         self.overrides_dir().join("hosts.txt")
     }

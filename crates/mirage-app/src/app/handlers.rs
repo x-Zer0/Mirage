@@ -45,7 +45,11 @@ impl AppCore {
             Command::RetryNotice => self.retry(),
             Command::SetRoutingMode(mode) => self.set_routing_mode(mode),
             Command::SaveSettings(input) => self.save_settings(input),
-            Command::SaveHosts { enabled, text } => self.save_hosts(enabled, text),
+            Command::SaveOverride {
+                kind,
+                enabled,
+                text,
+            } => self.save_override(kind, enabled, text),
             Command::SetUiGeometry(geometry) => self.set_ui_geometry(geometry),
             Command::SetUpdatePolicy {
                 id,
@@ -112,11 +116,12 @@ impl AppCore {
                 revision,
                 outcome,
             } => self.on_reloaded(generation, profile_id, revision, outcome),
-            Internal::HostsChecked {
+            Internal::OverrideChecked {
+                kind,
                 enabled,
                 text,
                 result,
-            } => self.on_hosts_checked(enabled, text, result),
+            } => self.on_override_checked(kind, enabled, text, result),
             Internal::OverlayApplied {
                 generation,
                 attempted,

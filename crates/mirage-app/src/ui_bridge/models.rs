@@ -11,6 +11,7 @@ use crate::cores::mihomo::controller::{
     DelayOutcome, GLOBAL_GROUP, NodeTestState, NodeView, ProxyGroupView,
 };
 use crate::domain::model::{EgressPolicy, RoutingMode};
+use crate::overrides::rules;
 use slint::{Image, Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 use std::{
@@ -68,6 +69,20 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     apply_settings(w, s);
     if prev.is_none_or(|p| p.hosts != s.hosts) {
         apply_hosts(w, s);
+    }
+    if prev.is_none_or(|p| p.rules != s.rules) {
+        apply_rules(w, s, prev);
+    }
+    if prev.is_none_or(|p| p.groups_revision != s.groups_revision) {
+        w.set_rule_targets(rc(rules::BUILTIN_TARGETS
+            .iter()
+            .map(|t| SharedString::from(*t))
+            .chain(
+                s.groups
+                    .iter()
+                    .filter(|g| g.name != GLOBAL_GROUP)
+                    .map(|g| SharedString::from(g.name.as_str())),
+            )));
     }
     if prev.is_none_or(|p| p.logs.revision != s.logs.revision) {
         apply_logs(w, &s.logs, prev.map(|p| p.logs.as_ref()));
@@ -233,6 +248,20 @@ fn apply_settings(w: &MainWindow, s: &AppStateView) {
     w.set_settings_unified_delay(st.unified_delay);
     w.set_geo_updating(s.geo_updating);
     w.set_exporting(s.exporting);
+}
+
+fn apply_rules(w: &MainWindow, s: &AppStateView, prev: Option<&AppStateView>) {
+    let r = &s.rules;
+    // A new saved state replaces the working copy; errors or notes alone do not.
+    if prev.is_none_or(|p| p.rules.text != r.text || p.rules.enabled != r.enabled) {
+        w.set_rules_saved_text(r.text.clone().into());
+        w.set_rules_saved_enabled(r.enabled);
+        super::rules_editor::reset(w, &r.text, r.enabled);
+    }
+    w.set_rules_count(i32::try_from(r.count).unwrap_or(i32::MAX));
+    w.set_rules_errors(rc(r.errors.iter().map(|e| SharedString::from(e.as_str()))));
+    w.set_rules_notes(rc(r.notes.iter().map(|e| SharedString::from(e.as_str()))));
+    w.set_rules_saving(r.saving);
 }
 
 fn apply_hosts(w: &MainWindow, s: &AppStateView) {

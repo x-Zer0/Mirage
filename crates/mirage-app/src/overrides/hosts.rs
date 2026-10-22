@@ -49,10 +49,6 @@ impl Hosts {
         atomic::write(&layout.hosts_file(), text.as_bytes())
             .map_err(|e| AppError::storage(STAGE, e))
     }
-
-    pub fn count(&self) -> usize {
-        self.entries.len()
-    }
 }
 
 /// `IP domain [domain…]` per line, `#` starts a comment. Errors carry line numbers.

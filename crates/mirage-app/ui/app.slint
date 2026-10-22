@@ -10,10 +10,10 @@ import { AccountRow } from "components/account-info.slint";
 import { AccountDialog } from "providers/ziyoumao.slint";
 import { ProfileDetails } from "pages/profile-details.slint";
 import { Overlay } from "components/overlay.slint";
-import { Button } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit } from "std-widgets.slint";
 import { SettingsPage } from "pages/settings.slint";
 import { LogsPage, ConnectionRow, OperationRow } from "pages/logs.slint";
-import { RulesPage } from "pages/rules.slint";
+import { RulesPage, RuleRow } from "pages/rules.slint";
 
 export { ProfileRow, GroupRow, NodeRow, AccountRow, ConnectionRow, OperationRow }
 
@@ -120,6 +120,33 @@ export component MainWindow inherits Window {
     in property <[string]> hosts-errors;
     in property <bool> hosts-saving;
     callback save-hosts(bool, string);
+    in property <[RuleRow]> rule-rows;
+    in property <[string]> rule-targets;
+    in property <string> rules-saved-text;
+    in property <bool> rules-saved-enabled;
+    in property <int> rules-count;
+    in property <[string]> rules-errors;
+    in property <[string]> rules-notes;
+    in property <bool> rules-saving;
+    in-out property <bool> rules-enabled;
+    in-out property <bool> rules-yaml-mode;
+    in-out property <string> rules-yaml;
+    in-out property <string> rules-mode-error;
+    callback rule-move(int, int);
+    callback rule-delete(int);
+    pure callback rule-check(int, string, string, bool) -> string;
+    callback rule-submit(int, int, string, string, bool) -> string;
+    callback rules-to-yaml() -> string;
+    callback rules-from-yaml(string) -> string;
+    callback rules-reset();
+    callback save-rules(bool, bool, string);
+    // Rule dialog working fields; index -1 adds a rule.
+    private property <int> rd-index: -1;
+    private property <int> rd-kind: 1;
+    private property <string> rd-payload;
+    private property <string> rd-target;
+    private property <bool> rd-no-resolve;
+    private property <string> rd-message: root.rule-check(root.rd-kind, root.rd-payload, root.rd-target, root.rd-no-resolve);
     in-out property <bool> sort-by-delay;
     // Kept here so leaving the nodes page does not reset search or tab.
     in-out property <string> node-filter;
@@ -306,6 +333,38 @@ export component MainWindow inherits Window {
                 hosts-errors: root.hosts-errors;
                 hosts-saving: root.hosts-saving;
                 save-hosts(enabled, text) => { root.save-hosts(enabled, text); }
+                rule-rows: root.rule-rows;
+                rules-count: root.rules-count;
+                rules-errors: root.rules-errors;
+                rules-notes: root.rules-notes;
+                rules-saving: root.rules-saving;
+                rule-mode: root.routing-mode <= 0;
+                rules-enabled <=> root.rules-enabled;
+                rules-yaml-mode <=> root.rules-yaml-mode;
+                rules-yaml <=> root.rules-yaml;
+                rules-mode-error <=> root.rules-mode-error;
+                add-rule => {
+                    root.rd-index = -1;
+                    root.rd-kind = 1;
+                    root.rd-payload = "";
+                    root.rd-target = "DIRECT";
+                    root.rd-no-resolve = false;
+                    rule-dialog.show();
+                }
+                edit-rule(i) => {
+                    root.rd-index = i;
+                    root.rd-kind = root.rule-rows[i].kind-index;
+                    root.rd-payload = root.rule-rows[i].payload;
+                    root.rd-target = root.rule-rows[i].target;
+                    root.rd-no-resolve = root.rule-rows[i].no-resolve;
+                    rule-dialog.show();
+                }
+                move-rule(i, d) => { root.rule-move(i, d); }
+                delete-rule(i) => { root.rule-delete(i); }
+                rules-to-yaml => { return root.rules-to-yaml(); }
+                rules-from-yaml(text) => { return root.rules-from-yaml(text); }
+                rules-reset => { root.rules-reset(); }
+                save-rules(enabled, yaml-mode, text) => { root.save-rules(enabled, yaml-mode, text); }
             }
             if root.page == 4: PageViewport {
                 vertical-stretch: 1;
@@ -388,6 +447,81 @@ export component MainWindow inherits Window {
                         copy-url(id) => { root.copy-profile-url(id); }
                         refresh-account(id) => { root.revalidate-account(id); }
                         reveal-account(id, visible) => { root.reveal-account(id, visible); }
+                    }
+                }
+            }
+        }
+    }
+    rule-dialog := Overlay {
+        width: root.width;
+        height: root.height;
+        title: root.rd-index < 0 ? "添加规则" : "编辑规则";
+        panel-width: 460px;
+        VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "类型"; width: 64px; color: Theme.text; vertical-alignment: center; }
+                ComboBox {
+                    model: ["DOMAIN 域名", "DOMAIN-SUFFIX 域名后缀", "DOMAIN-KEYWORD 域名关键字", "DOMAIN-WILDCARD 域名通配", "DOMAIN-REGEX 域名正则", "GEOSITE 站点分类",
+                        "IP-CIDR IPv4 段", "IP-CIDR6 IPv6 段", "IP-ASN 自治系统号", "GEOIP IP 归属", "SRC-IP-CIDR 来源 IP 段",
+                        "DST-PORT 目标端口", "SRC-PORT 来源端口", "PROCESS-NAME 进程名", "PROCESS-PATH 进程路径", "NETWORK 网络类型"];
+                    current-index <=> root.rd-kind;
+                    horizontal-stretch: 1;
+                    accessible-label: "规则类型";
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "匹配"; width: 64px; color: Theme.text; vertical-alignment: center; }
+                LineEdit {
+                    text <=> root.rd-payload;
+                    horizontal-stretch: 1;
+                    placeholder-text: ["www.example.com", "example.com", "google", "*.example.*", "^ads?\\.", "cn、category-ads-all",
+                        "1.2.3.0/24 或 1.2.3.4", "2001:db8::/32", "13335", "CN、private", "192.168.1.0/24",
+                        "443、8000-9000、80/443", "443、8000-9000、80/443", "chrome.exe", "C:\\Program Files\\App\\app.exe", "tcp 或 udp"][root.rd-kind];
+                    accessible-label: "匹配内容";
+                }
+            }
+            if root.rd-kind >= 6 && root.rd-kind <= 9: HorizontalLayout {
+                spacing: 8px;
+                Rectangle { width: 64px; }
+                CheckBox { text: "no-resolve（不为匹配而解析域名）"; checked <=> root.rd-no-resolve; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "目标"; width: 64px; color: Theme.text; vertical-alignment: center; }
+                LineEdit {
+                    text <=> root.rd-target;
+                    horizontal-stretch: 1;
+                    placeholder-text: "策略组、节点名或 DIRECT / REJECT";
+                    accessible-label: "目标策略";
+                }
+                ComboBox {
+                    model: root.rule-targets;
+                    width: 140px;
+                    accessible-label: "选择目标";
+                    selected(value) => { root.rd-target = value; }
+                }
+            }
+            if root.rd-message != "": Text {
+                text: root.rd-message;
+                color: Theme.danger;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button { text: "取消"; clicked => { rule-dialog.close(); } }
+                Button {
+                    text: "确定";
+                    primary: true;
+                    enabled: root.rd-message == "";
+                    clicked => {
+                        if root.rule-submit(root.rd-index, root.rd-kind, root.rd-payload, root.rd-target, root.rd-no-resolve) == "" {
+                            rule-dialog.close();
+                        }
                     }
                 }
             }

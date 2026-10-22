@@ -53,8 +53,9 @@ pub enum Command {
     RetryNotice,
     SetRoutingMode(RoutingMode),
     SaveSettings(super::settings::SettingsInput),
-    /// Hosts tab "保存": enable switch and full text.
-    SaveHosts {
+    /// Rules page "保存": enable switch and full text (YAML or hosts format).
+    SaveOverride {
+        kind: super::overrides::OverrideKind,
         enabled: bool,
         text: String,
     },
@@ -116,10 +117,11 @@ pub(super) enum Internal {
         revision: RevisionId,
         outcome: runtime::ReloadOutcome,
     },
-    HostsChecked {
+    OverrideChecked {
+        kind: super::overrides::OverrideKind,
         enabled: bool,
         text: String,
-        result: Result<(), AppError>,
+        result: super::overrides::CheckResult,
     },
     OverlayApplied {
         generation: u64,
