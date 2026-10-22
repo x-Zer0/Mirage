@@ -135,7 +135,8 @@ fn apply_user(yaml: String, user: &UserOverlay) -> AppResult<(String, Vec<String
 }
 
 /// §3.1: rules whose target, rule provider or sub-rule is missing from this
-/// config are skipped rather than failing the whole config.
+/// config are skipped rather than failing the whole config. `PROXY` targets
+/// are rewritten to this config's main group.
 fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
     let names = |key: &str| -> Vec<String> {
         map.get(key)
@@ -158,14 +159,32 @@ fn prepend_rules(map: &mut Mapping, user: &[String], notes: &mut Vec<String>) {
     targets.extend(rules::BUILTIN_TARGETS.iter().map(|t| (*t).to_owned()));
     let providers = keys("rule-providers");
     let sub_rules = keys("sub-rules");
+    // A name with a comma can't be written into a rule string.
+    let main_group = names("proxy-groups")
+        .into_iter()
+        .next()
+        .filter(|g| !g.contains(','));
 
     let mut kept = Vec::with_capacity(user.len());
     let mut missing: Vec<String> = Vec::new();
     let mut process = false;
     for text in user {
-        let Ok(rule) = rules::validate(text) else {
+        let Ok(mut rule) = rules::validate(text) else {
             continue;
         };
+        let mut text = text.trim().to_owned();
+        if rule.kind != "SUB-RULE" && rule.target == rules::PROXY_TARGET {
+            let Some(group) = &main_group else {
+                if !missing.contains(&"策略组".to_owned()) {
+                    missing.push("策略组".into());
+                }
+                continue;
+            };
+            let mut fields = rules::split(&text);
+            fields[2] = group.as_str();
+            text = fields.join(",");
+            rule.target = group.clone();
+        }
         let absent = if rule.kind == "SUB-RULE" {
             (!sub_rules.contains(&rule.target)).then(|| format!("子规则 {}", rule.target))
         } else if !targets.contains(&rule.target) {

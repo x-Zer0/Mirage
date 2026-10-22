@@ -57,6 +57,11 @@ const ADVANCED_TYPES: &[&str] = &[
 /// Policies every config has.
 pub const BUILTIN_TARGETS: [&str; 4] = ["DIRECT", "REJECT", "REJECT-DROP", "PASS"];
 
+/// Mirage's own target: whichever config runs, it becomes the first
+/// `proxy-groups` entry (the main selector), so the rule follows the node
+/// picked on the nodes page.
+pub const PROXY_TARGET: &str = "PROXY";
+
 const LOGICAL: [&str; 3] = ["AND", "OR", "NOT"];
 const PARAMS: [&str; 2] = ["no-resolve", "src"];
 

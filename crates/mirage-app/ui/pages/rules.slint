@@ -1,4 +1,4 @@
-import { Button, CheckBox, ListView, TextEdit } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, ListView, TextEdit } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 import { Card } from "../components/card.slint";
 import { HelpIcon } from "../components/help-icon.slint";
@@ -41,40 +41,49 @@ component RulesTab inherits VerticalLayout {
 
     HorizontalLayout {
         spacing: 8px;
-        alignment: start;
         vertical-stretch: 0;
-        CheckBox { text: "启用附加规则"; checked <=> root.enabled; horizontal-stretch: 0; }
-        HelpIcon {
-            text: "附加规则插在订阅规则之前，优先命中；全局一份，对所有配置生效。\n目标策略、规则集或子规则在当前配置中不存在时跳过该条并提示，不影响其他规则。\n不允许 MATCH。保存前用当前配置做一次内核校验；已连接时保存后热重载。";
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            horizontal-stretch: 1;
+            CheckBox { text: "启用附加规则"; checked <=> root.enabled; horizontal-stretch: 0; }
+            HelpIcon {
+                text: "附加规则插在订阅规则之前，优先命中；全局一份，对所有配置生效。\n目标“代理”走当前运行配置的主策略组（节点页第一个分组），切换配置后自动跟随。\nYAML 中写的其他策略名、规则集或子规则在当前配置中不存在时跳过该条并提示，不影响其他规则。\n不允许 MATCH。保存前用当前配置做一次内核校验；已连接时保存后热重载。";
+            }
+            Text {
+                text: "已保存 " + root.count + " 条";
+                color: Theme.text-muted;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            if !root.yaml-mode: Button {
+                text: "添加规则";
+                icon: @image-url("../../assets/icons/lucide/plus.svg");
+                colorize-icon: true;
+                clicked => { root.add-rule(); }
+            }
         }
-        Button {
-            text: "可视化";
-            primary: !root.yaml-mode;
-            clicked => {
-                if root.yaml-mode {
+        // Pinned to the right edge of the row.
+        ComboBox {
+            model: ["可视化", "YAML"];
+            current-index: root.yaml-mode ? 1 : 0;
+            width: 88px;
+            horizontal-stretch: 0;
+            accessible-label: "编辑方式";
+            selected => {
+                if self.current-index == 1 && !root.yaml-mode {
+                    root.yaml = root.to-yaml();
+                    root.mode-error = "";
+                    root.yaml-mode = true;
+                } else if self.current-index == 0 && root.yaml-mode {
                     root.mode-error = root.from-yaml(root.yaml);
                     if root.mode-error == "" {
                         root.yaml-mode = false;
                     }
                 }
+                // YAML that fails to parse stays in YAML mode.
+                self.current-index = root.yaml-mode ? 1 : 0;
             }
-        }
-        Button {
-            text: "YAML";
-            primary: root.yaml-mode;
-            clicked => {
-                if !root.yaml-mode {
-                    root.yaml = root.to-yaml();
-                    root.mode-error = "";
-                    root.yaml-mode = true;
-                }
-            }
-        }
-        Text {
-            text: "已保存 " + root.count + " 条";
-            color: Theme.text-muted;
-            font-size: 12px;
-            vertical-alignment: center;
         }
     }
     if !root.rule-mode: Text {
@@ -96,18 +105,8 @@ component RulesTab inherits VerticalLayout {
         vertical-stretch: 1;
         min-height: 0px;
         spacing: 8px;
-        HorizontalLayout {
-            alignment: start;
-            vertical-stretch: 0;
-            Button {
-                text: "添加规则";
-                icon: @image-url("../../assets/icons/lucide/plus.svg");
-                colorize-icon: true;
-                clicked => { root.add-rule(); }
-            }
-        }
         if root.rows.length == 0: Text {
-            text: "还没有附加规则。";
+            text: "还没有附加规则，点击上方“添加规则”。";
             color: Theme.text-muted;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -140,7 +139,7 @@ component RulesTab inherits VerticalLayout {
                         min-width: 0px;
                     }
                     Text {
-                        text: "→ " + row.target;
+                        text: "→ " + (row.target == "PROXY" ? "代理" : row.target == "DIRECT" ? "直连" : row.target == "REJECT" ? "拒绝" : row.target);
                         color: Theme.text-muted;
                         vertical-alignment: center;
                         overflow: elide;
@@ -187,7 +186,7 @@ component RulesTab inherits VerticalLayout {
         min-height: 0px;
         spacing: 8px;
         Text {
-            text: "格式与 Mihomo 相同：rules: 下每行一条。逻辑规则、RULE-SET、SUB-RULE 等只能在这里编辑。可视化模式下改动后会重新生成 YAML，注释不保留。";
+            text: "格式与 Mihomo 相同：rules: 下每行一条，目标写 PROXY 表示代理（当前配置的主策略组）。逻辑规则、RULE-SET、SUB-RULE 等只能在这里编辑。可视化模式下改动后会重新生成 YAML，注释不保留。";
             color: Theme.text-muted;
             font-size: 12px;
             wrap: word-wrap;
@@ -198,8 +197,8 @@ component RulesTab inherits VerticalLayout {
             vertical-stretch: 1;
             min-height: 160px;
             wrap: no-wrap;
-            font-size: 13px;
-            placeholder-text: "rules:\n  - DOMAIN-SUFFIX,example.com,DIRECT\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - AND,((DOMAIN-SUFFIX,example.org),(NETWORK,udp)),REJECT";
+            font-size: 15px;
+            placeholder-text: "rules:\n  - DOMAIN-SUFFIX,example.com,PROXY\n  - DOMAIN-SUFFIX,example.cn,DIRECT\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - AND,((DOMAIN-SUFFIX,example.org),(NETWORK,udp)),REJECT";
             accessible-label: "附加规则 YAML";
         }
     }
@@ -285,7 +284,7 @@ component HostsTab inherits VerticalLayout {
         vertical-stretch: 1;
         min-height: 160px;
         wrap: no-wrap;
-        font-size: 13px;
+        font-size: 15px;
         placeholder-text: "# 示例\n192.168.1.10   nas.local\n10.0.0.1       *.dev.example.com   api.example.com\n::1            v6.local";
         accessible-label: "Hosts";
     }
@@ -361,7 +360,7 @@ export component RulesPage inherits VerticalLayout {
         alignment: start;
         vertical-stretch: 0;
         Button { text: "附加规则"; primary: root.tab == 0; clicked => { root.tab = 0; } }
-        Button { text: "Hosts"; primary: root.tab == 1; clicked => { root.tab = 1; } }
+        Button { text: "追加 Hosts"; primary: root.tab == 1; clicked => { root.tab = 1; } }
     }
     if root.tab == 0: RulesTab {
         vertical-stretch: 1;

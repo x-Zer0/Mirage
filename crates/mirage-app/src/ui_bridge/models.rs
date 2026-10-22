@@ -11,7 +11,6 @@ use crate::cores::mihomo::controller::{
     DelayOutcome, GLOBAL_GROUP, NodeTestState, NodeView, ProxyGroupView,
 };
 use crate::domain::model::{EgressPolicy, RoutingMode};
-use crate::overrides::rules;
 use slint::{Image, Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 use std::{
@@ -77,17 +76,6 @@ pub fn apply(w: &MainWindow, s: &std::sync::Arc<AppStateView>, applied: &mut App
     w.set_loopback_saving(s.loopback.saving);
     if prev.is_none_or(|p| p.rules != s.rules) {
         apply_rules(w, s, prev);
-    }
-    if prev.is_none_or(|p| p.groups_revision != s.groups_revision) {
-        w.set_rule_targets(rc(rules::BUILTIN_TARGETS
-            .iter()
-            .map(|t| SharedString::from(*t))
-            .chain(
-                s.groups
-                    .iter()
-                    .filter(|g| g.name != GLOBAL_GROUP)
-                    .map(|g| SharedString::from(g.name.as_str())),
-            )));
     }
     if prev.is_none_or(|p| p.logs.revision != s.logs.revision) {
         apply_logs(w, &s.logs, prev.map(|p| p.logs.as_ref()));

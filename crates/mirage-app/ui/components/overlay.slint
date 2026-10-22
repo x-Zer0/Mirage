@@ -7,6 +7,8 @@ export component Overlay inherits PopupWindow {
     in property <bool> drawer;
     in property <bool> custom-header;
     in property <bool> dismissible: true;
+    // Off for forms that end with their own 取消 button.
+    in property <bool> show-close: true;
     in property <length> panel-width: 480px;
     in property <length> vertical-padding: 24px;
     callback dismissed();
@@ -68,7 +70,7 @@ export component Overlay inherits PopupWindow {
                         min-width: 0px;
                         overflow: elide;
                     }
-                    Button {
+                    if root.show-close: Button {
                         text: "关闭";
                         enabled: root.dismissible;
                         clicked => { root.dismiss(); }

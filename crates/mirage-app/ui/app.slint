@@ -131,7 +131,6 @@ export component MainWindow inherits Window {
     callback loopback-check-shown(bool);
     callback save-loopback();
     in property <[RuleRow]> rule-rows;
-    in property <[string]> rule-targets;
     in property <string> rules-saved-text;
     in property <bool> rules-saved-enabled;
     in property <int> rules-count;
@@ -154,7 +153,11 @@ export component MainWindow inherits Window {
     private property <int> rd-index: -1;
     private property <int> rd-kind: 1;
     private property <string> rd-payload;
-    private property <string> rd-target;
+    // Targets: 0 PROXY (main group of the running config), 1 DIRECT, 2 REJECT,
+    // 3 a target written in YAML mode (kept as is when editing).
+    private property <string> rd-other-target;
+    private property <int> rd-target-index;
+    private property <string> rd-target: ["PROXY", "DIRECT", "REJECT", root.rd-other-target][root.rd-target-index];
     private property <bool> rd-no-resolve;
     private property <string> rd-message: root.rule-check(root.rd-kind, root.rd-payload, root.rd-target, root.rd-no-resolve);
     in-out property <bool> sort-by-delay;
@@ -166,6 +169,7 @@ export component MainWindow inherits Window {
     // ProfilesPage sits in an `if`, so the drawer cannot reach its LineEdit by id.
     private property <int> profile-drawer-dismissed-count: 0;
     private property <ProfileRow> delete-target;
+    private property <int> rule-delete-index: -1;
 
     public function close-account-login() {
         account-dialog.close();
@@ -357,7 +361,8 @@ export component MainWindow inherits Window {
                     root.rd-index = -1;
                     root.rd-kind = 1;
                     root.rd-payload = "";
-                    root.rd-target = "DIRECT";
+                    root.rd-other-target = "";
+                    root.rd-target-index = 0;
                     root.rd-no-resolve = false;
                     rule-dialog.show();
                 }
@@ -365,12 +370,16 @@ export component MainWindow inherits Window {
                     root.rd-index = i;
                     root.rd-kind = root.rule-rows[i].kind-index;
                     root.rd-payload = root.rule-rows[i].payload;
-                    root.rd-target = root.rule-rows[i].target;
+                    root.rd-other-target = root.rule-rows[i].target == "PROXY" || root.rule-rows[i].target == "DIRECT" || root.rule-rows[i].target == "REJECT" ? "" : root.rule-rows[i].target;
+                    root.rd-target-index = root.rule-rows[i].target == "PROXY" ? 0 : root.rule-rows[i].target == "DIRECT" ? 1 : root.rule-rows[i].target == "REJECT" ? 2 : 3;
                     root.rd-no-resolve = root.rule-rows[i].no-resolve;
                     rule-dialog.show();
                 }
                 move-rule(i, d) => { root.rule-move(i, d); }
-                delete-rule(i) => { root.rule-delete(i); }
+                delete-rule(i) => {
+                    root.rule-delete-index = i;
+                    rule-delete-dialog.show();
+                }
                 rules-to-yaml => { return root.rules-to-yaml(); }
                 rules-from-yaml(text) => { return root.rules-from-yaml(text); }
                 rules-reset => { root.rules-reset(); }
@@ -470,12 +479,13 @@ export component MainWindow inherits Window {
         width: root.width;
         height: root.height;
         title: root.rd-index < 0 ? "添加规则" : "编辑规则";
-        panel-width: 460px;
+        panel-width: 380px;
+        show-close: false;
         VerticalLayout {
             spacing: 12px;
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "类型"; width: 64px; color: Theme.text; vertical-alignment: center; }
+                Text { text: "类型"; width: 32px; color: Theme.text; vertical-alignment: center; }
                 ComboBox {
                     model: ["DOMAIN 域名", "DOMAIN-SUFFIX 域名后缀", "DOMAIN-KEYWORD 域名关键字", "DOMAIN-WILDCARD 域名通配", "DOMAIN-REGEX 域名正则", "GEOSITE 站点分类",
                         "IP-CIDR IPv4 段", "IP-CIDR6 IPv6 段", "IP-ASN 自治系统号", "GEOIP IP 归属", "SRC-IP-CIDR 来源 IP 段",
@@ -487,7 +497,7 @@ export component MainWindow inherits Window {
             }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "匹配"; width: 64px; color: Theme.text; vertical-alignment: center; }
+                Text { text: "匹配"; width: 32px; color: Theme.text; vertical-alignment: center; }
                 LineEdit {
                     text <=> root.rd-payload;
                     horizontal-stretch: 1;
@@ -499,23 +509,17 @@ export component MainWindow inherits Window {
             }
             if root.rd-kind >= 6 && root.rd-kind <= 9: HorizontalLayout {
                 spacing: 8px;
-                Rectangle { width: 64px; }
+                Rectangle { width: 32px; }
                 CheckBox { text: "no-resolve（不为匹配而解析域名）"; checked <=> root.rd-no-resolve; }
             }
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: "目标"; width: 64px; color: Theme.text; vertical-alignment: center; }
-                LineEdit {
-                    text <=> root.rd-target;
-                    horizontal-stretch: 1;
-                    placeholder-text: "策略组、节点名或 DIRECT / REJECT";
-                    accessible-label: "目标策略";
-                }
+                Text { text: "目标"; width: 32px; color: Theme.text; vertical-alignment: center; }
                 ComboBox {
-                    model: root.rule-targets;
-                    width: 140px;
-                    accessible-label: "选择目标";
-                    selected(value) => { root.rd-target = value; }
+                    model: root.rd-other-target == "" ? ["代理", "直连", "拒绝"] : ["代理", "直连", "拒绝", root.rd-other-target];
+                    current-index <=> root.rd-target-index;
+                    horizontal-stretch: 1;
+                    accessible-label: "目标策略";
                 }
             }
             if root.rd-message != "": Text {
@@ -559,6 +563,39 @@ export component MainWindow inherits Window {
                 loopback-dialog.close();
             }
             cancel => { loopback-dialog.close(); }
+        }
+    }
+    rule-delete-dialog := Overlay {
+        width: root.width;
+        height: root.height;
+        title: "删除规则";
+        panel-width: 380px;
+        show-close: false;
+        init => { cancel-rule-delete.focus(); }
+        Text {
+            text: root.rule-delete-index >= 0 && root.rule-delete-index < root.rule-rows.length
+                ? "确定删除第 " + (root.rule-delete-index + 1) + " 条规则？\n" + root.rule-rows[root.rule-delete-index].raw
+                : "确定删除这条规则？";
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "删除后需点击“保存”才会生效。";
+            color: Theme.text-muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            cancel-rule-delete := Button { text: "取消"; clicked => { rule-delete-dialog.close(); } }
+            Button {
+                text: "确认删除";
+                clicked => {
+                    root.rule-delete(root.rule-delete-index);
+                    rule-delete-dialog.close();
+                }
+            }
         }
     }
     delete-dialog := Overlay {
