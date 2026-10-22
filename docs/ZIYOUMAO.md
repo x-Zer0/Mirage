@@ -229,7 +229,7 @@ LoggedOut ──login──▶ LoggingIn ──Session──▶ Valid
 Valid ──validate──▶ Validating ──▶ Valid / ReauthRequired / NetworkUnavailable
 ```
 
-- 应用启动时，如果有已保存的会话，就调用 `GET /user/info` 验证（后台执行，不阻塞连接）。
+- 应用启动时，如果有已保存的会话，就执行一次“刷新信息”（含 `GET /user/info` 验证，后台执行，不阻塞连接）；失败时发 Windows 系统通知，见 [iteration-2-design.md §10](iteration-2-design.md#10-自由猫启动刷新通知需求-6)。
 - 只有 401 或 403，或业务信封明确表示未登录或令牌失效时，才转为 `ReauthRequired`。网络错误和 5xx 转为 `NetworkUnavailable`，保留令牌。
 - 没有刷新接口时，不要在后台循环提交密码来“保活”。会话失效后提示用户重新登录。
 - 账号状态变化不影响正在运行的内核（DESIGN.md §5.1）。

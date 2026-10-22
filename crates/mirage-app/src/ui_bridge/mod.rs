@@ -89,6 +89,8 @@ struct Shared {
     applied: models::Applied,
     /// Last notice already shown as toast or balloon (by sequence number).
     shown_seq: u64,
+    /// Last system-only notice already raised as a balloon.
+    shown_system_seq: u64,
     close_to_tray: bool,
     close_hint_shown: bool,
 }

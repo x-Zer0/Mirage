@@ -26,6 +26,13 @@ impl AppCore {
                     } else {
                         self.view.notice = Some(info_notice("该账号没有已保存的会话，请重新登录"));
                     }
+                } else {
+                    self.view.system_notice = Some(Notice::error(format!(
+                        "{}账号信息刷新失败：{}",
+                        providers::account_name(&account.provider_id),
+                        e.user_message()
+                    )));
+                    self.view_dirty = true;
                 }
                 return;
             }
@@ -93,16 +100,21 @@ impl AppCore {
                         .filter(|p| *p != AccountStatus::Validating)
                         .unwrap_or(AccountStatus::Valid),
                 };
+                let stage = format!("{}账号", providers::account_name(&account.provider_id));
                 if manual || e.kind == AppErrorKind::AuthInvalid {
-                    let notice = Notice::error(e.user_message()).with_stage(&format!(
-                        "{}账号",
-                        providers::account_name(&account.provider_id)
-                    ));
+                    let notice = Notice::error(e.user_message()).with_stage(&stage);
                     self.view.notice = Some(if e.kind == AppErrorKind::AuthInvalid {
-                        notice.notifying()
+                        // The startup check raises its own system notification.
+                        if manual { notice.notifying() } else { notice }
                     } else {
                         notice.with_retry(Retry::RevalidateAccount(id.clone()))
                     });
+                }
+                if !manual {
+                    self.view.system_notice = Some(Notice::error(format!(
+                        "{stage}信息刷新失败：{}",
+                        e.user_message()
+                    )));
                 }
             }
         }
@@ -120,13 +132,14 @@ impl AppCore {
         self.refresh_accounts_view();
     }
 
-    /// Background session check of every saved account (§16.1, §6.4).
+    /// Background "刷新信息" of every account with a saved session (§16.1,
+    /// §6.4); a failure raises a system notification (iteration 2 §10).
     pub(in crate::app) fn validate_accounts_on_start(&mut self) {
         let ids: Vec<AccountId> = self
             .accounts
             .all()
             .iter()
-            .filter(|a| a.session_secret.is_some() && a.status != AccountStatus::ReauthRequired)
+            .filter(|a| a.session_secret.is_some())
             .map(|a| a.id.clone())
             .collect();
         for id in ids {

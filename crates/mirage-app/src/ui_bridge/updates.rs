@@ -62,6 +62,14 @@ fn show_notices(w: &MainWindow, s: &AppStateView, shared: &mut Shared) {
             );
         }
     }
+    if let Some(n) = s
+        .system_notice
+        .as_ref()
+        .filter(|n| n.seq > shared.shown_system_seq)
+    {
+        shared.shown_system_seq = n.seq;
+        tray_balloon::show("Mirage 出错", &n.text, true);
+    }
 }
 
 /// Receives live data on runtime threads and posts it to the UI thread.

@@ -299,6 +299,9 @@ pub struct AppStateView {
     pub error: Option<Notice>,
     /// Latest info message; the UI shows it briefly.
     pub toast: Option<Notice>,
+    /// Shown only as a system (tray) notification, even with the window
+    /// visible: startup account refresh failures.
+    pub system_notice: Option<Notice>,
     pub policy_notes: Vec<String>,
     pub check_lines: Vec<String>,
     pub accounts: Vec<AccountView>,
