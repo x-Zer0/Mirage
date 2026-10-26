@@ -3,6 +3,7 @@ import { Theme } from "../components/theme.slint";
 import { NodeCard } from "../components/node-card.slint";
 import { CurrentNodeLink } from "../components/current-node-link.slint";
 import { ToggleButton } from "../components/toggle-button.slint";
+import { IconButton } from "../components/icon-button.slint";
 
 export struct NodeRow {
     name: string,
@@ -57,34 +58,97 @@ export component ProxiesPage inherits VerticalLayout {
         vertical-stretch: 1;
     }
 
-    if root.running && root.groups.length > 0: HorizontalLayout {
-        spacing: 8px;
-        ScrollView {
-            height: 32px;
-            min-width: 0px;
-            horizontal-stretch: 1;
-            vertical-scrollbar-policy: always-off;
-            content-width: tabs.preferred-width;
-            content-height: 32px;
-            tabs := HorizontalLayout {
-                spacing: 6px;
-                for g[i] in root.groups: Rectangle {
-                    width: label.preferred-width + 24px;
-                    height: 32px;
-                    border-radius: 6px;
-                    background: i == root.shown-group ? Theme.nav-selected : tab.has-hover ? Theme.nav-hover : Theme.sidebar;
-                    accessible-role: AccessibleRole.tab;
-                    accessible-label: g.name;
-                    accessible-item-selected: i == root.shown-group;
-                    tab := TouchArea { clicked => { root.current-group = i; } }
-                    label := Text {
-                        text: g.name;
-                        color: i == root.shown-group ? Theme.accent : Theme.text;
-                        vertical-alignment: center;
-                        horizontal-alignment: center;
+    // No scrollbar: it widens on hover and covers the tab names. Arrows and the
+    // mouse wheel scroll the strip instead.
+    if root.running && root.groups.length > 0: tab-bar := Rectangle {
+        height: 32px;
+        min-width: 0px;
+        // Placed by hand, not in a layout, so the arrows' width cannot feed back.
+        property <bool> overflow: tabs.preferred-width > self.width;
+        property <length> arrow-space: self.overflow ? 20px : 0px;
+        property <length> max-offset: max(0px, tabs.preferred-width - viewport.width);
+        property <length> offset: 0px;
+        // A wider window can shrink the overflow below the stored offset.
+        property <length> shown-offset: clamp(self.offset, 0px, self.max-offset);
+        property <length> step: max(80px, viewport.width * 0.6);
+
+        function scroll-by(delta: length) {
+            tab-bar.offset = clamp(tab-bar.shown-offset + delta, 0px, tab-bar.max-offset);
+        }
+        // Bring a partly hidden tab fully into view.
+        function reveal(left: length, width: length) {
+            if left < tab-bar.shown-offset {
+                tab-bar.offset = left;
+            } else if left + width > tab-bar.shown-offset + viewport.width {
+                tab-bar.offset = min(tab-bar.max-offset, left + width - viewport.width);
+            }
+        }
+
+        IconButton {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            visible: tab-bar.overflow;
+            width: 18px;
+            icon: @image-url("../../assets/icons/lucide/chevron-left.svg");
+            label: "向左滚动分组";
+            icon-size: 16px;
+            enabled: tab-bar.overflow && tab-bar.shown-offset > 0;
+            clicked => { tab-bar.scroll-by(-tab-bar.step); }
+        }
+        viewport := Rectangle {
+            x: tab-bar.arrow-space;
+            width: max(0px, parent.width - 2 * tab-bar.arrow-space);
+            height: parent.height;
+            clip: true;
+            TouchArea {
+                scroll-event(event) => {
+                    if tab-bar.max-offset <= 0 {
+                        return reject;
+                    }
+                    // Wheels send vertical deltas; touchpads may send horizontal ones.
+                    tab-bar.scroll-by(-(event.delta-x + event.delta-y));
+                    return accept;
+                }
+                tabs := HorizontalLayout {
+                    x: -tab-bar.shown-offset;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    spacing: 6px;
+                    animate x { duration: 120ms; easing: ease-out; }
+                    for g[i] in root.groups: tab-item := Rectangle {
+                        width: label.preferred-width + 24px;
+                        height: 32px;
+                        border-radius: 6px;
+                        background: i == root.shown-group ? Theme.nav-selected : tab.has-hover ? Theme.nav-hover : Theme.sidebar;
+                        accessible-role: AccessibleRole.tab;
+                        accessible-label: g.name;
+                        accessible-item-selected: i == root.shown-group;
+                        tab := TouchArea {
+                            clicked => {
+                                root.current-group = i;
+                                tab-bar.reveal(tab-item.x, tab-item.width);
+                            }
+                        }
+                        label := Text {
+                            text: g.name;
+                            color: i == root.shown-group ? Theme.accent : Theme.text;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                        }
                     }
                 }
             }
+        }
+        IconButton {
+            x: parent.width - self.width;
+            y: (parent.height - self.height) / 2;
+            visible: tab-bar.overflow;
+            width: 18px;
+            icon: @image-url("../../assets/icons/lucide/chevron-right.svg");
+            label: "向右滚动分组";
+            icon-size: 16px;
+            enabled: tab-bar.overflow && tab-bar.shown-offset < tab-bar.max-offset;
+            clicked => { tab-bar.scroll-by(tab-bar.step); }
         }
     }
 

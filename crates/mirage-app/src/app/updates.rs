@@ -253,6 +253,10 @@ impl AppCore {
             mixed_port,
         };
         tracing::info!(profile = %profile.id, manual, "subscription update started");
+        if manual {
+            // A toast instead of a row line, so the row height stays fixed.
+            self.view.notice = Some(info_notice(format!("正在更新“{}”…", profile.name)));
+        }
         self.updating.insert(profile.id.clone());
         let permits = self.fetch_permits.clone();
         let tx = self.internal_tx.clone();
@@ -338,8 +342,14 @@ impl AppCore {
         if ids.is_empty() {
             self.view.notice = Some(info_notice("没有可更新的订阅"));
         }
+        let before = self.updating.len();
         for id in ids {
             self.update_profile(&id, true);
+        }
+        let started = self.updating.len() - before;
+        // One summary toast rather than the last profile's; errors stay visible.
+        if started > 1 && !self.view.notice.as_ref().is_some_and(|n| n.error) {
+            self.view.notice = Some(info_notice(format!("正在更新 {started} 个订阅…")));
         }
     }
 

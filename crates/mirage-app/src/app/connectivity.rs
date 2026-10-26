@@ -5,9 +5,9 @@ use crate::domain::error::{AppError, AppErrorKind, AppResult};
 use std::time::{Duration, Instant};
 
 const STAGE: &str = "app.connectivity";
-/// Plain HTTP keeps this independent of TLS support; the core still has to
-/// reach the internet through the selected node for a 204 to come back.
-const PROBE_URL: &str = "http://cp.cloudflare.com/generate_204";
+/// HTTPS, matching the delay test: plain HTTP gets hijacked or answered with a
+/// Cloudflare challenge on flagged exit IPs even when the node works.
+const PROBE_URL: &str = "https://cp.cloudflare.com/generate_204";
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// DNS and interface selection may still settle just after a TUN restart.
