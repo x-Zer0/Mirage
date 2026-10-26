@@ -244,11 +244,15 @@ export component MainWindow inherits Window {
         surface-timer.running = false;
         surface-timer.running = true;
     }
+    // Immediate variant: makes the frame about to be drawn a full one.
+    public function invalidate-surface() {
+        root.surface-refresh = !root.surface-refresh;
+    }
     surface-timer := Timer {
         interval: 16ms;
         running: false;
         triggered => {
-            root.surface-refresh = !root.surface-refresh;
+            root.invalidate-surface();
             self.running = false;
         }
     }

@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod conflict;
 pub mod known_folder;
 pub mod loopback;
+pub mod paint;
 pub mod process;
 pub mod registry;
 pub mod secret;
