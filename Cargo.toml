@@ -4,7 +4,7 @@ members = ["crates/mirage-app", "crates/mirage-ipc", "crates/mirage-svc"]
 default-members = ["crates/mirage-app", "crates/mirage-ipc", "crates/mirage-svc"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
